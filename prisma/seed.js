@@ -1,6 +1,34 @@
 require('dotenv').config();
+const fs = require('fs');
+const path = require('path');
 const bcrypt = require('bcryptjs');
 const prisma = require('../src/config/prisma');
+
+/*
+ * SEED_ADMIN_PASSWORD es una contraseña de ARRANQUE (bootstrap), no una
+ * credencial permanente del sistema: solo sirve para crear la primera
+ * cuenta ADMIN cuando NeonDB todavía no tiene ninguna. Una vez que esa
+ * cuenta existe, la contraseña real vive exclusivamente como hash
+ * (bcrypt) en NeonDB — mantenerla también en texto plano en .env no
+ * aporta nada y sí es un riesgo, así que esta función la borra del
+ * archivo .env automáticamente (sin tocar ninguna otra variable).
+ * Nunca se imprime el valor de la contraseña en consola.
+ */
+function scrubBootstrapPasswordFromEnv() {
+  const envPath = path.join(__dirname, '..', '.env');
+  if (!fs.existsSync(envPath)) return;
+
+  const content = fs.readFileSync(envPath, 'utf8');
+  if (!/^SEED_ADMIN_PASSWORD=.+$/m.test(content)) return; // ya está vacía o no existe la línea
+
+  const updated = content.replace(/^SEED_ADMIN_PASSWORD=.*$/m, 'SEED_ADMIN_PASSWORD=');
+  fs.writeFileSync(envPath, updated, 'utf8');
+  console.log(
+    'SEED_ADMIN_PASSWORD eliminada de .env: la cuenta admin ya existe en NeonDB con su contraseña ' +
+      'hasheada. Si necesitas otra cuenta admin, créala desde el panel (Administradores) o usa ' +
+      '"Cambiar contraseña" para la existente.'
+  );
+}
 
 const MODELS = [
   {
@@ -169,8 +197,11 @@ async function main() {
       console.log(`Administrador inicial creado: ${adminUsername} <${adminEmail}>`);
       console.log('IMPORTANTE: cambia esta contraseña después del primer inicio de sesión.');
     } else {
-      console.log('Administrador inicial ya existía, se omite.');
+      console.log('Administrador inicial ya existía, se omite (no se sobrescribe su contraseña).');
     }
+    // Exista ya o se acabe de crear, la cuenta ya vive en NeonDB con su
+    // contraseña hasheada — la copia en texto plano de .env ya no hace falta.
+    scrubBootstrapPasswordFromEnv();
   } else {
     console.log('SEED_ADMIN_* no configurado en .env — no se creó administrador inicial.');
   }

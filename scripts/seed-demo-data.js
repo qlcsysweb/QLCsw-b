@@ -15,6 +15,18 @@ require('dotenv').config();
 const bcrypt = require('bcryptjs');
 const prisma = require('../src/config/prisma');
 
+// Seguro de fábrica: este script borra y recrea cuentas demo — nunca debe
+// poder correr contra una base de producción por accidente. Para forzarlo
+// deliberadamente (no recomendado) exportar ALLOW_DEMO_SEED_IN_PRODUCTION=true.
+if (process.env.NODE_ENV === 'production' && process.env.ALLOW_DEMO_SEED_IN_PRODUCTION !== 'true') {
+  console.error(
+    'Bloqueado: NODE_ENV=production. Este script crea/borra cuentas DEMO y no debe ' +
+      'ejecutarse en producción. Si de verdad necesitas hacerlo, exporta ' +
+      'ALLOW_DEMO_SEED_IN_PRODUCTION=true explícitamente y vuelve a intentarlo.'
+  );
+  process.exit(1);
+}
+
 const DEMO_PASSWORD = 'QlcDemo2026!';
 const CONDITION_TYPES = ['CONTRACT', 'FUNDS', 'PAYMENT', 'API', 'ACTIVATION'];
 
