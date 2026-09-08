@@ -1,0 +1,565 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ==========================================================
+// ENUMS
+// ==========================================================
+
+enum Role {
+  ADMIN
+  CLIENT
+}
+
+enum ClientStatus {
+  PENDING
+  ACTIVE
+  INACTIVE
+  REVIEW
+}
+
+enum ModelKey {
+  FLEXIBLE
+  PERFORMANCE
+  COMPOUND
+}
+
+enum ProcessConditionType {
+  CONTRACT
+  FUNDS
+  PAYMENT
+  API
+  ACTIVATION
+}
+
+enum ConditionStatus {
+  PENDING
+  CONFIRMED
+  REJECTED
+}
+
+enum ContractStatus {
+  PENDING
+  UPLOADED
+  RECEIVED_SIGNED
+  REJECTED
+}
+
+enum PaymentReportStatus {
+  PENDING
+  EN_REVISION
+  APROBADO
+  RECHAZADO
+}
+
+enum AppointmentStatus {
+  PENDING
+  AUTORIZADA
+  RECHAZADA
+  COMPLETADA
+  CANCELADA
+}
+
+enum SupportCaseStatus {
+  OPEN
+  IN_PROGRESS
+  CLOSED
+}
+
+enum ChatSessionStatus {
+  SCHEDULED
+  ACTIVE
+  CLOSED
+}
+
+enum ApiConnectionStatus {
+  CONECTADA
+  DESCONECTADA
+  PENDIENTE
+}
+
+enum ProspectStatus {
+  NUEVO
+  CONTACTADO
+  CONVERTIDO
+  DESCARTADO
+}
+
+// ==========================================================
+// IDENTITY
+// ==========================================================
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  username     String   @unique
+  passwordHash String
+  role         Role
+  isActive     Boolean  @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  adminProfile  AdminProfile?
+  clientProfile ClientProfile?
+
+  uploadedDocuments   Document[]        @relation("DocumentUploadedBy")
+  reviewedPayments    PaymentReport[]   @relation("PaymentReviewedBy")
+  updatedContent      PublicContent[]   @relation("ContentUpdatedBy")
+  approvedAppointments Appointment[]    @relation("AppointmentApprovedBy")
+  updatedApiConnections ApiConnection[] @relation("ApiConnectionUpdatedBy")
+  chatMessagesSent    ChatMessage[]     @relation("ChatMessageSender")
+  adminChatSessions   ChatSession[]     @relation("ChatSessionAdmin")
+  notifications       Notification[]
+  driveConfigUpdates   DriveConfiguration[]
+  mediaAssetUpdates    MediaAsset[]          @relation("MediaAssetUpdatedBy")
+
+  @@map("users")
+}
+
+model AdminProfile {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  firstName   String
+  lastName    String
+  permissions Json     @default("{}")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("admin_profiles")
+}
+
+model ClientProfile {
+  id        String       @id @default(cuid())
+  userId    String       @unique
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  firstName String
+  lastName  String
+  phone     String?
+  status    ClientStatus @default(PENDING)
+  notes     String?
+  isDemo    Boolean      @default(false)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  // Cache de IDs de carpetas de Google Drive (evita crear/buscar carpetas en cada subida)
+  driveClientFolderId    String?
+  driveContractsFolderId String?
+  driveDocumentsFolderId String?
+  drivePaymentsFolderId  String?
+
+  clientModel     ClientModel?
+  process         Process?
+  contracts       Contract[]
+  documents       Document[]        @relation("ClientDocuments")
+  paymentReports  PaymentReport[]
+  appointments    Appointment[]
+  supportCases    SupportCase[]
+  chatSessions    ChatSession[]      @relation("ChatSessionClient")
+  apiConnection   ApiConnection?
+
+  @@map("client_profiles")
+}
+
+// ==========================================================
+// MODELS OF PARTICIPATION (Flexible / Performance / Compound)
+// ==========================================================
+
+model Model {
+  id            String   @id @default(cuid())
+  key           ModelKey @unique
+  name          String
+  tagline       String?
+  description   String
+  conditions    String?
+  period        String?
+  percentage    String?
+  objective     String?
+  isActive      Boolean  @default(true)
+  displayOrder  Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  clientModels ClientModel[]
+
+  @@map("models")
+}
+
+model ClientModel {
+  id           String    @id @default(cuid())
+  clientId     String    @unique
+  client       ClientProfile @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  modelId      String
+  model        Model     @relation(fields: [modelId], references: [id])
+  selectedAt   DateTime  @default(now())
+  confirmedAt  DateTime?
+
+  @@map("client_models")
+}
+
+// ==========================================================
+// PROCESS / ACTIVATION
+// ==========================================================
+
+model Process {
+  id        String   @id @default(cuid())
+  clientId  String   @unique
+  client    ClientProfile @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  isActivated Boolean @default(false)
+  activatedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  conditions ProcessCondition[]
+
+  @@map("processes")
+}
+
+model ProcessCondition {
+  id         String               @id @default(cuid())
+  processId  String
+  process    Process              @relation(fields: [processId], references: [id], onDelete: Cascade)
+  type       ProcessConditionType
+  status     ConditionStatus      @default(PENDING)
+  note       String?
+  updatedAt  DateTime             @updatedAt
+  createdAt  DateTime             @default(now())
+
+  @@unique([processId, type])
+  @@map("process_conditions")
+}
+
+// ==========================================================
+// CONTRACTS
+// ==========================================================
+
+model Contract {
+  id                    String         @id @default(cuid())
+  clientId              String
+  client                ClientProfile  @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  status                ContractStatus @default(PENDING)
+
+  // Original (subido por el administrador) — Google Drive
+  originalDriveFileId   String?
+  originalDriveFolderId String?
+  originalFileName      String?
+  originalMimeType      String?
+  originalSizeBytes     Int?
+  uploadedAt            DateTime?
+
+  // Firmado (subido por el cliente) — Google Drive
+  signedDriveFileId     String?
+  signedDriveFolderId   String?
+  signedFileName        String?
+  signedMimeType        String?
+  signedSizeBytes       Int?
+  signedUploadedAt      DateTime?
+
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
+
+  @@map("contracts")
+}
+
+// ==========================================================
+// DOCUMENTS
+// ==========================================================
+
+model Document {
+  id               String   @id @default(cuid())
+  clientId         String
+  client           ClientProfile @relation("ClientDocuments", fields: [clientId], references: [id], onDelete: Cascade)
+  category         String
+  description      String?
+  driveFileId      String
+  driveFolderId    String?
+  fileName         String
+  extension        String?
+  mimeType         String
+  sizeBytes        Int
+  status           String   @default("ACTIVE")
+  uploadedByUserId String
+  uploadedBy       User     @relation("DocumentUploadedBy", fields: [uploadedByUserId], references: [id])
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@map("documents")
+}
+
+// ==========================================================
+// PAYMENTS
+// ==========================================================
+
+model PaymentConfiguration {
+  id            String   @id @default(cuid())
+  // Moneda de QLC — valor fijo "USDT", el backend nunca acepta otro valor.
+  currency      String   @default("USDT")
+  // Red de la wallet (ej. TRC20, ERC20, BEP20) — configurable por el admin.
+  network       String?
+  qrUrl         String?
+  qrPublicId    String?
+  walletAddress String?
+  paymentLink   String?
+  instructions  String?
+  updatedAt     DateTime @updatedAt
+
+  @@map("payment_configuration")
+}
+
+// Configuración administrable de Google Drive (carpeta raíz + estado).
+// La credencial técnica de la cuenta de servicio NUNCA vive aquí — permanece
+// en variables de entorno del backend. Esta tabla solo guarda datos no
+// sensibles que el administrador puede cambiar desde el panel.
+model DriveConfiguration {
+  id               String    @id @default(cuid())
+  rootFolderId     String?
+  rootFolderName   String    @default("QLC")
+  isEnabled        Boolean   @default(true)
+  lastTestedAt     DateTime?
+  lastTestStatus   String? // "OK" | "ERROR"
+  lastTestMessage  String?
+  updatedByUserId  String?
+  updatedBy        User?     @relation(fields: [updatedByUserId], references: [id])
+  updatedAt        DateTime  @updatedAt
+  createdAt        DateTime  @default(now())
+
+  @@map("drive_configuration")
+}
+
+model PaymentReport {
+  id                String              @id @default(cuid())
+  clientId          String
+  client            ClientProfile       @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  amount            Decimal             @db.Decimal(12, 2)
+  currency          String              @default("USDT")
+  proofDriveFileId  String?
+  proofDriveFolderId String?
+  proofFileName     String?
+  proofMimeType     String?
+  proofSizeBytes    Int?
+  status            PaymentReportStatus @default(PENDING)
+  reviewNote        String?
+  reviewedByUserId  String?
+  reviewedBy        User?               @relation("PaymentReviewedBy", fields: [reviewedByUserId], references: [id])
+  reviewedAt        DateTime?
+  reportedAt        DateTime            @default(now())
+
+  @@map("payment_reports")
+}
+
+// ==========================================================
+// APPOINTMENTS / AVAILABILITY
+// ==========================================================
+
+model AvailabilitySlot {
+  id        String   @id @default(cuid())
+  dayOfWeek Int // 0=domingo ... 6=sabado
+  startTime String // "09:00"
+  endTime   String // "17:00"
+  isActive  Boolean  @default(true)
+
+  @@map("availability_slots")
+}
+
+model Appointment {
+  id               String            @id @default(cuid())
+  clientId         String?
+  client           ClientProfile?    @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  prospectId       String?
+  prospect         Prospect?         @relation(fields: [prospectId], references: [id], onDelete: SetNull)
+  requestedDate    DateTime
+  requestedTime    String
+  status           AppointmentStatus @default(PENDING)
+  notes            String?
+  approvedByUserId String?
+  approvedBy       User?             @relation("AppointmentApprovedBy", fields: [approvedByUserId], references: [id])
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  chatSession ChatSession?
+
+  @@map("appointments")
+}
+
+// ==========================================================
+// SUPPORT / CHAT
+// ==========================================================
+
+model SupportCase {
+  id        String            @id @default(cuid())
+  clientId  String
+  client    ClientProfile     @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  subject   String
+  message   String
+  status    SupportCaseStatus @default(OPEN)
+  createdAt DateTime          @default(now())
+  closedAt  DateTime?
+
+  @@map("support_cases")
+}
+
+model ChatSession {
+  id              String            @id @default(cuid())
+  appointmentId   String?           @unique
+  appointment     Appointment?      @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  clientId        String
+  client          ClientProfile     @relation("ChatSessionClient", fields: [clientId], references: [id], onDelete: Cascade)
+  adminId         String?
+  admin           User?             @relation("ChatSessionAdmin", fields: [adminId], references: [id])
+  status          ChatSessionStatus @default(SCHEDULED)
+  durationMinutes Int               @default(15)
+  startedAt       DateTime?
+  endsAt          DateTime?
+  createdAt       DateTime          @default(now())
+
+  messages ChatMessage[]
+
+  @@map("chat_sessions")
+}
+
+model ChatMessage {
+  id            String      @id @default(cuid())
+  chatSessionId String
+  chatSession   ChatSession @relation(fields: [chatSessionId], references: [id], onDelete: Cascade)
+  senderUserId  String
+  sender        User        @relation("ChatMessageSender", fields: [senderUserId], references: [id])
+  content       String
+  createdAt     DateTime    @default(now())
+
+  @@map("chat_messages")
+}
+
+// ==========================================================
+// API CONNECTION (metadata only — never trades, never connects to exchange)
+// ==========================================================
+
+model ApiConnection {
+  id                 String               @id @default(cuid())
+  clientId           String               @unique
+  client             ClientProfile        @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  exchangeName       String               @default("Bitget")
+  apiKeyEncrypted    String?
+  apiSecretEncrypted String?
+  status             ApiConnectionStatus  @default(PENDIENTE)
+  notes              String?
+  updatedByUserId    String?
+  updatedBy          User?                @relation("ApiConnectionUpdatedBy", fields: [updatedByUserId], references: [id])
+  updatedAt          DateTime             @updatedAt
+  createdAt          DateTime             @default(now())
+
+  @@map("api_connections")
+}
+
+// ==========================================================
+// PROSPECTS
+// ==========================================================
+
+model Prospect {
+  id             String         @id @default(cuid())
+  firstName      String
+  lastName       String?
+  email          String
+  phone          String?
+  source         String?
+  status         ProspectStatus @default(NUEVO)
+  message        String?
+  infoRequested  Boolean        @default(false)
+  emailSentAt    DateTime?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  appointments Appointment[]
+
+  @@map("prospects")
+}
+
+// ==========================================================
+// PUBLIC CONTENT / FAQ / TRACK RECORD
+// ==========================================================
+
+model PublicContent {
+  id              String   @id @default(cuid())
+  section         String
+  key             String
+  value           String
+  updatedByUserId String?
+  updatedBy       User?    @relation("ContentUpdatedBy", fields: [updatedByUserId], references: [id])
+  updatedAt       DateTime @updatedAt
+
+  @@unique([section, key])
+  @@map("public_content")
+}
+
+// Multimedia administrable de la página pública (imágenes y video del logo,
+// y recursos visuales de cualquier sección). Cloudinary guarda el archivo;
+// aquí solo vive la referencia/metadata — nunca el binario.
+model MediaAsset {
+  id              String   @id @default(cuid())
+  fileName        String
+  type            String // IMAGE | VIDEO
+  format          String
+  url             String
+  publicId        String
+  location        String // hero | modelo | como_funciona | tecnologia | microposiciones | modelos | resultados | seguridad | sobre_qlc | faq | contacto | footer | logo
+  title           String?
+  description     String?
+  order           Int      @default(0)
+  isPublished     Boolean  @default(false)
+  isPrimary       Boolean  @default(false)
+  bytes           Int?
+  updatedByUserId String?
+  updatedBy       User?    @relation("MediaAssetUpdatedBy", fields: [updatedByUserId], references: [id])
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([location])
+  @@map("media_assets")
+}
+
+model FAQ {
+  id           String   @id @default(cuid())
+  question     String
+  answer       String
+  displayOrder Int      @default(0)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("faqs")
+}
+
+model TrackRecord {
+  id           String   @id @default(cuid())
+  title        String
+  description  String
+  platformName String   @default("Bitget")
+  profileLink  String?
+  ranking      String   @default("#XXX")
+  isActive     Boolean  @default(true)
+  updatedAt    DateTime @updatedAt
+
+  @@map("track_records")
+}
+
+// ==========================================================
+// NOTIFICATIONS
+// ==========================================================
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  message   String
+  type      String   @default("info")
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@map("notifications")
+}
