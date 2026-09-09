@@ -81,6 +81,8 @@ const deleteDocument = asyncHandler(async (req, res) => {
     title: 'Puedes volver a enviar tu documento',
     message: `QLC eliminó tu documento de "${document.category}". Ya puedes subir uno nuevo.`,
     type: 'info',
+    templateKey: 'document_resubmit',
+    templateParams: { category: document.category },
   });
 
   res.json({ ok: true });

@@ -65,6 +65,8 @@ const setApiConnection = asyncHandler(async (req, res) => {
       title: 'Actualización de tu conexión API',
       message: `Estado de tu conexión API: ${updated.status}`,
       type: updated.status === 'CONECTADA' ? 'success' : 'info',
+      templateKey: 'api_connection_status_updated',
+      templateParams: { status: updated.status },
     });
   }
 

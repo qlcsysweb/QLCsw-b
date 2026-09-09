@@ -42,6 +42,8 @@ const updateCondition = asyncHandler(async (req, res) => {
     title: 'Actualización de tu proceso',
     message: `${CONDITION_LABELS[type] || type}: ${status}`,
     type: status === 'REJECTED' ? 'warning' : 'info',
+    templateKey: 'process_condition_updated',
+    templateParams: { conditionType: type, status },
   });
 
   res.json({ ok: true, condition });
@@ -75,6 +77,7 @@ const activateClient = asyncHandler(async (req, res) => {
     title: 'Cuenta activada',
     message: 'Tu cuenta QLC ha sido activada.',
     type: 'success',
+    templateKey: 'process_activated',
   });
 
   res.json({ ok: true, process: updatedProcess });

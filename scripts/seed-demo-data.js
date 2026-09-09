@@ -101,8 +101,8 @@ async function setCondition(processId, type, status) {
   });
 }
 
-async function notify(userId, title, message, type = 'info') {
-  await prisma.notification.create({ data: { userId, title, message, type } });
+async function notify(userId, title, message, type = 'info', templateKey = null, templateParams = null) {
+  await prisma.notification.create({ data: { userId, title, message, type, templateKey, templateParams } });
 }
 
 async function main() {
@@ -148,9 +148,23 @@ async function main() {
     },
   });
   const demo01User = await prisma.clientProfile.findUnique({ where: { id: demo01.id }, select: { userId: true } });
-  await notify(demo01User.userId, 'Tu cuenta QLC fue activada', 'Todas las condiciones de tu proceso fueron confirmadas. ¡Bienvenido!', 'success');
-  await notify(demo01User.userId, 'Tu pago fue aprobado', `Tu pago de ${payment01.amount} ${payment01.currency} fue marcado como: APROBADO`, 'success');
-  await notify(demo01User.userId, 'Conexión API actualizada', 'Estado de tu conexión API: CONECTADA', 'success');
+  await notify(demo01User.userId, 'Cuenta activada', 'Tu cuenta QLC ha sido activada.', 'success', 'process_activated');
+  await notify(
+    demo01User.userId,
+    'Actualización de tu pago reportado',
+    `Tu pago de ${payment01.amount} ${payment01.currency} fue marcado como: APROBADO`,
+    'success',
+    'payment_status_updated',
+    { amount: String(payment01.amount), currency: payment01.currency, status: 'APROBADO' }
+  );
+  await notify(
+    demo01User.userId,
+    'Actualización de tu conexión API',
+    'Estado de tu conexión API: CONECTADA',
+    'success',
+    'api_connection_status_updated',
+    { status: 'CONECTADA' }
+  );
 
   // ---------- CLIENTE DEMO 02 — proceso intermedio ----------
   const demo02 = await createDemoClient({
@@ -180,8 +194,22 @@ async function main() {
     data: { appointmentId: appointment02.id, clientId: demo02.id, status: 'SCHEDULED', durationMinutes: 15 },
   });
   const demo02User = await prisma.clientProfile.findUnique({ where: { id: demo02.id }, select: { userId: true } });
-  await notify(demo02User.userId, 'Actualización de tu cita', 'Tu solicitud de cita fue: AUTORIZADA', 'success');
-  await notify(demo02User.userId, 'Actualización de tu proceso', 'Fondos disponibles: CONFIRMED', 'info');
+  await notify(
+    demo02User.userId,
+    'Actualización de tu cita',
+    'Tu solicitud de cita fue: AUTORIZADA',
+    'success',
+    'appointment_status_updated',
+    { status: 'AUTORIZADA' }
+  );
+  await notify(
+    demo02User.userId,
+    'Actualización de tu proceso',
+    'Fondos disponibles: CONFIRMED',
+    'info',
+    'process_condition_updated',
+    { conditionType: 'FUNDS', status: 'CONFIRMED' }
+  );
   await prisma.supportCase.create({
     data: {
       clientId: demo02.id,
@@ -202,7 +230,7 @@ async function main() {
     clientStatus: 'PENDING',
   });
   const demo03User = await prisma.clientProfile.findUnique({ where: { id: demo03.id }, select: { userId: true } });
-  await notify(demo03User.userId, 'Bienvenido a QLC', 'Tu cuenta fue creada. Completa tu proceso para comenzar.', 'info');
+  await notify(demo03User.userId, 'Bienvenido a QLC', 'Tu cuenta fue creada. Completa tu proceso para comenzar.', 'info', 'welcome');
 
   // ---------- PROSPECTOS DEMO — "solicitó información" ----------
   // 1) Mismo email que Demo 01 (con mayúsculas distintas) → demuestra que SÍ

@@ -177,6 +177,8 @@ const reviewPaymentReport = asyncHandler(async (req, res) => {
     title: 'Actualización de tu pago reportado',
     message: `Tu pago de ${report.amount} ${report.currency} fue marcado como: ${status}`,
     type: status === 'APROBADO' ? 'success' : status === 'RECHAZADO' ? 'warning' : 'info',
+    templateKey: 'payment_status_updated',
+    templateParams: { amount: String(report.amount), currency: report.currency, status },
   });
 
   res.json({ ok: true, report: updated });

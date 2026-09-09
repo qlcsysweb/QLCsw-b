@@ -107,6 +107,8 @@ const updateAppointmentStatus = asyncHandler(async (req, res) => {
       title: 'Actualización de tu cita',
       message: `Tu solicitud de cita fue: ${status}`,
       type: status === 'AUTORIZADA' ? 'success' : status === 'RECHAZADA' ? 'warning' : 'info',
+      templateKey: 'appointment_status_updated',
+      templateParams: { status },
     });
   }
 

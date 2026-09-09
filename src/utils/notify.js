@@ -6,14 +6,14 @@ const prisma = require('../config/prisma');
  * cliente, revisar pago, autorizar cita, etc.) para que el cliente vea
  * el cambio reflejado en su portal — nunca es un dato simulado.
  */
-async function notifyClient(clientProfileId, { title, message, type = 'info' }) {
+async function notifyClient(clientProfileId, { title, message, type = 'info', templateKey = null, templateParams = null }) {
   const client = await prisma.clientProfile.findUnique({
     where: { id: clientProfileId },
     select: { userId: true },
   });
   if (!client) return null;
   return prisma.notification.create({
-    data: { userId: client.userId, title, message, type },
+    data: { userId: client.userId, title, message, type, templateKey, templateParams },
   });
 }
 

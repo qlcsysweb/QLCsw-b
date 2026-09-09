@@ -60,6 +60,7 @@ const uploadOriginalContract = asyncHandler(async (req, res) => {
     title: 'Contrato disponible',
     message: 'Tu contrato ya está disponible para revisión y firma.',
     type: 'info',
+    templateKey: 'contract_available',
   });
 
   res.status(201).json({ ok: true, contract });
@@ -115,6 +116,8 @@ const updateContractStatus = asyncHandler(async (req, res) => {
     title: 'Actualización de tu contrato',
     message: `Estado de tu contrato: ${status}`,
     type: status === 'REJECTED' ? 'warning' : 'info',
+    templateKey: 'contract_status_updated',
+    templateParams: { status },
   });
 
   res.json({ ok: true, contract: updated });
@@ -169,6 +172,7 @@ const resetSignedContract = asyncHandler(async (req, res) => {
     title: 'Tu contrato firmado fue reiniciado',
     message: 'QLC eliminó tu archivo firmado. Puedes volver a subirlo cuando quieras.',
     type: 'info',
+    templateKey: 'contract_signed_reset',
   });
 
   res.json({ ok: true, contract: updated });

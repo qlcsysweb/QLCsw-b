@@ -574,8 +574,18 @@ model Notification {
   id        String   @id @default(cuid())
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // "title"/"message" son el texto en español, generado en el momento y
+  // conservado tal cual para notificaciones históricas (nunca se borran).
   title     String
   message   String
+  // Para notificaciones NUEVAS generadas por el sistema (no texto libre de
+  // un admin): templateKey identifica la plantilla bilingüe (ver
+  // frontend/src/i18n/translations.js → notificationTemplates) y
+  // templateParams trae los valores/códigos a interpolar (nunca texto ya
+  // traducido). Si templateKey es null (notificaciones antiguas u otras
+  // no cubiertas), el frontend muestra title/message tal cual.
+  templateKey    String?
+  templateParams Json?
   type      String   @default("info")
   isRead    Boolean  @default(false)
   createdAt DateTime @default(now())
