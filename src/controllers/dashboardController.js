@@ -8,6 +8,8 @@ const getSummary = asyncHandler(async (req, res) => {
     activeClients,
     pendingClients,
     reviewClients,
+    inactiveClients,
+    readyToActivate,
     newProspects,
     unregisteredProspects,
     pendingAppointments,
@@ -22,6 +24,16 @@ const getSummary = asyncHandler(async (req, res) => {
     prisma.clientProfile.count({ where: { status: 'ACTIVE' } }),
     prisma.clientProfile.count({ where: { status: 'PENDING' } }),
     prisma.clientProfile.count({ where: { status: 'REVIEW' } }),
+    prisma.clientProfile.count({ where: { status: 'INACTIVE' } }),
+    // Clientes con todas sus condiciones de proceso confirmadas pero que
+    // TODAVÍA no fueron activados — el indicador de "listos para activar"
+    // del alcance §7.
+    prisma.process.count({
+      where: {
+        isActivated: false,
+        conditions: { every: { status: 'CONFIRMED' }, some: {} },
+      },
+    }),
     prisma.prospect.count({ where: { status: 'NUEVO' } }),
     countUnregisteredProspects(),
     prisma.appointment.count({ where: { status: 'PENDING' } }),
@@ -45,7 +57,9 @@ const getSummary = asyncHandler(async (req, res) => {
         active: activeClients,
         pending: pendingClients,
         review: reviewClients,
+        inactive: inactiveClients,
       },
+      readyToActivate,
       prospects: { new: newProspects, unregistered: unregisteredProspects },
       appointments: { pending: pendingAppointments },
       payments: { pending: pendingPayments },

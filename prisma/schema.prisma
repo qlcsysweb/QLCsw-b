@@ -341,12 +341,36 @@ model DriveConfiguration {
   @@map("drive_configuration")
 }
 
+// Configuración global única (singleton, igual que PaymentConfiguration):
+// (1) liga configurable hacia la plataforma externa donde ocurre la
+//     operación real (nunca se desarrolla esa funcionalidad aquí, solo se
+//     enlaza), y (2) el PDF informativo que se adjunta automáticamente al
+//     correo de bienvenida de un prospecto — vive en Google Drive corporativo
+//     (igual que el resto de documentos), nunca en Cloudinary.
+model PlatformSettings {
+  id                   String    @id @default(cuid())
+  externalPlatformUrl  String?
+  infoPdfDriveFileId   String?
+  infoPdfDriveFolderId String?
+  infoPdfFileName      String?
+  infoPdfMimeType      String?
+  infoPdfSizeBytes     Int?
+  updatedAt            DateTime  @updatedAt
+
+  @@map("platform_settings")
+}
+
 model PaymentReport {
   id                String              @id @default(cuid())
   clientId          String
   client            ClientProfile       @relation(fields: [clientId], references: [id], onDelete: Cascade)
   amount            Decimal             @db.Decimal(12, 2)
   currency          String              @default("USDT")
+  // Dato libre que el cliente reporta junto al pago (referencia/hash de
+  // transacción, últimos dígitos, etc.) — nunca se valida contra el
+  // exchange, es solo el dato que el cliente declara para agilizar la
+  // revisión manual del administrador.
+  reference         String?
   proofDriveFileId  String?
   proofDriveFolderId String?
   proofFileName     String?
@@ -401,14 +425,18 @@ model Appointment {
 // ==========================================================
 
 model SupportCase {
-  id        String            @id @default(cuid())
-  clientId  String
-  client    ClientProfile     @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  subject   String
-  message   String
-  status    SupportCaseStatus @default(OPEN)
-  createdAt DateTime          @default(now())
-  closedAt  DateTime?
+  id         String            @id @default(cuid())
+  // Número de caso legible/correlativo — lo que el cliente y el admin
+  // realmente usan para identificar el caso (el id sigue existiendo para
+  // relaciones internas, pero nunca se muestra en la interfaz).
+  caseNumber Int               @unique @default(autoincrement())
+  clientId   String
+  client     ClientProfile     @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  subject    String
+  message    String
+  status     SupportCaseStatus @default(OPEN)
+  createdAt  DateTime          @default(now())
+  closedAt   DateTime?
 
   @@map("support_cases")
 }

@@ -79,4 +79,22 @@ const downloadDocument = asyncHandler(async (req, res) => {
   stream.pipe(res);
 });
 
-module.exports = { listDocuments, uploadDocument, downloadDocument };
+// El cliente puede eliminar sus propios documentos (alcance §4: "carga y
+// eliminación de documentos" por cliente) — libera la categoría para volver
+// a enviar. Ownership verificado por clientId, nunca por el id del documento
+// solo (evita que un cliente borre documentos de otro).
+const deleteDocument = asyncHandler(async (req, res) => {
+  const document = await prisma.document.findFirst({
+    where: { id: req.params.id, clientId: req.clientProfile.id },
+  });
+  if (!document) throw ApiError.notFound('Documento no encontrado');
+
+  if (await documentStorage.isConfigured()) {
+    await documentStorage.deleteDocument(document.driveFileId).catch(() => {});
+  }
+  await prisma.document.delete({ where: { id: document.id } });
+
+  res.json({ ok: true });
+});
+
+module.exports = { listDocuments, uploadDocument, downloadDocument, deleteDocument };

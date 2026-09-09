@@ -63,16 +63,21 @@ const createProspectSchema = z.object({
   phone: z.string().optional(),
   message: z.string().optional(),
   source: z.string().optional(),
+  // Idioma que el visitante tenía seleccionado al enviar el formulario
+  // (cookie qlc_language del frontend) — solo se usa para redactar el
+  // correo de bienvenida en ese idioma; nunca se guarda como preferencia
+  // permanente ni se asocia a ningún userId.
+  language: z.enum(['es', 'en']).optional(),
 });
 
 const createProspect = asyncHandler(async (req, res) => {
-  const data = createProspectSchema.parse(req.body);
+  const { language, ...data } = createProspectSchema.parse(req.body);
 
   const prospect = await prisma.prospect.create({
     data: { ...data, infoRequested: true },
   });
 
-  const emailResult = await sendProspectWelcomeEmail(prospect).catch((err) => ({
+  const emailResult = await sendProspectWelcomeEmail(prospect, language).catch((err) => ({
     sent: false,
     reason: err.message,
   }));

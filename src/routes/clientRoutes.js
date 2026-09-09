@@ -13,6 +13,7 @@ const chatController = require('../controllers/client/chatController');
 const appointmentController = require('../controllers/client/appointmentController');
 const apiConnectionController = require('../controllers/client/apiConnectionController');
 const notificationController = require('../controllers/client/notificationController');
+const platformSettingsController = require('../controllers/platformSettingsController');
 
 const router = Router();
 
@@ -40,6 +41,7 @@ router.get('/contract/:id/download/:variant', contractController.downloadContrac
 router.get('/documents', documentController.listDocuments);
 router.post('/documents', uploadDocumentFile.single('file'), documentController.uploadDocument);
 router.get('/documents/:id/download', documentController.downloadDocument);
+router.delete('/documents/:id', documentController.deleteDocument);
 
 // Pagos
 router.get('/payment-config', paymentController.getPaymentConfig);
@@ -47,8 +49,13 @@ router.get('/payment-reports', paymentController.listPaymentReports);
 router.post('/payment-reports', uploadDocumentFile.single('file'), paymentController.createPaymentReport);
 router.get('/payment-reports/:id/proof', paymentController.downloadPaymentProof);
 
-// Conexión API (solo lectura de estado)
+// Conexión API — el cliente introduce su propia key/secret; el estado
+// rojo/verde permanece exclusivamente bajo control administrativo (§8)
 router.get('/api-connection', apiConnectionController.getApiConnection);
+router.patch('/api-connection', apiConnectionController.setApiConnection);
+
+// Liga hacia la plataforma externa (§9) — solo lectura para el cliente
+router.get('/platform-link', platformSettingsController.getPlatformLinkForClient);
 
 // Soporte
 router.get('/support-cases', supportController.listSupportCases);

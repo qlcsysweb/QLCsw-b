@@ -28,10 +28,14 @@ const listPaymentReports = asyncHandler(async (req, res) => {
 const createPaymentReportSchema = z.object({
   amount: z.coerce.number().positive(),
   currency: z.string().optional(),
+  // Dato libre declarado por el cliente (referencia/hash de la operación,
+  // últimos dígitos, etc.) — alcance §6: "números, letras u otros datos
+  // definidos para la operación". Nunca se valida contra el exchange.
+  reference: z.string().max(200).optional(),
 });
 
 const createPaymentReport = asyncHandler(async (req, res) => {
-  const { amount, currency } = createPaymentReportSchema.parse(req.body);
+  const { amount, currency, reference } = createPaymentReportSchema.parse(req.body);
 
   let proofData = {};
   if (req.file) {
@@ -56,6 +60,7 @@ const createPaymentReport = asyncHandler(async (req, res) => {
       clientId: req.clientProfile.id,
       amount,
       currency: currency || 'USDT',
+      reference: reference || null,
       ...proofData,
       status: 'PENDING',
     },

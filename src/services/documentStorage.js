@@ -81,6 +81,20 @@ async function ensureClientFolders(client) {
   return { clientFolderId, contractsFolderId, documentsFolderId, paymentsFolderId };
 }
 
+// Carpeta raíz para archivos GLOBALES de la plataforma (no ligados a un
+// cliente específico) — hoy solo el PDF informativo que se adjunta al
+// correo de bienvenida de un prospecto (alcance §1/§9).
+async function ensurePlatformFolder() {
+  const drive = getDriveClient();
+  const rootId = await resolveRootFolderId();
+  if (!rootId) {
+    throw new Error(
+      'No hay una carpeta raíz de Google Drive configurada. Ve a Configuración → Google Drive en el panel administrativo.'
+    );
+  }
+  return findOrCreateFolder(drive, 'Plataforma', rootId);
+}
+
 async function uploadDocument(buffer, { folderId, fileName, mimeType }) {
   const drive = getDriveClient();
   const { data } = await drive.files.create({
@@ -109,6 +123,7 @@ async function downloadDocument(fileId) {
 module.exports = {
   isConfigured,
   ensureClientFolders,
+  ensurePlatformFolder,
   uploadDocument,
   deleteDocument,
   downloadDocument,

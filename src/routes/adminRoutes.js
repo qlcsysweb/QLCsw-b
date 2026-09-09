@@ -20,6 +20,7 @@ const prospectController = require('../controllers/prospectController');
 const apiConnectionController = require('../controllers/apiConnectionController');
 const driveConfigController = require('../controllers/driveConfigController');
 const mediaController = require('../controllers/mediaController');
+const platformSettingsController = require('../controllers/platformSettingsController');
 
 const router = Router();
 
@@ -35,6 +36,7 @@ router.get('/clients/:id', clientController.getClient);
 router.patch('/clients/:id', clientController.updateClient);
 router.patch('/clients/:id/active', clientController.setClientActive);
 router.patch('/clients/:id/model', clientController.selectClientModel);
+router.delete('/clients/:id', clientController.deleteClient);
 
 // Process / activation
 router.get('/clients/:clientId/process', processController.getProcess);
@@ -136,5 +138,15 @@ router.post('/media', uploadMedia.single('file'), mediaController.createMedia);
 router.patch('/media/:id', mediaController.updateMedia);
 router.post('/media/:id/replace', uploadMedia.single('file'), mediaController.replaceMediaFile);
 router.delete('/media/:id', mediaController.deleteMedia);
+
+// Configuración de plataforma: liga externa (§9) + PDF informativo (§1)
+router.get('/platform-settings', platformSettingsController.getPlatformSettingsAdmin);
+router.put('/platform-settings', platformSettingsController.updatePlatformSettings);
+router.post(
+  '/platform-settings/info-pdf',
+  uploadDocumentFile.single('file'),
+  platformSettingsController.uploadInfoPdf
+);
+router.delete('/platform-settings/info-pdf', platformSettingsController.deleteInfoPdf);
 
 module.exports = router;

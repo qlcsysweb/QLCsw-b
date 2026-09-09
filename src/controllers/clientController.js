@@ -3,8 +3,26 @@ const { z } = require('zod');
 const prisma = require('../config/prisma');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
+const { decrypt } = require('../utils/crypto');
+const documentStorage = require('../services/documentStorage');
 
 const PROCESS_CONDITION_TYPES = ['CONTRACT', 'FUNDS', 'PAYMENT', 'API', 'ACTIVATION'];
+
+// Resumen de avance del proceso — para el indicador de "listo para activar"
+// (alcance §7: "indicador para facilitar la identificación de clientes que
+// ya cumplieron las condiciones necesarias").
+function summarizeConditions(process) {
+  const conditions = process?.conditions || [];
+  const total = conditions.length;
+  const confirmed = conditions.filter((c) => c.status === 'CONFIRMED').length;
+  const rejected = conditions.filter((c) => c.status === 'REJECTED').length;
+  return {
+    total,
+    confirmed,
+    rejected,
+    allConfirmed: total > 0 && confirmed === total,
+  };
+}
 
 const createClientSchema = z.object({
   firstName: z.string().min(1, 'El nombre es obligatorio'),
@@ -36,7 +54,7 @@ const listClients = asyncHandler(async (req, res) => {
       : {}),
   };
 
-  const [items, total] = await Promise.all([
+  const [rows, total] = await Promise.all([
     prisma.clientProfile.findMany({
       where,
       take,
@@ -51,6 +69,8 @@ const listClients = asyncHandler(async (req, res) => {
     }),
     prisma.clientProfile.count({ where }),
   ]);
+
+  const items = rows.map((c) => ({ ...c, conditionsSummary: summarizeConditions(c.process) }));
 
   res.json({ ok: true, items, total, page: Number(page), pageSize: take });
 });
@@ -71,7 +91,27 @@ const getClient = asyncHandler(async (req, res) => {
     },
   });
   if (!client) throw ApiError.notFound('Cliente no encontrado');
-  res.json({ ok: true, client });
+
+  // El admin puede visualizar y copiar la API Key/Secret real (alcance §8)
+  // — se descifra SOLO aquí (vista de un cliente puntual), nunca en el
+  // listado, y el ciphertext crudo nunca se envía al frontend.
+  const { apiKeyEncrypted, apiSecretEncrypted, ...apiConnectionRest } = client.apiConnection || {};
+  const shapedApiConnection = client.apiConnection
+    ? {
+        ...apiConnectionRest,
+        apiKey: apiKeyEncrypted ? decrypt(apiKeyEncrypted) : null,
+        apiSecret: apiSecretEncrypted ? decrypt(apiSecretEncrypted) : null,
+      }
+    : null;
+
+  res.json({
+    ok: true,
+    client: {
+      ...client,
+      apiConnection: shapedApiConnection,
+      conditionsSummary: summarizeConditions(client.process),
+    },
+  });
 });
 
 const createClient = asyncHandler(async (req, res) => {
@@ -179,6 +219,52 @@ const selectClientModel = asyncHandler(async (req, res) => {
   res.json({ ok: true, clientModel });
 });
 
+// Eliminación REAL y permanente del cliente (tu propia cuenta, perfil y
+// TODO lo dependiente) — nunca una simple desactivación. Las relaciones
+// hijas de ClientProfile ya están definidas con onDelete: Cascade en el
+// schema (ClientModel, Process→ProcessCondition, Contract, Document,
+// PaymentReport, SupportCase, ChatSession→ChatMessage, ApiConnection), así
+// que borrar el User cascada de forma segura sin dejar huérfanos ni violar
+// foreign keys. Appointment usa onDelete: SetNull deliberadamente (se
+// conserva el historial de citas, sin cliente asociado).
+//
+// Esta ruta SOLO puede alcanzar clientes: un ClientProfile nunca existe
+// para una cuenta ADMIN, así que es estructuralmente imposible borrar un
+// administrador desde aquí.
+const deleteClient = asyncHandler(async (req, res) => {
+  const client = await prisma.clientProfile.findUnique({
+    where: { id: req.params.id },
+    include: {
+      user: { select: { id: true, role: true } },
+      contracts: true,
+      documents: true,
+      paymentReports: true,
+    },
+  });
+  if (!client) throw ApiError.notFound('Cliente no encontrado');
+  if (client.user.role !== 'CLIENT') {
+    // Defensa adicional: nunca debería ocurrir dado el modelo de datos.
+    throw ApiError.badRequest('Esta acción solo puede eliminar cuentas de cliente.');
+  }
+
+  // Borra los archivos reales en Google Drive ANTES de borrar las filas
+  // (una vez cascadeada la eliminación en BD, los driveFileId ya no
+  // existirían en ningún lado para poder limpiarlos). Best-effort: si Drive
+  // no está configurado o un archivo puntual falla, no bloquea el borrado.
+  if (await documentStorage.isConfigured()) {
+    const fileIds = [
+      ...client.contracts.flatMap((c) => [c.originalDriveFileId, c.signedDriveFileId]),
+      ...client.documents.map((d) => d.driveFileId),
+      ...client.paymentReports.map((p) => p.proofDriveFileId),
+    ].filter(Boolean);
+    await Promise.all(fileIds.map((id) => documentStorage.deleteDocument(id).catch(() => {})));
+  }
+
+  await prisma.user.delete({ where: { id: client.user.id } });
+
+  res.json({ ok: true });
+});
+
 module.exports = {
   listClients,
   getClient,
@@ -186,4 +272,5 @@ module.exports = {
   updateClient,
   setClientActive,
   selectClientModel,
+  deleteClient,
 };
