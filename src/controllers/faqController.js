@@ -18,7 +18,9 @@ const listFaqAdmin = asyncHandler(async (req, res) => {
 
 const faqSchema = z.object({
   question: z.string().min(1),
+  questionEn: z.string().nullable().optional(),
   answer: z.string().min(1),
+  answerEn: z.string().nullable().optional(),
   displayOrder: z.number().int().optional(),
   isActive: z.boolean().optional(),
 });

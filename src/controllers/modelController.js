@@ -18,10 +18,15 @@ const listModelsAdmin = asyncHandler(async (req, res) => {
 
 const updateModelSchema = z.object({
   name: z.string().min(1).optional(),
+  nameEn: z.string().nullable().optional(),
   tagline: z.string().optional(),
+  taglineEn: z.string().nullable().optional(),
   description: z.string().min(1).optional(),
+  descriptionEn: z.string().nullable().optional(),
   conditions: z.string().optional(),
+  conditionsEn: z.string().nullable().optional(),
   period: z.string().optional(),
+  periodEn: z.string().nullable().optional(),
   percentage: z.string().optional(),
   objective: z.string().optional(),
   isActive: z.boolean().optional(),

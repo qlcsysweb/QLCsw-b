@@ -174,11 +174,20 @@ model ClientProfile {
 model Model {
   id            String   @id @default(cuid())
   key           ModelKey @unique
+  // Campos de texto: español es el contenido original/existente (nunca se
+  // borra); *_en es la traducción al inglés, opcional mientras se redacta.
+  // percentage/objective NO se duplican — son valores numéricos/ratios
+  // (ej. "70/30", "40%") sin palabras que traducir.
   name          String
+  nameEn        String?
   tagline       String?
+  taglineEn     String?
   description   String
+  descriptionEn String?
   conditions    String?
+  conditionsEn  String?
   period        String?
+  periodEn      String?
   percentage    String?
   objective     String?
   isActive      Boolean  @default(true)
@@ -487,7 +496,11 @@ model PublicContent {
   id              String   @id @default(cuid())
   section         String
   key             String
+  // "value" es y sigue siendo el contenido en español (el original, nunca
+  // se borra). "valueEn" es la traducción al inglés — null mientras esté
+  // pendiente de redactar.
   value           String
+  valueEn         String?
   updatedByUserId String?
   updatedBy       User?    @relation("ContentUpdatedBy", fields: [updatedByUserId], references: [id])
   updatedAt       DateTime @updatedAt
@@ -525,7 +538,9 @@ model MediaAsset {
 model FAQ {
   id           String   @id @default(cuid())
   question     String
+  questionEn   String?
   answer       String
+  answerEn     String?
   displayOrder Int      @default(0)
   isActive     Boolean  @default(true)
   createdAt    DateTime @default(now())
@@ -535,14 +550,18 @@ model FAQ {
 }
 
 model TrackRecord {
-  id           String   @id @default(cuid())
-  title        String
-  description  String
-  platformName String   @default("Bitget")
-  profileLink  String?
-  ranking      String   @default("#XXX")
-  isActive     Boolean  @default(true)
-  updatedAt    DateTime @updatedAt
+  id            String   @id @default(cuid())
+  title         String
+  titleEn       String?
+  description   String
+  descriptionEn String?
+  // platformName/ranking/profileLink NO se duplican — son datos externos
+  // (nombre de plataforma, símbolo de ranking, URL), no texto a traducir.
+  platformName  String   @default("Bitget")
+  profileLink   String?
+  ranking       String   @default("#XXX")
+  isActive      Boolean  @default(true)
+  updatedAt     DateTime @updatedAt
 
   @@map("track_records")
 }

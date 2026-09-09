@@ -18,7 +18,9 @@ const getTrackRecordAdmin = asyncHandler(async (req, res) => {
 
 const updateSchema = z.object({
   title: z.string().min(1).optional(),
+  titleEn: z.string().nullable().optional(),
   description: z.string().min(1).optional(),
+  descriptionEn: z.string().nullable().optional(),
   platformName: z.string().min(1).optional(),
   profileLink: z.string().url().optional().or(z.literal('')),
   ranking: z.string().min(1).optional(),

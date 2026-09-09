@@ -2,12 +2,14 @@ const { z } = require('zod');
 const prisma = require('../config/prisma');
 const asyncHandler = require('../utils/asyncHandler');
 
+// Se exponen ambos idiomas (value = español, valueEn = inglés); el frontend
+// decide cuál mostrar según el idioma activo (nunca se envían los dos a la vez).
 const listContentPublic = asyncHandler(async (req, res) => {
   const rows = await prisma.publicContent.findMany();
   const bySection = {};
   for (const row of rows) {
     bySection[row.section] = bySection[row.section] || {};
-    bySection[row.section][row.key] = row.value;
+    bySection[row.section][row.key] = { value: row.value, valueEn: row.valueEn };
   }
   res.json({ ok: true, content: bySection });
 });
@@ -21,15 +23,16 @@ const upsertContentSchema = z.object({
   section: z.string().min(1),
   key: z.string().min(1),
   value: z.string(),
+  valueEn: z.string().nullable().optional(),
 });
 
 const upsertContent = asyncHandler(async (req, res) => {
-  const { section, key, value } = upsertContentSchema.parse(req.body);
+  const { section, key, value, valueEn } = upsertContentSchema.parse(req.body);
 
   const row = await prisma.publicContent.upsert({
     where: { section_key: { section, key } },
-    update: { value, updatedByUserId: req.user.id },
-    create: { section, key, value, updatedByUserId: req.user.id },
+    update: { value, valueEn, updatedByUserId: req.user.id },
+    create: { section, key, value, valueEn, updatedByUserId: req.user.id },
   });
 
   res.json({ ok: true, content: row });
@@ -45,7 +48,7 @@ const bulkUpsertContent = asyncHandler(async (req, res) => {
     items.map((item) =>
       prisma.publicContent.upsert({
         where: { section_key: { section: item.section, key: item.key } },
-        update: { value: item.value, updatedByUserId: req.user.id },
+        update: { value: item.value, valueEn: item.valueEn, updatedByUserId: req.user.id },
         create: { ...item, updatedByUserId: req.user.id },
       })
     )
