@@ -5,6 +5,7 @@
   "type": "commonjs",
   "main": "src/server.js",
   "scripts": {
+    "postinstall": "prisma generate",
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
     "prisma:generate": "prisma generate",
