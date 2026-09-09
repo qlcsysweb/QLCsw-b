@@ -168,7 +168,7 @@ const PUBLIC_CONTENT = [
     'disclaimer',
     'Los activos digitales y el trading apalancado implican riesgos significativos. Los resultados históricos no garantizan resultados futuros. La información presentada es de carácter informativo y está sujeta a los términos y condiciones aplicables.',
   ],
-  ['footer', 'tagline', 'Trading institucional. Accesible desde 20 USDT.'],
+  ['footer', 'tagline', 'Copytrading Institucional. Accesible desde 20 USDT.'],
 ];
 
 async function main() {

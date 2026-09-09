@@ -10,9 +10,16 @@ const { notFoundHandler, errorHandler } = require('./middleware/errorHandler');
 
 const app = express();
 
+// El navegador nunca incluye "/" al final del Origin (es solo scheme://host:port).
+// Si CLIENT_ORIGIN se configura por error con una barra final (p. ej.
+// "https://mi-app.vercel.app/"), la comparación exacta de `cors` nunca
+// coincide y bloquea TODAS las peticiones reales — se normaliza aquí para
+// que ese error de configuración no pueda volver a romper la conexión.
+const CLIENT_ORIGIN = (process.env.CLIENT_ORIGIN || '').replace(/\/+$/, '');
+
 app.use(
   cors({
-    origin: process.env.CLIENT_ORIGIN,
+    origin: CLIENT_ORIGIN,
     credentials: true,
   })
 );
