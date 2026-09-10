@@ -12,10 +12,11 @@
  *                           completó). El admin puede crear una nueva.
  *   DESBLOQUEADO          — invitación vigente esperando respuesta del cliente.
  *   SOLICITUD_EN_PROCESO  — el cliente aceptó y envió su solicitud; QLC
- *                           todavía no publica la distribución.
- *   INSTRUCCIONES_EMITIDAS — distribución publicada, esperando que el
- *                           cliente la marque como leída.
- *   COMPLETADA            — el cliente ya marcó como leídas las instrucciones.
+ *                           todavía no la autoriza.
+ *   DISTRIBUCION_EN_PROCESO — QLC autorizó el monto; el CLIENTE debe
+ *                           distribuirlo entre sus propias subcuentas/API
+ *                           (bloques de 20 USDT) — el admin nunca lo hace.
+ *   COMPLETADA            — el cliente confirmó su distribución completa.
  */
 
 function computeCapitalState(latestInvitation) {
@@ -36,14 +37,16 @@ function computeCapitalState(latestInvitation) {
   const request = latestInvitation.request;
   if (!request) return { state: 'BLOQUEADO', invitation: latestInvitation };
 
+  if (request.status === 'DISTRIBUCION_EN_PROCESO') {
+    return { state: 'DISTRIBUCION_EN_PROCESO', invitation: latestInvitation, request };
+  }
   if (request.status === 'INSTRUCCIONES_EMITIDAS') {
     return { state: 'INSTRUCCIONES_EMITIDAS', invitation: latestInvitation, request };
   }
   if (request.status === 'COMPLETADA') {
     return { state: 'COMPLETADA', invitation: latestInvitation, request };
   }
-  // EN_PROCESO o DISTRIBUCION_EN_PROCESO — desde la perspectiva del cliente
-  // ambos se ven igual: su solicitud está siendo procesada por QLC.
+  // EN_PROCESO — la solicitud todavía no fue autorizada por QLC.
   return { state: 'SOLICITUD_EN_PROCESO', invitation: latestInvitation, request };
 }
 

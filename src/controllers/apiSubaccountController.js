@@ -4,13 +4,11 @@ const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const { encrypt, decrypt } = require('../utils/crypto');
 const { notifyClient } = require('../utils/notify');
-
-// CORRECCIÓN 1: WALLET va primero — así se refleja el orden real de la
-// guía de uso (cargar wallet antes de contrato/pagos/API).
-const PROCESS_CONDITION_TYPES = ['WALLET', 'CONTRACT', 'FUNDS', 'PAYMENT', 'API', 'ACTIVATION'];
-// CORRECCIÓN 11: hasta 20 subcuentas/API por cliente. Se aplica aquí (no
-// hay forma nativa de limitarlo en Prisma/Postgres para este caso).
-const MAX_SUBACCOUNTS_PER_CLIENT = 20;
+const {
+  ensureAllSubaccounts,
+  MAX_SUBACCOUNTS_PER_CLIENT,
+  PROCESS_CONDITION_TYPES,
+} = require('../utils/subaccountProvisioning');
 
 // CORRECCIÓN 11/16: cada subcuenta nace con su propio proceso de
 // activación (5 condiciones) — igual que antes nacía a nivel cliente.
@@ -73,6 +71,8 @@ const updateSubaccountSchema = z.object({
   status: z.enum(['CONECTADA', 'DESCONECTADA', 'PENDIENTE']).optional(),
   requiredCapital: z.number().positive().nullable().optional(),
   notes: z.string().optional(),
+  // CORRECCIÓN 19: motivo opcional del cambio de estado de conexión.
+  connectionReason: z.string().optional(),
 });
 
 const updateSubaccount = asyncHandler(async (req, res) => {
@@ -105,11 +105,22 @@ const updateSubaccount = asyncHandler(async (req, res) => {
   });
 
   if (statusChanged) {
-    // CORRECCIÓN 25: historial detallado de conexión/desconexión.
+    // CORRECCIÓN 19/25: historial detallado de conexión/desconexión — la
+    // PRIMERA conexión de una subcuenta se registra como ACTIVATED, las
+    // siguientes como RECONNECTED, para distinguir activación inicial de
+    // reactivaciones posteriores.
+    let eventType = 'DISCONNECTED';
+    if (data.status === 'CONECTADA') {
+      const priorConnections = await prisma.apiConnectionEvent.count({
+        where: { apiSubaccountId: updated.id, eventType: { in: ['ACTIVATED', 'RECONNECTED'] } },
+      });
+      eventType = priorConnections === 0 ? 'ACTIVATED' : 'RECONNECTED';
+    }
     await prisma.apiConnectionEvent.create({
       data: {
         apiSubaccountId: updated.id,
-        eventType: data.status === 'CONECTADA' ? 'RECONNECTED' : 'DISCONNECTED',
+        eventType,
+        reason: data.connectionReason || null,
       },
     });
 
@@ -162,4 +173,21 @@ const getSubaccountSecrets = asyncHandler(async (req, res) => {
   });
 });
 
-module.exports = { createSubaccount, updateSubaccount, getSubaccountSecrets, MAX_SUBACCOUNTS_PER_CLIENT };
+// CORRECCIÓN 27/29: backfill idempotente — crea únicamente las subcuentas
+// faltantes hasta llegar a 20, nunca duplica las existentes. Útil para
+// clientes dados de alta antes de esta actualización.
+const ensureSubaccounts = asyncHandler(async (req, res) => {
+  const client = await prisma.clientProfile.findUnique({ where: { id: req.params.clientId } });
+  if (!client) throw ApiError.notFound('Cliente no encontrado');
+
+  const created = await ensureAllSubaccounts(client.id);
+  res.json({ ok: true, createdCount: created.length });
+});
+
+module.exports = {
+  createSubaccount,
+  updateSubaccount,
+  getSubaccountSecrets,
+  ensureSubaccounts,
+  MAX_SUBACCOUNTS_PER_CLIENT,
+};

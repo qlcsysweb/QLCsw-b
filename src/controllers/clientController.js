@@ -5,6 +5,7 @@ const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const documentStorage = require('../services/documentStorage');
 const { enforceCommissionDeadline } = require('../utils/connectionDeadlines');
+const { ensureAllSubaccounts } = require('../utils/subaccountProvisioning');
 
 const PROCESS_CONDITION_TYPES = ['CONTRACT', 'FUNDS', 'PAYMENT', 'API', 'ACTIVATION'];
 
@@ -112,6 +113,7 @@ const getClient = asyncHandler(async (req, res) => {
           paymentReports: { orderBy: { reportedAt: 'desc' } },
           statements: { orderBy: { createdAt: 'desc' } },
           connectionEvents: { orderBy: { occurredAt: 'desc' } },
+          capitalDistributionItems: true,
         },
       },
     },
@@ -164,6 +166,10 @@ const createClient = asyncHandler(async (req, res) => {
     },
     include: { clientProfile: true },
   });
+
+  // Especificación funcional QLC — Flujo de Registro: 1 cuenta principal +
+  // 20 subcuentas individuales, también cuando el ADMIN da de alta al cliente.
+  await ensureAllSubaccounts(user.clientProfile.id);
 
   res.status(201).json({ ok: true, client: user.clientProfile });
 });

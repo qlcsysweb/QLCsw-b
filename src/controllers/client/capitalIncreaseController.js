@@ -5,10 +5,16 @@ const asyncHandler = require('../../utils/asyncHandler');
 const { notifyClient } = require('../../utils/notify');
 const { computeCapitalState, CAPITAL_INCREASE_INCLUDE } = require('../../utils/capitalIncreaseState');
 
-// CORRECCIÓN 7 — el cliente NUNCA puede crear/modificar invitaciones,
-// solicitudes o distribuciones: solo puede responder a lo que el admin ya
-// publicó, y solo lo suyo (ownership siempre por req.clientProfile.id,
-// nunca por un id que el cliente envíe).
+// CORRECCIÓN 7/8 — el cliente NUNCA puede crear/modificar invitaciones,
+// pero SÍ es el único responsable de distribuir el monto autorizado entre
+// sus propias subcuentas/API, en bloques de 20 USDT. Ownership siempre por
+// req.clientProfile.id, nunca por un id que el cliente envíe.
+
+const BLOCK_SIZE = 20;
+
+function isValidBlockAmount(amount) {
+  return Number.isFinite(amount) && amount >= BLOCK_SIZE && amount % BLOCK_SIZE === 0;
+}
 
 const getMine = asyncHandler(async (req, res) => {
   const lastInvitation = await prisma.capitalIncreaseInvitation.findFirst({
@@ -20,10 +26,14 @@ const getMine = asyncHandler(async (req, res) => {
   res.json({ ok: true, state: current.state, invitation: current.invitation, request: current.request || null });
 });
 
-const acceptInvitationSchema = z.object({ amount: z.coerce.number().positive() });
+const acceptInvitationSchema = z.object({ amount: z.coerce.number() });
 
 const acceptInvitation = asyncHandler(async (req, res) => {
   const { amount } = acceptInvitationSchema.parse(req.body);
+  if (!isValidBlockAmount(amount)) {
+    throw ApiError.badRequest(`El monto debe ser de al menos ${BLOCK_SIZE} USDT y múltiplo de ${BLOCK_SIZE} USDT.`);
+  }
+
   const invitation = await prisma.capitalIncreaseInvitation.findFirst({
     where: { id: req.params.id, clientId: req.clientProfile.id },
   });
@@ -46,10 +56,9 @@ const acceptInvitation = asyncHandler(async (req, res) => {
     });
   });
 
-  // Punto de notificación 4/6: confirmación de solicitud enviada + plazo 72h.
   await notifyClient(req.clientProfile.id, {
     title: 'Solicitud de aumento de saldo enviada',
-    message: `Tu solicitud de ${amount} USDT fue enviada. QLC dispone de 72 horas para procesarla y emitir las instrucciones de distribución.`,
+    message: `Tu solicitud de ${amount} USDT fue enviada. QLC dispone de 72 horas para procesarla y autorizar la distribución.`,
     type: 'info',
     templateKey: 'capital_request_submitted',
     templateParams: { amount: String(amount) },
@@ -70,8 +79,6 @@ const rejectInvitation = asyncHandler(async (req, res) => {
     data: { status: 'RECHAZADA', respondedAt: new Date() },
   });
 
-  // Punto de notificación 5/6: confirmación de rechazo — el cliente puede
-  // recibir futuras invitaciones.
   await notifyClient(req.clientProfile.id, {
     title: 'Invitación rechazada',
     message: 'Rechazaste la invitación para aumento de saldo operativo. Podrás recibir futuras invitaciones cuando QLC las emita.',
@@ -83,35 +90,103 @@ const rejectInvitation = asyncHandler(async (req, res) => {
   res.json({ ok: true, invitation: updated });
 });
 
-// CORRECCIÓN 7: marcar instrucciones como leídas — única acción del cliente
-// sobre una distribución ya publicada; registra el timestamp y cierra el ciclo.
-const markInstructionsRead = asyncHandler(async (req, res) => {
+// Carga (o recupera) la solicitud propia del cliente en estado
+// DISTRIBUCION_EN_PROCESO, validando ownership real vía el join a
+// invitation.clientId — nunca confiando en un requestId aislado.
+async function loadOwnDistributableRequest(clientId, requestId) {
   const request = await prisma.capitalIncreaseRequest.findUnique({
-    where: { id: req.params.id },
-    include: { invitation: true },
+    where: { id: requestId },
+    include: { invitation: true, distribution: { include: { items: true } } },
   });
-  if (!request || request.invitation.clientId !== req.clientProfile.id) {
+  if (!request || request.invitation.clientId !== clientId) {
     throw ApiError.notFound('Solicitud no encontrada');
   }
-  if (request.status !== 'INSTRUCCIONES_EMITIDAS') {
-    throw ApiError.conflict('Todavía no hay instrucciones publicadas para marcar como leídas.');
+  if (request.status !== 'DISTRIBUCION_EN_PROCESO') {
+    throw ApiError.conflict('Esta solicitud todavía no está autorizada para distribución, o ya fue completada.');
+  }
+  if (request.distribution?.publishedAt) {
+    throw ApiError.conflict('Esta distribución ya fue confirmada.');
+  }
+  return request;
+}
+
+// CORRECCIÓN 8: el cliente selecciona/deselecciona subcuentas — cada una
+// recibe siempre un bloque fijo de 20 USDT. Nunca se supera el monto
+// autorizado ni las 20 subcuentas del cliente (ya limitado estructuralmente).
+const toggleDistributionItem = asyncHandler(async (req, res) => {
+  const schema = z.object({ apiSubaccountId: z.string().min(1), selected: z.boolean() });
+  const { apiSubaccountId, selected } = schema.parse(req.body);
+
+  const request = await loadOwnDistributableRequest(req.clientProfile.id, req.params.id);
+
+  const subaccount = await prisma.apiSubaccount.findFirst({
+    where: { id: apiSubaccountId, clientId: req.clientProfile.id },
+  });
+  if (!subaccount) throw ApiError.badRequest('Esa subcuenta/API no te pertenece.');
+
+  let distribution = request.distribution;
+  if (!distribution) {
+    distribution = await prisma.capitalDistribution.create({
+      data: { requestId: request.id },
+      include: { items: true },
+    });
   }
 
-  const updated = await prisma.capitalIncreaseRequest.update({
-    where: { id: request.id },
-    data: { status: 'COMPLETADA', readAt: new Date() },
-  });
+  const existingItem = distribution.items.find((i) => i.apiSubaccountId === apiSubaccountId);
 
-  // Punto de notificación 6/6: confirmación de cierre del ciclo.
-  await notifyClient(req.clientProfile.id, {
-    title: 'Instrucciones marcadas como leídas',
-    message: 'Confirmaste la lectura de las instrucciones de distribución de tu aumento de saldo operativo.',
-    type: 'info',
-    templateKey: 'capital_instructions_read',
-    templateParams: {},
-  });
+  if (selected) {
+    if (existingItem) return res.json({ ok: true });
+    const currentTotal = distribution.items.reduce((sum, i) => sum + Number(i.amount), 0);
+    if (currentTotal + BLOCK_SIZE > Number(request.requestedAmount)) {
+      throw ApiError.conflict('No puedes seleccionar más subcuentas: superarías el monto autorizado.');
+    }
+    await prisma.capitalDistributionItem.create({
+      data: { distributionId: distribution.id, apiSubaccountId, amount: BLOCK_SIZE, order: distribution.items.length },
+    });
+  } else if (existingItem) {
+    await prisma.capitalDistributionItem.delete({ where: { id: existingItem.id } });
+  }
 
-  res.json({ ok: true, request: updated });
+  res.json({ ok: true });
 });
 
-module.exports = { getMine, acceptInvitation, rejectInvitation, markInstructionsRead };
+// CORRECCIÓN 8: solo puede confirmarse cuando el total seleccionado es
+// EXACTAMENTE igual al monto autorizado — cierra el ciclo (COMPLETADA).
+const confirmDistribution = asyncHandler(async (req, res) => {
+  const request = await loadOwnDistributableRequest(req.clientProfile.id, req.params.id);
+  const items = request.distribution?.items || [];
+  const distributedTotal = items.reduce((sum, i) => sum + Number(i.amount), 0);
+  const requestedAmount = Number(request.requestedAmount);
+
+  if (!request.distribution) {
+    throw ApiError.badRequest('Selecciona al menos una subcuenta antes de confirmar.');
+  }
+  if (distributedTotal !== requestedAmount) {
+    throw ApiError.conflict(
+      `El total distribuido (${distributedTotal} USDT) debe ser exactamente igual al monto autorizado (${requestedAmount} USDT).`
+    );
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.capitalDistribution.update({
+      where: { id: request.distribution.id },
+      data: { publishedAt: new Date() },
+    });
+    await tx.capitalIncreaseRequest.update({
+      where: { id: request.id },
+      data: { status: 'COMPLETADA' },
+    });
+  });
+
+  await notifyClient(req.clientProfile.id, {
+    title: 'Distribución de saldo confirmada',
+    message: `Distribuiste ${distributedTotal} USDT entre tus subcuentas/API correctamente.`,
+    type: 'success',
+    templateKey: 'capital_distribution_confirmed',
+    templateParams: { amount: String(distributedTotal) },
+  });
+
+  res.json({ ok: true });
+});
+
+module.exports = { getMine, acceptInvitation, rejectInvitation, toggleDistributionItem, confirmDistribution };

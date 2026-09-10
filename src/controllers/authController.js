@@ -4,6 +4,7 @@ const prisma = require('../config/prisma');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const { signToken, cookieOptions } = require('../utils/token');
+const { ensureAllSubaccounts } = require('../utils/subaccountProvisioning');
 const {
   isTwoFactorGloballyEnabled,
   verifyToken,
@@ -157,6 +158,10 @@ const register = asyncHandler(async (req, res) => {
     },
     include: { clientProfile: true },
   });
+
+  // Especificación funcional QLC — Flujo de Registro: 1 cuenta principal +
+  // 20 subcuentas individuales creadas automáticamente en el registro.
+  await ensureAllSubaccounts(user.clientProfile.id);
 
   await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
 

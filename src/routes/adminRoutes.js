@@ -23,6 +23,7 @@ const driveConfigController = require('../controllers/driveConfigController');
 const mediaController = require('../controllers/mediaController');
 const platformSettingsController = require('../controllers/platformSettingsController');
 const capitalIncreaseController = require('../controllers/capitalIncreaseController');
+const guideController = require('../controllers/guideController');
 
 const router = Router();
 
@@ -40,16 +41,17 @@ router.patch('/clients/:id/active', clientController.setClientActive);
 router.get('/clients/:id/wallet', clientController.getWallet);
 router.delete('/clients/:id', clientController.deleteClient);
 
-// CORRECCIÓN 7 — Invitación para aumento de saldo operativo (solo ADMIN).
+// CORRECCIÓN 7/8 — Invitación para aumento de saldo operativo (solo ADMIN
+// crea/autoriza; la distribución entre subcuentas la realiza el CLIENTE —
+// ver client/capitalIncreaseController.js).
 router.get('/clients/:clientId/capital-increase', capitalIncreaseController.listForClient);
 router.post('/clients/:clientId/capital-increase/invitations', capitalIncreaseController.createInvitation);
-router.post('/capital-increase/requests/:requestId/distribution', capitalIncreaseController.startDistribution);
-router.post('/capital-increase/distributions/:distributionId/items', capitalIncreaseController.upsertDistributionItem);
-router.delete('/capital-increase/items/:itemId', capitalIncreaseController.removeDistributionItem);
-router.post('/capital-increase/distributions/:distributionId/publish', capitalIncreaseController.publishDistribution);
+router.post('/capital-increase/requests/:requestId/authorize', capitalIncreaseController.authorizeRequest);
 
-// Subcuentas / API (CORRECCIÓN 11) — hasta 20 por cliente
+// Subcuentas / API (CORRECCIÓN 10/11/27) — 1 cuenta principal + 20
+// subcuentas, creadas automáticamente al registrar/crear un cliente.
 router.post('/clients/:clientId/api-subaccounts', apiSubaccountController.createSubaccount);
+router.post('/clients/:clientId/api-subaccounts/ensure-all', apiSubaccountController.ensureSubaccounts);
 router.patch('/api-subaccounts/:id', apiSubaccountController.updateSubaccount);
 router.get('/api-subaccounts/:id/secrets', apiSubaccountController.getSubaccountSecrets);
 
@@ -184,5 +186,11 @@ router.put('/platform-settings', platformSettingsController.updatePlatformSettin
 router.post('/platform-settings/guide/:role', uploadDocumentFile.single('file'), platformSettingsController.uploadGuide);
 router.delete('/platform-settings/guide/:role', platformSettingsController.deleteGuide);
 router.get('/guide', platformSettingsController.downloadMyGuide);
+
+// CORRECCIÓN 1/6/20/21 — Guías de Uso (contenido HTML, biblioteca completa).
+router.get('/guides', guideController.listGuidesAdmin);
+router.post('/guides', guideController.createGuide);
+router.patch('/guides/:id', guideController.updateGuide);
+router.delete('/guides/:id', guideController.deleteGuide);
 
 module.exports = router;

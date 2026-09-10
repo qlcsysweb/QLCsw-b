@@ -18,6 +18,7 @@ const appointmentController = require('../controllers/client/appointmentControll
 const notificationController = require('../controllers/client/notificationController');
 const platformSettingsController = require('../controllers/platformSettingsController');
 const capitalIncreaseController = require('../controllers/client/capitalIncreaseController');
+const guideController = require('../controllers/client/guideController');
 
 const router = Router();
 
@@ -28,13 +29,15 @@ router.use(requireAuth, requireRole('CLIENT'), resolveOwnClientProfile);
 router.get('/me', profileController.getMe);
 router.get('/dashboard', profileController.getDashboard);
 
-// CORRECCIÓN 7 — Invitación para aumento de saldo operativo (solo lectura +
-// aceptar/rechazar/marcar como leído — el cliente nunca crea/modifica
-// invitaciones ni distribuciones). Ownership siempre vía req.clientProfile.id.
+// CORRECCIÓN 7/8 — Invitación para aumento de saldo operativo: el cliente
+// acepta/rechaza la invitación y, una vez autorizada por QLC, es el ÚNICO
+// que distribuye el monto entre sus propias subcuentas/API (bloques de 20
+// USDT). Ownership siempre vía req.clientProfile.id, nunca un id enviado.
 router.get('/capital-increase', capitalIncreaseController.getMine);
 router.post('/capital-increase/invitations/:id/accept', capitalIncreaseController.acceptInvitation);
 router.post('/capital-increase/invitations/:id/reject', capitalIncreaseController.rejectInvitation);
-router.post('/capital-increase/requests/:id/mark-read', capitalIncreaseController.markInstructionsRead);
+router.post('/capital-increase/requests/:id/distribution/toggle', capitalIncreaseController.toggleDistributionItem);
+router.post('/capital-increase/requests/:id/distribution/confirm', capitalIncreaseController.confirmDistribution);
 
 // Modelos de participación (lectura pública, ya activos)
 router.get('/models', modelController.listModelsPublic);
@@ -89,8 +92,10 @@ router.patch('/wallet', walletController.updateWallet);
 // Liga hacia la plataforma externa (CORRECCIÓN 10) — solo lectura para el cliente
 router.get('/platform-link', platformSettingsController.getPlatformLinkForClient);
 
-// Guía de uso (CORRECCIÓN 27) — la del rol CLIENT únicamente
+// Guía de uso — PDF (CORRECCIÓN 27, se conserva) + biblioteca HTML
+// (CORRECCIÓN 1/6/20/21, fuente principal editable desde ADMIN).
 router.get('/guide', platformSettingsController.downloadMyGuide);
+router.get('/guides', guideController.listGuides);
 
 // Soporte
 router.get('/support-cases', supportController.listSupportCases);

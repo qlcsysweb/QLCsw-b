@@ -45,6 +45,7 @@ const getMine = asyncHandler(async (req, res) => {
       paymentReports: { orderBy: { reportedAt: 'desc' } },
       statements: { orderBy: { createdAt: 'desc' } },
       connectionEvents: { orderBy: { occurredAt: 'desc' } },
+      capitalDistributionItems: true,
     },
   });
   if (!subaccount) throw ApiError.notFound('Subcuenta no encontrada');

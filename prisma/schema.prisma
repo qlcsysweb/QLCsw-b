@@ -86,6 +86,7 @@ enum ProspectStatus {
 }
 
 enum ConnectionEventType {
+  ACTIVATED
   DISCONNECTED
   RECONNECTED
 }
@@ -102,6 +103,14 @@ enum CapitalRequestStatus {
   DISTRIBUCION_EN_PROCESO
   INSTRUCCIONES_EMITIDAS
   COMPLETADA
+}
+
+// CORRECCIÓN 1/6/20/21 — Guías de uso: biblioteca editable desde ADMIN,
+// consultada en modo lectura por CLIENTE/ADMIN según audiencia.
+enum GuideAudience {
+  CLIENT
+  ADMIN
+  BOTH
 }
 
 // ==========================================================
@@ -271,6 +280,9 @@ model ApiConnectionEvent {
   apiSubaccountId String
   apiSubaccount   ApiSubaccount       @relation(fields: [apiSubaccountId], references: [id], onDelete: Cascade)
   eventType       ConnectionEventType
+  // CORRECCIÓN 19: motivo opcional (por qué se desactivó/reactivó) — el
+  // cliente y el admin pueden consultar este historial completo.
+  reason          String?
   occurredAt      DateTime            @default(now())
 
   @@map("api_connection_events")
@@ -281,9 +293,11 @@ model ApiConnectionEvent {
 // ==========================================================
 // Solo QLC/ADMIN puede emitir una invitación — el cliente nunca la genera.
 // Flujo: DESBLOQUEADA -> ACEPTADA (crea CapitalIncreaseRequest) o RECHAZADA.
-// Una vez aceptada y con solicitud enviada, el admin arma una distribución
-// real usando las subcuentas/API existentes del cliente (nunca nombres
-// ficticios) y la publica; el cliente la consulta y la marca como leída.
+// CORRECCIÓN 7/8 (actualización): una vez aceptada y con solicitud enviada,
+// el ADMIN autoriza/procesa la solicitud (EN_PROCESO -> DISTRIBUCION_EN_
+// PROCESO) pero NUNCA arma la distribución por el cliente — es el propio
+// CLIENTE quien distribuye el monto autorizado entre sus subcuentas/API
+// reales, en bloques de 20 USDT, hasta agotar exactamente el monto.
 model CapitalIncreaseInvitation {
   id              String   @id @default(cuid())
   clientId        String
@@ -295,6 +309,8 @@ model CapitalIncreaseInvitation {
   maxAmount       Decimal  @db.Decimal(14, 2)
   validityDays    Int      @default(10)
   expiresAt       DateTime
+  // Mensaje opcional del admin al emitir la invitación (motivo, contexto).
+  message         String?
 
   status          CapitalInvitationStatus @default(DESBLOQUEADA)
   respondedAt     DateTime?
@@ -852,6 +868,32 @@ model TrackRecord {
 // CORRECCIÓN 25: las notificaciones se eliminan automáticamente 34 días
 // después de creadas (limpieza real ejecutada de forma perezosa en cada
 // lectura del listado — ver notificationController.js).
+
+// ==========================================================
+// GUÍAS DE USO (CORRECCIÓN 1/6/20/21)
+// ==========================================================
+// Biblioteca de contenido editable desde ADMIN → Guías de Uso. Reemplaza la
+// dependencia exclusiva del PDF: el contenido HTML es la fuente principal,
+// el PDF (PlatformSettings.adminGuidePdfUrl/clientGuidePdfUrl) se conserva
+// como descarga opcional adicional, nunca se elimina esa funcionalidad.
+model Guide {
+  id            String        @id @default(cuid())
+  titleEs       String
+  titleEn       String?
+  descriptionEs String?
+  descriptionEn String?
+  // Contenido HTML estructurado (títulos, pasos, avisos, tablas) — nunca
+  // texto plano del Word sin estructurar.
+  contentEs     String
+  contentEn     String?
+  audience      GuideAudience @default(CLIENT)
+  displayOrder  Int           @default(0)
+  isActive      Boolean       @default(true)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  @@map("guides")
+}
 
 model Notification {
   id     String @id @default(cuid())
