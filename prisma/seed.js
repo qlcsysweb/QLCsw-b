@@ -83,22 +83,31 @@ const FAQS = [
     displayOrder: 2,
   },
   {
+    question: '¿Cómo funciona el incremento de mi capital dentro del modelo QLC?',
+    questionEn: 'How does the growth of my capital work within the QLC model?',
+    answer:
+      'El acceso se gana. La confianza también.\n\nQLC no recibe capital de inversión. El capital permanece siempre en la cuenta del cliente.\n\nLos incrementos de saldo dentro del modelo se habilitan únicamente por invitación, conforme se desarrolla una relación de confianza entre el cliente QLC, considerando el cumplimiento oportuno de sus pagos y la correcta ejecución de nuestra estrategia.\n\nMás confianza. Mayor capacidad de participación.',
+    answerEn:
+      "Access is earned. So is trust.\n\nQLC does not receive investment capital. Capital always remains in the client's own account.\n\nBalance increases within the model are enabled only by invitation, as a relationship of trust develops with the QLC client, taking into account timely payment compliance and the correct execution of our strategy.\n\nMore trust. Greater capacity to participate.",
+    displayOrder: 3,
+  },
+  {
     question: '¿Cómo se conecta mi cuenta?',
     answer:
       'El cliente autoriza una conexión API con permisos limitados. Esa conexión permite a QLC ejecutar operaciones, sin autorización para retirar fondos.',
-    displayOrder: 3,
+    displayOrder: 4,
   },
   {
     question: '¿Qué tamaño de cuenta está contemplado?',
     answer:
       'La arquitectura comercial de QLC está diseñada para operar con cuentas individuales desde 20 USDT hasta 400 USDT.',
-    displayOrder: 4,
+    displayOrder: 5,
   },
   {
     question: '¿QLC utiliza el copytrading nativo del exchange?',
     answer:
       'No. El modelo se basa en infraestructura propia y en una conexión API directa con la cuenta autorizada del cliente.',
-    displayOrder: 5,
+    displayOrder: 6,
   },
 ];
 
@@ -125,6 +134,52 @@ const PUBLIC_CONTENT = [
     'modelos',
     'note',
     'Las referencias de rendimiento son objetivos o parámetros del modelo y no constituyen una garantía de resultados futuros.',
+  ],
+
+  // CORRECCIÓN 26 — sección pública "El problema"
+  ['problema', 'title', 'EL JUEGO NO ES PAREJO.', 'THE GAME ISN\'T LEVEL.'],
+  ['problema', 'lead', 'El 95% pierde. El 5% opera con otra infraestructura.', '95% lose. 5% operate with a different infrastructure.'],
+  [
+    'problema', 'body_1',
+    'La mayoría de los traders minoristas enfrenta los mercados con herramientas limitadas: gráficos, indicadores y líneas en una pantalla, intentando anticipar si el precio subirá o bajará.',
+    'Most retail traders face the markets with limited tools: charts, indicators and lines on a screen, trying to anticipate whether the price will rise or fall.',
+  ],
+  [
+    'problema', 'body_2',
+    'Mientras tanto, el entorno profesional utiliza modelos cuantitativos, algoritmos, software especializado y herramientas de análisis de última generación, desarrolladas para procesar información y ejecutar estrategias con una capacidad que un operador humano no puede igualar.',
+    'Meanwhile, the professional environment uses quantitative models, algorithms, specialized software and state-of-the-art analysis tools, built to process information and execute strategies with a capacity no human operator can match.',
+  ],
+  [
+    'problema', 'body_3',
+    'El problema no siempre es la estrategia. Es la infraestructura disponible para ejecutarla.',
+    "The problem isn't always the strategy. It's the infrastructure available to execute it.",
+  ],
+  ['problema', 'body_4', 'QLC cambia esa ecuación.', 'QLC changes that equation.'],
+  [
+    'problema', 'body_5',
+    'Ponemos al alcance de inversores individuales una infraestructura de Copytrading Institucional, basada en nuestra propia estrategia, tecnología y sistemas de ejecución.',
+    'We put an institutional Copytrading infrastructure within reach of individual investors, built on our own strategy, technology and execution systems.',
+  ],
+  ['problema', 'body_6', 'Desde 20 USDT.', 'Starting from 20 USDT.'],
+  [
+    'problema', 'body_7',
+    'Tu cuenta sigue siendo individual. Nuestra gestión es global.',
+    'Your account remains individual. Our management is global.',
+  ],
+  [
+    'problema', 'body_8',
+    'Tú ves tu cuenta. Nosotros vemos tu cuenta como parte de una estructura global de miles de cuentas.',
+    'You see your account. We see your account as part of a global structure of thousands of accounts.',
+  ],
+  [
+    'problema', 'body_9',
+    'La diferencia no está solamente en lo que ves en el gráfico. Está en todo lo que ocurre detrás de él.',
+    "The difference isn't only in what you see on the chart. It's in everything that happens behind it.",
+  ],
+  [
+    'problema', 'closing',
+    'QLC — Infraestructura institucional. Ahora al alcance del inversor individual.',
+    'QLC — Institutional infrastructure. Now within reach of the individual investor.',
   ],
 
   [
@@ -176,17 +231,15 @@ async function main() {
 
   // --- Admin inicial ---
   const adminEmail = process.env.SEED_ADMIN_EMAIL;
-  const adminUsername = process.env.SEED_ADMIN_USERNAME;
   const adminPassword = process.env.SEED_ADMIN_PASSWORD;
 
-  if (adminEmail && adminUsername && adminPassword) {
+  if (adminEmail && adminPassword) {
     const existing = await prisma.user.findUnique({ where: { email: adminEmail } });
     if (!existing) {
       const passwordHash = await bcrypt.hash(adminPassword, 12);
       await prisma.user.create({
         data: {
           email: adminEmail,
-          username: adminUsername,
           passwordHash,
           role: 'ADMIN',
           adminProfile: {
@@ -194,7 +247,7 @@ async function main() {
           },
         },
       });
-      console.log(`Administrador inicial creado: ${adminUsername} <${adminEmail}>`);
+      console.log(`Administrador inicial creado: <${adminEmail}>`);
       console.log('IMPORTANTE: cambia esta contraseña después del primer inicio de sesión.');
     } else {
       console.log('Administrador inicial ya existía, se omite (no se sobrescribe su contraseña).');
@@ -244,11 +297,11 @@ async function main() {
   }
 
   // --- Contenido público ---
-  for (const [section, key, value] of PUBLIC_CONTENT) {
+  for (const [section, key, value, valueEn] of PUBLIC_CONTENT) {
     await prisma.publicContent.upsert({
       where: { section_key: { section, key } },
       update: {},
-      create: { section, key, value },
+      create: { section, key, value, valueEn: valueEn || null },
     });
   }
   console.log(`Contenido público sincronizado: ${PUBLIC_CONTENT.length} entradas.`);

@@ -5,13 +5,16 @@ const { uploadDocument: uploadDocumentFile } = require('../middleware/upload');
 
 const modelController = require('../controllers/modelController');
 const profileController = require('../controllers/client/profileController');
+const apiSubaccountController = require('../controllers/client/apiSubaccountController');
 const contractController = require('../controllers/client/contractController');
 const documentController = require('../controllers/client/documentController');
 const paymentController = require('../controllers/client/paymentController');
+const statementController = require('../controllers/client/statementController');
+const walletController = require('../controllers/client/walletController');
+const processController = require('../controllers/processController');
 const supportController = require('../controllers/client/supportController');
 const chatController = require('../controllers/client/chatController');
 const appointmentController = require('../controllers/client/appointmentController');
-const apiConnectionController = require('../controllers/client/apiConnectionController');
 const notificationController = require('../controllers/client/notificationController');
 const platformSettingsController = require('../controllers/platformSettingsController');
 
@@ -22,40 +25,60 @@ router.use(requireAuth, requireRole('CLIENT'), resolveOwnClientProfile);
 
 // Perfil / Dashboard
 router.get('/me', profileController.getMe);
-router.patch('/me', profileController.updateMe);
 router.get('/dashboard', profileController.getDashboard);
 
-// Modelos (lectura pública + selección propia)
+// Modelos de participación (lectura pública, ya activos)
 router.get('/models', modelController.listModelsPublic);
-router.patch('/model', profileController.selectModel);
 
-// Proceso (solo lectura)
-router.get('/process', profileController.getProcess);
+// Subcuentas / API (CORRECCIÓN 11) — hasta 20 por cliente
+router.get('/api-subaccounts', apiSubaccountController.listMine);
+router.get('/api-subaccounts/:id', apiSubaccountController.getMine);
+router.patch('/api-subaccounts/:id', apiSubaccountController.updateMine);
+router.post('/api-subaccounts/:id/report-capital-ready', apiSubaccountController.reportCapitalReady);
+router.post('/api-subaccounts/:id/model', apiSubaccountController.selectModel);
+router.post('/api-subaccounts/:id/model/confirm', apiSubaccountController.confirmModel);
 
-// Contrato
-router.get('/contract', contractController.getContract);
-router.post('/contract/signed', uploadDocumentFile.single('file'), contractController.uploadSignedContract);
+// Proceso de activación (solo lectura) — por subcuenta
+router.get('/api-subaccounts/:apiSubaccountId/process', processController.getProcess);
+
+// Contrato — por subcuenta
+router.get('/api-subaccounts/:apiSubaccountId/contract', contractController.getContract);
+router.post(
+  '/api-subaccounts/:apiSubaccountId/contract/signed',
+  uploadDocumentFile.single('file'),
+  contractController.uploadSignedContract
+);
 router.get('/contract/:id/download/:variant', contractController.downloadContractFile);
 
-// Documentos
+// Documentos de identidad (a nivel cliente — REVERSIÓN A: bloqueados por defecto)
 router.get('/documents', documentController.listDocuments);
 router.post('/documents', uploadDocumentFile.single('file'), documentController.uploadDocument);
 router.get('/documents/:id/download', documentController.downloadDocument);
 router.delete('/documents/:id', documentController.deleteDocument);
 
-// Pagos
+// Pagos — por subcuenta
 router.get('/payment-config', paymentController.getPaymentConfig);
-router.get('/payment-reports', paymentController.listPaymentReports);
-router.post('/payment-reports', uploadDocumentFile.single('file'), paymentController.createPaymentReport);
+router.get('/api-subaccounts/:apiSubaccountId/payment-reports', paymentController.listPaymentReports);
+router.post(
+  '/api-subaccounts/:apiSubaccountId/payment-reports',
+  uploadDocumentFile.single('file'),
+  paymentController.createPaymentReport
+);
 router.get('/payment-reports/:id/proof', paymentController.downloadPaymentProof);
 
-// Conexión API — el cliente introduce su propia key/secret; el estado
-// rojo/verde permanece exclusivamente bajo control administrativo (§8)
-router.get('/api-connection', apiConnectionController.getApiConnection);
-router.patch('/api-connection', apiConnectionController.setApiConnection);
+// Estados de cuenta (CORRECCIÓN 14) — por subcuenta
+router.get('/api-subaccounts/:apiSubaccountId/statements', statementController.listStatements);
+router.get('/statements/:id/download', statementController.downloadStatementFile);
 
-// Liga hacia la plataforma externa (§9) — solo lectura para el cliente
+// Wallet personal (CORRECCIÓN 28)
+router.get('/wallet', walletController.getWallet);
+router.patch('/wallet', walletController.updateWallet);
+
+// Liga hacia la plataforma externa (CORRECCIÓN 10) — solo lectura para el cliente
 router.get('/platform-link', platformSettingsController.getPlatformLinkForClient);
+
+// Guía de uso (CORRECCIÓN 27) — la del rol CLIENT únicamente
+router.get('/guide', platformSettingsController.downloadMyGuide);
 
 // Soporte
 router.get('/support-cases', supportController.listSupportCases);

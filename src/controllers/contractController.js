@@ -12,25 +12,29 @@ async function assertDriveReady() {
   }
 }
 
-const listContractsByClient = asyncHandler(async (req, res) => {
-  const contracts = await prisma.contract.findMany({
-    where: { clientId: req.params.clientId },
-    orderBy: { createdAt: 'desc' },
-  });
-  res.json({ ok: true, contracts });
+// Contrato — 1:1 por SUBCUENTA/API (CORRECCIÓN 11/23).
+
+const getContractBySubaccount = asyncHandler(async (req, res) => {
+  const contract = await prisma.contract.findUnique({ where: { apiSubaccountId: req.params.apiSubaccountId } });
+  res.json({ ok: true, contract });
 });
 
+// El administrador conserva la posibilidad de subir/reemplazar el
+// contrato manualmente (p. ej. si el generado automáticamente al
+// confirmar el modelo necesita un ajuste puntual).
 const uploadOriginalContract = asyncHandler(async (req, res) => {
   await assertDriveReady();
   if (!req.file) throw ApiError.badRequest('Debes adjuntar un archivo');
 
-  const client = await prisma.clientProfile.findUnique({ where: { id: req.params.clientId } });
-  if (!client) throw ApiError.notFound('Cliente no encontrado');
+  const subaccount = await prisma.apiSubaccount.findUnique({
+    where: { id: req.params.apiSubaccountId },
+    include: { client: true },
+  });
+  if (!subaccount) throw ApiError.notFound('Subcuenta no encontrada');
 
-  const { contractsFolderId } = await documentStorage.ensureClientFolders(client);
+  const { contractsFolderId } = await documentStorage.ensureClientFolders(subaccount.client);
 
-  // Si ya existía un contrato original, reemplazar el archivo anterior en Drive
-  const existing = await prisma.contract.findFirst({ where: { clientId: client.id } });
+  const existing = await prisma.contract.findUnique({ where: { apiSubaccountId: subaccount.id } });
   if (existing?.originalDriveFileId) {
     await documentStorage.deleteDocument(existing.originalDriveFileId).catch(() => {});
   }
@@ -42,7 +46,6 @@ const uploadOriginalContract = asyncHandler(async (req, res) => {
   });
 
   const data = {
-    clientId: client.id,
     status: 'UPLOADED',
     originalDriveFileId: uploaded.id,
     originalDriveFolderId: contractsFolderId,
@@ -54,9 +57,9 @@ const uploadOriginalContract = asyncHandler(async (req, res) => {
 
   const contract = existing
     ? await prisma.contract.update({ where: { id: existing.id }, data })
-    : await prisma.contract.create({ data });
+    : await prisma.contract.create({ data: { apiSubaccountId: subaccount.id, ...data } });
 
-  await notifyClient(client.id, {
+  await notifyClient(subaccount.clientId, {
     title: 'Contrato disponible',
     message: 'Tu contrato ya está disponible para revisión y firma.',
     type: 'info',
@@ -70,11 +73,13 @@ const uploadSignedContract = asyncHandler(async (req, res) => {
   await assertDriveReady();
   if (!req.file) throw ApiError.badRequest('Debes adjuntar un archivo');
 
-  const contract = await prisma.contract.findUnique({ where: { id: req.params.id } });
+  const contract = await prisma.contract.findUnique({
+    where: { id: req.params.id },
+    include: { apiSubaccount: { include: { client: true } } },
+  });
   if (!contract) throw ApiError.notFound('Contrato no encontrado');
 
-  const client = await prisma.clientProfile.findUnique({ where: { id: contract.clientId } });
-  const { contractsFolderId } = await documentStorage.ensureClientFolders(client);
+  const { contractsFolderId } = await documentStorage.ensureClientFolders(contract.apiSubaccount.client);
 
   if (contract.signedDriveFileId) {
     await documentStorage.deleteDocument(contract.signedDriveFileId).catch(() => {});
@@ -112,7 +117,8 @@ const updateContractStatus = asyncHandler(async (req, res) => {
 
   const updated = await prisma.contract.update({ where: { id: contract.id }, data: { status } });
 
-  await notifyClient(contract.clientId, {
+  const subaccount = await prisma.apiSubaccount.findUnique({ where: { id: contract.apiSubaccountId } });
+  await notifyClient(subaccount.clientId, {
     title: 'Actualización de tu contrato',
     message: `Estado de tu contrato: ${status}`,
     type: status === 'REJECTED' ? 'warning' : 'info',
@@ -168,7 +174,8 @@ const resetSignedContract = asyncHandler(async (req, res) => {
     },
   });
 
-  await notifyClient(contract.clientId, {
+  const subaccount = await prisma.apiSubaccount.findUnique({ where: { id: contract.apiSubaccountId } });
+  await notifyClient(subaccount.clientId, {
     title: 'Tu contrato firmado fue reiniciado',
     message: 'QLC eliminó tu archivo firmado. Puedes volver a subirlo cuando quieras.',
     type: 'info',
@@ -196,7 +203,7 @@ const deleteContract = asyncHandler(async (req, res) => {
 });
 
 module.exports = {
-  listContractsByClient,
+  getContractBySubaccount,
   uploadOriginalContract,
   uploadSignedContract,
   updateContractStatus,

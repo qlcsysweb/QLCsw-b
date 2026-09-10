@@ -4,6 +4,7 @@ const { uploadDocument: uploadDocumentFile, uploadImage, uploadMedia } = require
 
 const dashboardController = require('../controllers/dashboardController');
 const clientController = require('../controllers/clientController');
+const apiSubaccountController = require('../controllers/apiSubaccountController');
 const processController = require('../controllers/processController');
 const modelController = require('../controllers/modelController');
 const contentController = require('../controllers/contentController');
@@ -12,12 +13,12 @@ const trackRecordController = require('../controllers/trackRecordController');
 const adminController = require('../controllers/adminController');
 const contractController = require('../controllers/contractController');
 const documentController = require('../controllers/documentController');
+const statementController = require('../controllers/statementController');
 const paymentController = require('../controllers/paymentController');
 const appointmentController = require('../controllers/appointmentController');
 const supportController = require('../controllers/supportController');
 const chatController = require('../controllers/chatController');
 const prospectController = require('../controllers/prospectController');
-const apiConnectionController = require('../controllers/apiConnectionController');
 const driveConfigController = require('../controllers/driveConfigController');
 const mediaController = require('../controllers/mediaController');
 const platformSettingsController = require('../controllers/platformSettingsController');
@@ -35,17 +36,23 @@ router.post('/clients', clientController.createClient);
 router.get('/clients/:id', clientController.getClient);
 router.patch('/clients/:id', clientController.updateClient);
 router.patch('/clients/:id/active', clientController.setClientActive);
-router.patch('/clients/:id/model', clientController.selectClientModel);
+router.get('/clients/:id/wallet', clientController.getWallet);
 router.delete('/clients/:id', clientController.deleteClient);
 
-// Process / activation
-router.get('/clients/:clientId/process', processController.getProcess);
-router.patch('/clients/:clientId/process/:type', processController.updateCondition);
-router.post('/clients/:clientId/activate', processController.activateClient);
-router.post('/clients/:clientId/deactivate', processController.deactivateClient);
+// Subcuentas / API (CORRECCIÓN 11) — hasta 20 por cliente
+router.post('/clients/:clientId/api-subaccounts', apiSubaccountController.createSubaccount);
+router.patch('/api-subaccounts/:id', apiSubaccountController.updateSubaccount);
+router.get('/api-subaccounts/:id/secrets', apiSubaccountController.getSubaccountSecrets);
 
-// Models
+// Process / activation — por subcuenta
+router.get('/api-subaccounts/:apiSubaccountId/process', processController.getProcess);
+router.patch('/api-subaccounts/:apiSubaccountId/process/:type', processController.updateCondition);
+router.post('/api-subaccounts/:apiSubaccountId/activate', processController.activateSubaccount);
+router.post('/api-subaccounts/:apiSubaccountId/deactivate', processController.deactivateSubaccount);
+
+// Models (CORRECCIÓN 30 — CRUD completo, sin límite artificial)
 router.get('/models', modelController.listModelsAdmin);
+router.post('/models', modelController.createModel);
 router.patch('/models/:id', modelController.updateModel);
 
 // Public content
@@ -68,10 +75,10 @@ router.get('/admins', adminController.listAdmins);
 router.post('/admins', adminController.createAdmin);
 router.patch('/admins/:id', adminController.updateAdmin);
 
-// Contracts (documentos → Google Drive)
-router.get('/clients/:clientId/contracts', contractController.listContractsByClient);
+// Contracts (documentos → Google Drive) — por subcuenta
+router.get('/api-subaccounts/:apiSubaccountId/contract', contractController.getContractBySubaccount);
 router.post(
-  '/clients/:clientId/contracts',
+  '/api-subaccounts/:apiSubaccountId/contract',
   uploadDocumentFile.single('file'),
   contractController.uploadOriginalContract
 );
@@ -85,7 +92,7 @@ router.patch('/contracts/:id/status', contractController.updateContractStatus);
 router.post('/contracts/:id/reset-signed', contractController.resetSignedContract);
 router.delete('/contracts/:id', contractController.deleteContract);
 
-// Documents (documentos → Google Drive)
+// Documents (identidad del cliente → Google Drive)
 router.get('/clients/:clientId/documents', documentController.listDocumentsByClient);
 router.post(
   '/clients/:clientId/documents',
@@ -94,12 +101,25 @@ router.post(
 );
 router.get('/documents/:id/download', documentController.downloadDocument);
 router.delete('/documents/:id', documentController.deleteDocument);
+// REVERSIÓN A: única forma de que el cliente pueda eliminar/reemplazar un
+// documento puntual — el admin lo habilita temporalmente.
+router.patch('/documents/:id/unlock', documentController.setDocumentUnlock);
+
+// Estados de cuenta (CORRECCIÓN 14) — por subcuenta
+router.get('/api-subaccounts/:apiSubaccountId/statements', statementController.listStatements);
+router.post('/api-subaccounts/:apiSubaccountId/statements', statementController.createStatement);
+router.get('/statements/:id/download', statementController.downloadStatementFile);
 
 // Payments (QR → Cloudinary imagen, comprobante → Google Drive documento)
 router.get('/payment-config', paymentController.getPaymentConfig);
 router.put('/payment-config', paymentController.updatePaymentConfig);
 router.post('/payment-config/qr', uploadImage.single('file'), paymentController.uploadPaymentQr);
 router.get('/payment-reports', paymentController.listPaymentReports);
+router.post(
+  '/api-subaccounts/:apiSubaccountId/payment-reports',
+  uploadDocumentFile.single('file'),
+  paymentController.createPaymentReport
+);
 router.get('/payment-reports/:id/proof', paymentController.downloadPaymentProof);
 router.patch('/payment-reports/:id', paymentController.reviewPaymentReport);
 
@@ -122,11 +142,9 @@ router.post('/chat/:id/close', chatController.closeSession);
 router.get('/prospects', prospectController.listProspects);
 router.patch('/prospects/:id', prospectController.updateProspectStatus);
 
-// API Connection
-router.get('/clients/:clientId/api-connection', apiConnectionController.getApiConnection);
-router.patch('/clients/:clientId/api-connection', apiConnectionController.setApiConnection);
-
 // Configuración de Google Drive (Admin → Configuración → Google Drive)
+// CORRECCIÓN 24: bloqueada tras la primera configuración — solo quien la
+// configuró puede editarla o desconectarla.
 router.get('/drive-config', driveConfigController.getConfig);
 router.put('/drive-config', driveConfigController.updateConfig);
 router.post('/drive-config/test', driveConfigController.testConnection);
@@ -139,14 +157,14 @@ router.patch('/media/:id', mediaController.updateMedia);
 router.post('/media/:id/replace', uploadMedia.single('file'), mediaController.replaceMediaFile);
 router.delete('/media/:id', mediaController.deleteMedia);
 
-// Configuración de plataforma: liga externa (§9) + PDF informativo (§1)
+// Configuración de plataforma: liga externa (CORRECCIÓN 10)
 router.get('/platform-settings', platformSettingsController.getPlatformSettingsAdmin);
 router.put('/platform-settings', platformSettingsController.updatePlatformSettings);
-router.post(
-  '/platform-settings/info-pdf',
-  uploadDocumentFile.single('file'),
-  platformSettingsController.uploadInfoPdf
-);
-router.delete('/platform-settings/info-pdf', platformSettingsController.deleteInfoPdf);
+
+// Guías de uso ADMIN/CLIENTE (CORRECCIÓN 27) — únicos PDFs en Cloudinary.
+// El antiguo "PDF informativo" (CORRECCIÓN 4) fue eliminado por completo.
+router.post('/platform-settings/guide/:role', uploadDocumentFile.single('file'), platformSettingsController.uploadGuide);
+router.delete('/platform-settings/guide/:role', platformSettingsController.deleteGuide);
+router.get('/guide', platformSettingsController.downloadMyGuide);
 
 module.exports = router;

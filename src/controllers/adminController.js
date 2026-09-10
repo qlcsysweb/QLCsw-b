@@ -17,7 +17,6 @@ const listAdmins = asyncHandler(async (req, res) => {
     admins: admins.map((a) => ({
       id: a.id,
       email: a.email,
-      username: a.username,
       isActive: a.isActive,
       lastLoginAt: a.lastLoginAt,
       profile: a.adminProfile,
@@ -30,7 +29,6 @@ const createAdminSchema = z.object({
   firstName: z.string().min(1),
   lastName: z.string().min(1),
   email: z.string().email(),
-  username: z.string().min(3),
   password: z.string().min(8),
   permissions: z.record(z.boolean()).optional(),
 });
@@ -42,19 +40,14 @@ const createAdmin = asyncHandler(async (req, res) => {
   }
 
   const data = createAdminSchema.parse(req.body);
-  const [existingEmail, existingUsername] = await Promise.all([
-    prisma.user.findUnique({ where: { email: data.email } }),
-    prisma.user.findUnique({ where: { username: data.username } }),
-  ]);
+  const existingEmail = await prisma.user.findUnique({ where: { email: data.email } });
   if (existingEmail) throw ApiError.conflict('Ya existe un usuario con ese email');
-  if (existingUsername) throw ApiError.conflict('Ya existe un usuario con ese nombre de usuario');
 
   const passwordHash = await bcrypt.hash(data.password, 12);
 
   const user = await prisma.user.create({
     data: {
       email: data.email,
-      username: data.username,
       passwordHash,
       role: 'ADMIN',
       adminProfile: {
@@ -68,7 +61,7 @@ const createAdmin = asyncHandler(async (req, res) => {
     include: { adminProfile: true },
   });
 
-  res.status(201).json({ ok: true, admin: { id: user.id, email: user.email, username: user.username, profile: user.adminProfile } });
+  res.status(201).json({ ok: true, admin: { id: user.id, email: user.email, profile: user.adminProfile } });
 });
 
 const updateAdminSchema = z.object({
@@ -102,7 +95,7 @@ const updateAdmin = asyncHandler(async (req, res) => {
   }
 
   const updated = await prisma.user.findUnique({ where: { id: admin.id }, include: { adminProfile: true } });
-  res.json({ ok: true, admin: { id: updated.id, email: updated.email, username: updated.username, isActive: updated.isActive, profile: updated.adminProfile } });
+  res.json({ ok: true, admin: { id: updated.id, email: updated.email, isActive: updated.isActive, profile: updated.adminProfile } });
 });
 
 module.exports = { listAdmins, createAdmin, updateAdmin, MAX_ADMINS };

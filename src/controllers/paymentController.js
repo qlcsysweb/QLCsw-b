@@ -73,14 +73,15 @@ const uploadPaymentQr = asyncHandler(async (req, res) => {
 });
 
 const listPaymentReports = asyncHandler(async (req, res) => {
-  const { status, clientId } = req.query;
+  const { status, clientId, apiSubaccountId } = req.query;
   const reports = await prisma.paymentReport.findMany({
     where: {
       ...(status ? { status } : {}),
-      ...(clientId ? { clientId } : {}),
+      ...(apiSubaccountId ? { apiSubaccountId } : {}),
+      ...(clientId ? { apiSubaccount: { clientId } } : {}),
     },
     orderBy: { reportedAt: 'desc' },
-    include: { client: { select: { firstName: true, lastName: true } } },
+    include: { apiSubaccount: { select: { identifier: true, client: { select: { firstName: true, lastName: true } } } } },
   });
   res.json({ ok: true, reports });
 });
@@ -93,13 +94,16 @@ const createPaymentReportSchema = z.object({
 // El comprobante de pago es un DOCUMENTO → Google Drive (aunque sea una captura de pantalla)
 const createPaymentReport = asyncHandler(async (req, res) => {
   const { amount, currency } = createPaymentReportSchema.parse(req.body);
-  const client = await prisma.clientProfile.findUnique({ where: { id: req.params.clientId } });
-  if (!client) throw ApiError.notFound('Cliente no encontrado');
+  const subaccount = await prisma.apiSubaccount.findUnique({
+    where: { id: req.params.apiSubaccountId },
+    include: { client: true },
+  });
+  if (!subaccount) throw ApiError.notFound('Subcuenta no encontrada');
 
   let proofData = {};
   if (req.file) {
     await assertDriveReady();
-    const { paymentsFolderId } = await documentStorage.ensureClientFolders(client);
+    const { paymentsFolderId } = await documentStorage.ensureClientFolders(subaccount.client);
     const uploaded = await documentStorage.uploadDocument(req.file.buffer, {
       folderId: paymentsFolderId,
       fileName: req.file.originalname,
@@ -116,7 +120,7 @@ const createPaymentReport = asyncHandler(async (req, res) => {
 
   const report = await prisma.paymentReport.create({
     data: {
-      clientId: client.id,
+      apiSubaccountId: subaccount.id,
       amount,
       currency: currency || 'USDT',
       ...proofData,
@@ -163,17 +167,39 @@ const reviewPaymentReport = asyncHandler(async (req, res) => {
     },
   });
 
+  const subaccount = await prisma.apiSubaccount.findUnique({ where: { id: report.apiSubaccountId } });
+
   if (status === 'APROBADO') {
-    const process = await prisma.process.findUnique({ where: { clientId: report.clientId } });
+    const process = await prisma.process.findUnique({ where: { apiSubaccountId: report.apiSubaccountId } });
     if (process) {
       await prisma.processCondition.update({
         where: { processId_type: { processId: process.id, type: 'PAYMENT' } },
         data: { status: 'CONFIRMED' },
       });
     }
+
+    // CORRECCIÓN 25: si el pago corresponde a la comisión de un estado de
+    // cuenta, se marca pagada y, si la conexión se había desactivado
+    // automáticamente por el plazo de 72h, se reconecta.
+    if (report.statementId) {
+      await prisma.statement.update({
+        where: { id: report.statementId },
+        data: { commissionPaid: true, commissionPaidAt: new Date() },
+      });
+
+      if (subaccount.status === 'DESCONECTADA') {
+        await prisma.apiSubaccount.update({
+          where: { id: subaccount.id },
+          data: { status: 'CONECTADA', reconnectedAt: new Date() },
+        });
+        await prisma.apiConnectionEvent.create({
+          data: { apiSubaccountId: subaccount.id, eventType: 'RECONNECTED' },
+        });
+      }
+    }
   }
 
-  await notifyClient(report.clientId, {
+  await notifyClient(subaccount.clientId, {
     title: 'Actualización de tu pago reportado',
     message: `Tu pago de ${report.amount} ${report.currency} fue marcado como: ${status}`,
     type: status === 'APROBADO' ? 'success' : status === 'RECHAZADO' ? 'warning' : 'info',

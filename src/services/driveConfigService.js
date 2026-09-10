@@ -37,17 +37,31 @@ async function getStatus() {
     lastTestStatus: row.lastTestStatus,
     lastTestMessage: row.lastTestMessage,
     updatedAt: row.updatedAt,
+    // CORRECCIÓN 24: una vez configurada, la conexión queda bloqueada para
+    // el resto de administradores — solo quien la configuró puede
+    // editarla o desconectarla.
+    configuredByUserId: row.configuredByUserId,
+    isLockedByAnother: false, // el controlador la recalcula con req.user.id
   };
 }
 
+class DriveConfigLockedError extends Error {}
+
 async function updateConfig({ rootFolderId, rootFolderName, isEnabled }, userId) {
   const row = await getDriveConfigRow();
+  if (row.configuredByUserId && row.configuredByUserId !== userId) {
+    throw new DriveConfigLockedError(
+      'Esta configuración ya fue guardada por otro administrador. Solo esa cuenta puede editarla o desconectarla.'
+    );
+  }
+
   const updated = await prisma.driveConfiguration.update({
     where: { id: row.id },
     data: {
       ...(rootFolderId !== undefined ? { rootFolderId: rootFolderId || null } : {}),
       ...(rootFolderName ? { rootFolderName } : {}),
       ...(isEnabled !== undefined ? { isEnabled } : {}),
+      configuredByUserId: row.configuredByUserId || userId,
       updatedByUserId: userId,
     },
   });
@@ -56,9 +70,14 @@ async function updateConfig({ rootFolderId, rootFolderName, isEnabled }, userId)
 
 async function disconnect(userId) {
   const row = await getDriveConfigRow();
+  if (row.configuredByUserId && row.configuredByUserId !== userId) {
+    throw new DriveConfigLockedError(
+      'Solo el administrador que configuró Google Drive puede desconectarlo.'
+    );
+  }
   return prisma.driveConfiguration.update({
     where: { id: row.id },
-    data: { isEnabled: false, updatedByUserId: userId },
+    data: { isEnabled: false, configuredByUserId: null, updatedByUserId: userId },
   });
 }
 
@@ -127,4 +146,4 @@ function humanizeDriveError(err) {
   return 'No pudimos conectar con Google Drive. Revisa la configuración o intenta nuevamente.';
 }
 
-module.exports = { getStatus, updateConfig, disconnect, testConnection };
+module.exports = { getStatus, updateConfig, disconnect, testConnection, DriveConfigLockedError };

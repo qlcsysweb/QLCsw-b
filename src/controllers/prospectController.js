@@ -60,7 +60,6 @@ const createProspectSchema = z.object({
   firstName: z.string().min(1),
   lastName: z.string().optional(),
   email: z.string().email(),
-  phone: z.string().optional(),
   message: z.string().optional(),
   source: z.string().optional(),
   // Idioma que el visitante tenía seleccionado al enviar el formulario

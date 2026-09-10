@@ -79,15 +79,23 @@ const downloadDocument = asyncHandler(async (req, res) => {
   stream.pipe(res);
 });
 
-// El cliente puede eliminar sus propios documentos (alcance §4: "carga y
-// eliminación de documentos" por cliente) — libera la categoría para volver
-// a enviar. Ownership verificado por clientId, nunca por el id del documento
-// solo (evita que un cliente borre documentos de otro).
+// REVERSIÓN A: por defecto el documento queda BLOQUEADO en cuanto se
+// envía — el cliente NO puede eliminarlo ni reemplazarlo. Solo cuando un
+// ADMIN habilita explícitamente "clientEditUnlocked" en ESE documento
+// puntual, el cliente puede eliminarlo (y así liberar la categoría para
+// volver a subir uno nuevo, que nace bloqueado otra vez). Ownership
+// verificado por clientId, nunca por el id del documento solo (evita que
+// un cliente borre documentos de otro).
 const deleteDocument = asyncHandler(async (req, res) => {
   const document = await prisma.document.findFirst({
     where: { id: req.params.id, clientId: req.clientProfile.id },
   });
   if (!document) throw ApiError.notFound('Documento no encontrado');
+  if (!document.clientEditUnlocked) {
+    throw ApiError.forbidden(
+      'Este documento está bloqueado. Si necesitas reemplazarlo, contacta con QLC desde Soporte.'
+    );
+  }
 
   if (await documentStorage.isConfigured()) {
     await documentStorage.deleteDocument(document.driveFileId).catch(() => {});

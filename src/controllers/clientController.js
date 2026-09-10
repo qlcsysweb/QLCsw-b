@@ -3,14 +3,14 @@ const { z } = require('zod');
 const prisma = require('../config/prisma');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
-const { decrypt } = require('../utils/crypto');
 const documentStorage = require('../services/documentStorage');
+const { enforceCommissionDeadline } = require('../utils/connectionDeadlines');
 
 const PROCESS_CONDITION_TYPES = ['CONTRACT', 'FUNDS', 'PAYMENT', 'API', 'ACTIVATION'];
 
-// Resumen de avance del proceso — para el indicador de "listo para activar"
-// (alcance §7: "indicador para facilitar la identificación de clientes que
-// ya cumplieron las condiciones necesarias").
+// Resumen de avance de UNA subcuenta/API — para el indicador de "lista
+// para activar" (una subcuenta está lista cuando todas sus condiciones
+// están confirmadas y todavía no ha sido activada).
 function summarizeConditions(process) {
   const conditions = process?.conditions || [];
   const total = conditions.length;
@@ -24,14 +24,25 @@ function summarizeConditions(process) {
   };
 }
 
+// Resumen agregado a nivel CLIENTE (para el listado) — un cliente puede
+// tener hasta 20 subcuentas/API, cada una con su propio proceso.
+function summarizeSubaccounts(apiSubaccounts) {
+  const total = apiSubaccounts.length;
+  const activated = apiSubaccounts.filter((s) => s.process?.isActivated).length;
+  const readyToActivate = apiSubaccounts.filter((s) => {
+    const summary = summarizeConditions(s.process);
+    return summary.allConfirmed && !s.process?.isActivated;
+  }).length;
+  return { total, activated, readyToActivate };
+}
+
+// CORRECCIÓN 6/17/18: sin teléfono, sin username. El correo es el único
+// identificador de acceso.
 const createClientSchema = z.object({
   firstName: z.string().min(1, 'El nombre es obligatorio'),
   lastName: z.string().min(1, 'El apellido es obligatorio'),
   email: z.string().email('Email inválido'),
-  phone: z.string().optional(),
-  username: z.string().min(3, 'El usuario debe tener al menos 3 caracteres'),
   password: z.string().min(8, 'La contraseña debe tener al menos 8 caracteres'),
-  modelKey: z.enum(['FLEXIBLE', 'PERFORMANCE', 'COMPOUND']).optional(),
   notes: z.string().optional(),
 });
 
@@ -48,7 +59,7 @@ const listClients = asyncHandler(async (req, res) => {
             { firstName: { contains: search, mode: 'insensitive' } },
             { lastName: { contains: search, mode: 'insensitive' } },
             { user: { email: { contains: search, mode: 'insensitive' } } },
-            { user: { username: { contains: search, mode: 'insensitive' } } },
+            { apiSubaccounts: { some: { identifier: { contains: search, mode: 'insensitive' } } } },
           ],
         }
       : {}),
@@ -61,55 +72,66 @@ const listClients = asyncHandler(async (req, res) => {
       skip,
       orderBy: { createdAt: 'desc' },
       include: {
-        user: { select: { email: true, username: true, isActive: true, lastLoginAt: true } },
-        clientModel: { include: { model: true } },
-        process: { include: { conditions: true } },
-        apiConnection: { select: { status: true, exchangeName: true } },
+        user: { select: { email: true, isActive: true, lastLoginAt: true } },
+        apiSubaccounts: {
+          include: { process: { include: { conditions: true } }, clientModel: { include: { model: true } } },
+        },
       },
     }),
     prisma.clientProfile.count({ where }),
   ]);
 
-  const items = rows.map((c) => ({ ...c, conditionsSummary: summarizeConditions(c.process) }));
+  const items = rows.map((c) => ({ ...c, subaccountsSummary: summarizeSubaccounts(c.apiSubaccounts) }));
 
   res.json({ ok: true, items, total, page: Number(page), pageSize: take });
 });
 
 const getClient = asyncHandler(async (req, res) => {
+  const preCheckIds = await prisma.apiSubaccount.findMany({
+    where: { clientId: req.params.id },
+    select: { id: true },
+  });
+  await Promise.all(preCheckIds.map((s) => enforceCommissionDeadline(s.id)));
+
   const client = await prisma.clientProfile.findUnique({
     where: { id: req.params.id },
     include: {
-      user: { select: { email: true, username: true, isActive: true, lastLoginAt: true, createdAt: true } },
-      clientModel: { include: { model: true } },
-      process: { include: { conditions: true } },
-      apiConnection: true,
-      contracts: { orderBy: { createdAt: 'desc' } },
+      user: { select: { email: true, isActive: true, lastLoginAt: true, createdAt: true } },
       documents: { orderBy: { createdAt: 'desc' } },
-      paymentReports: { orderBy: { reportedAt: 'desc' } },
       appointments: { orderBy: { requestedDate: 'desc' } },
       supportCases: { orderBy: { createdAt: 'desc' } },
+      apiSubaccounts: {
+        orderBy: { slotIndex: 'asc' },
+        include: {
+          clientModel: { include: { model: true } },
+          process: { include: { conditions: true } },
+          contract: true,
+          paymentReports: { orderBy: { reportedAt: 'desc' } },
+          statements: { orderBy: { createdAt: 'desc' } },
+          connectionEvents: { orderBy: { occurredAt: 'desc' } },
+        },
+      },
     },
   });
   if (!client) throw ApiError.notFound('Cliente no encontrado');
-
-  // El admin puede visualizar y copiar la API Key/Secret real (alcance §8)
-  // — se descifra SOLO aquí (vista de un cliente puntual), nunca en el
-  // listado, y el ciphertext crudo nunca se envía al frontend.
-  const { apiKeyEncrypted, apiSecretEncrypted, ...apiConnectionRest } = client.apiConnection || {};
-  const shapedApiConnection = client.apiConnection
-    ? {
-        ...apiConnectionRest,
-        apiKey: apiKeyEncrypted ? decrypt(apiKeyEncrypted) : null,
-        apiSecret: apiSecretEncrypted ? decrypt(apiSecretEncrypted) : null,
-      }
-    : null;
 
   res.json({
     ok: true,
     client: {
       ...client,
-      apiConnection: shapedApiConnection,
-      conditionsSummary: summarizeConditions(client.process),
+      apiSubaccounts: client.apiSubaccounts.map((s) => ({
+        ...s,
+        // Nunca se envía el ciphertext crudo — solo indicadores de presencia.
+        // El admin ve/copia la clave real vía apiSubaccountController.getSecrets.
+        apiKeyEncrypted: undefined,
+        apiSecretEncrypted: undefined,
+        apiPassphraseEncrypted: undefined,
+        hasApiKey: Boolean(s.apiKeyEncrypted),
+        hasApiSecret: Boolean(s.apiSecretEncrypted),
+        hasApiPassphrase: Boolean(s.apiPassphraseEncrypted),
+        conditionsSummary: summarizeConditions(s.process),
+      })),
+      subaccountsSummary: summarizeSubaccounts(client.apiSubaccounts),
     },
   });
 });
@@ -117,45 +139,22 @@ const getClient = asyncHandler(async (req, res) => {
 const createClient = asyncHandler(async (req, res) => {
   const data = createClientSchema.parse(req.body);
 
-  const [existingEmail, existingUsername] = await Promise.all([
-    prisma.user.findUnique({ where: { email: data.email } }),
-    prisma.user.findUnique({ where: { username: data.username } }),
-  ]);
+  const existingEmail = await prisma.user.findUnique({ where: { email: data.email } });
   if (existingEmail) throw ApiError.conflict('Ya existe un usuario con ese email');
-  if (existingUsername) throw ApiError.conflict('Ya existe un usuario con ese nombre de usuario');
-
-  let model = null;
-  if (data.modelKey) {
-    model = await prisma.model.findUnique({ where: { key: data.modelKey } });
-    if (!model) throw ApiError.badRequest('Modelo seleccionado no válido');
-  }
 
   const passwordHash = await bcrypt.hash(data.password, 12);
 
   const user = await prisma.user.create({
     data: {
       email: data.email,
-      username: data.username,
       passwordHash,
       role: 'CLIENT',
       clientProfile: {
         create: {
           firstName: data.firstName,
           lastName: data.lastName,
-          phone: data.phone,
           notes: data.notes,
           status: 'PENDING',
-          process: {
-            create: {
-              conditions: {
-                create: PROCESS_CONDITION_TYPES.map((type) => ({ type, status: 'PENDING' })),
-              },
-            },
-          },
-          apiConnection: { create: { status: 'PENDIENTE' } },
-          ...(model
-            ? { clientModel: { create: { modelId: model.id, confirmedAt: new Date() } } }
-            : {}),
         },
       },
     },
@@ -168,7 +167,6 @@ const createClient = asyncHandler(async (req, res) => {
 const updateClientSchema = z.object({
   firstName: z.string().min(1).optional(),
   lastName: z.string().min(1).optional(),
-  phone: z.string().optional(),
   notes: z.string().optional(),
   status: z.enum(['PENDING', 'ACTIVE', 'INACTIVE', 'REVIEW']).optional(),
 });
@@ -202,31 +200,24 @@ const setClientActive = asyncHandler(async (req, res) => {
   res.json({ ok: true, client: updated });
 });
 
-const selectClientModel = asyncHandler(async (req, res) => {
-  const schema = z.object({ modelKey: z.enum(['FLEXIBLE', 'PERFORMANCE', 'COMPOUND']) });
-  const { modelKey } = schema.parse(req.body);
-
-  const model = await prisma.model.findUnique({ where: { key: modelKey } });
-  if (!model) throw ApiError.badRequest('Modelo no válido');
-
-  const clientModel = await prisma.clientModel.upsert({
-    where: { clientId: req.params.id },
-    update: { modelId: model.id, confirmedAt: new Date() },
-    create: { clientId: req.params.id, modelId: model.id, confirmedAt: new Date() },
-    include: { model: true },
+// CORRECCIÓN 28: wallet personal del cliente (dato administrativo, nunca
+// se ejecutan transferencias automáticas).
+const getWallet = asyncHandler(async (req, res) => {
+  const client = await prisma.clientProfile.findUnique({
+    where: { id: req.params.id },
+    select: { walletAddress: true, walletNetwork: true, walletQrUrl: true },
   });
-
-  res.json({ ok: true, clientModel });
+  if (!client) throw ApiError.notFound('Cliente no encontrado');
+  res.json({ ok: true, wallet: client });
 });
 
-// Eliminación REAL y permanente del cliente (tu propia cuenta, perfil y
-// TODO lo dependiente) — nunca una simple desactivación. Las relaciones
-// hijas de ClientProfile ya están definidas con onDelete: Cascade en el
-// schema (ClientModel, Process→ProcessCondition, Contract, Document,
-// PaymentReport, SupportCase, ChatSession→ChatMessage, ApiConnection), así
-// que borrar el User cascada de forma segura sin dejar huérfanos ni violar
-// foreign keys. Appointment usa onDelete: SetNull deliberadamente (se
-// conserva el historial de citas, sin cliente asociado).
+// Eliminación REAL y permanente del cliente (su cuenta, perfil y TODO lo
+// dependiente) — nunca una simple desactivación. Las relaciones hijas de
+// ClientProfile (Document, Appointment→SetNull, SupportCase, ChatSession,
+// ApiSubaccount→ClientModel/Process/Contract/PaymentReport/Statement/
+// ApiConnectionEvent) están definidas con onDelete: Cascade (excepto
+// Appointment, que usa SetNull a propósito para conservar el historial de
+// citas), así que borrar el User cascada de forma segura sin huérfanos.
 //
 // Esta ruta SOLO puede alcanzar clientes: un ClientProfile nunca existe
 // para una cuenta ADMIN, así que es estructuralmente imposible borrar un
@@ -236,9 +227,8 @@ const deleteClient = asyncHandler(async (req, res) => {
     where: { id: req.params.id },
     include: {
       user: { select: { id: true, role: true } },
-      contracts: true,
       documents: true,
-      paymentReports: true,
+      apiSubaccounts: { include: { contract: true, paymentReports: true, statements: true } },
     },
   });
   if (!client) throw ApiError.notFound('Cliente no encontrado');
@@ -253,9 +243,10 @@ const deleteClient = asyncHandler(async (req, res) => {
   // no está configurado o un archivo puntual falla, no bloquea el borrado.
   if (await documentStorage.isConfigured()) {
     const fileIds = [
-      ...client.contracts.flatMap((c) => [c.originalDriveFileId, c.signedDriveFileId]),
       ...client.documents.map((d) => d.driveFileId),
-      ...client.paymentReports.map((p) => p.proofDriveFileId),
+      ...client.apiSubaccounts.flatMap((s) => [s.contract?.originalDriveFileId, s.contract?.signedDriveFileId]),
+      ...client.apiSubaccounts.flatMap((s) => s.paymentReports.map((p) => p.proofDriveFileId)),
+      ...client.apiSubaccounts.flatMap((s) => s.statements.map((st) => st.pdfDriveFileId)),
     ].filter(Boolean);
     await Promise.all(fileIds.map((id) => documentStorage.deleteDocument(id).catch(() => {})));
   }
@@ -271,6 +262,6 @@ module.exports = {
   createClient,
   updateClient,
   setClientActive,
-  selectClientModel,
+  getWallet,
   deleteClient,
 };

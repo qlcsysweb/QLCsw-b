@@ -7,15 +7,19 @@ cloudinary.config({
   secure: true,
 });
 
-// Cloudinary es EXCLUSIVO para imágenes (logo, branding, QR, recursos
-// visuales de la web pública). Los documentos/PDF viven en Google Drive
-// (ver services/documentStorage.js).
+// Cloudinary es para imágenes (logo, branding, QR, recursos visuales de la
+// web pública). Los documentos/contratos/estados de cuenta viven en Google
+// Drive (ver services/documentStorage.js). ÚNICA EXCEPCIÓN (CORRECCIÓN 27):
+// las dos guías de uso (ADMIN/CLIENTE) descargables desde el dashboard —
+// esos dos PDFs, y solo esos, se almacenan aquí como recurso "raw".
 const FOLDERS = {
   PUBLIC: 'qlc/public',
   BRANDING: 'qlc/branding',
   PAYMENTS_QR: 'qlc/payments-qr',
+  WALLET_QR: 'qlc/wallet-qr',
   PUBLIC_IMAGES: 'qlc/public/images',
   PUBLIC_VIDEOS: 'qlc/public/videos',
+  GUIDES: 'qlc/guides',
 };
 
 function uploadBuffer(buffer, { folder, resourceType = 'auto', publicId } = {}) {

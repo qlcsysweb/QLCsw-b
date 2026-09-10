@@ -2,15 +2,8 @@ const { z } = require('zod');
 const prisma = require('../config/prisma');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
-const documentStorage = require('../services/documentStorage');
+const { uploadGuidePdf, deleteGuidePdf } = require('../services/guideStorage');
 
-/*
- * Configuración global única (singleton) para dos elementos del alcance:
- *  - Liga configurable hacia la plataforma externa (§9).
- *  - PDF informativo adjunto al correo de bienvenida de un prospecto (§1).
- * Ninguno de los dos depende de un cliente — es la misma configuración
- * para toda la plataforma, igual que PaymentConfiguration.
- */
 async function getOrCreateSettings() {
   const existing = await prisma.platformSettings.findFirst();
   if (existing) return existing;
@@ -36,79 +29,87 @@ const updatePlatformSettings = asyncHandler(async (req, res) => {
   res.json({ ok: true, settings: updated });
 });
 
-async function assertDriveReady() {
-  if (!(await documentStorage.isConfigured())) {
-    throw ApiError.serviceUnavailable(
-      'No pudimos conectar con Google Drive. Ve a Configuración → Google Drive en el panel administrativo.'
-    );
-  }
-}
+const getPlatformLinkForClient = asyncHandler(async (req, res) => {
+  const settings = await prisma.platformSettings.findFirst();
+  res.json({ ok: true, externalPlatformUrl: settings?.externalPlatformUrl || null });
+});
 
-// Sube (o reemplaza) el PDF informativo — elimina el anterior de Drive si
-// existía, nunca deja dos archivos activos a la vez.
-const uploadInfoPdf = asyncHandler(async (req, res) => {
-  if (!req.file) throw ApiError.badRequest('Debes adjuntar un archivo');
-  await assertDriveReady();
+// CORRECCIÓN 27: las dos guías de uso (ADMIN / CLIENTE) — los ÚNICOS PDFs
+// almacenados en Cloudinary. NO deben confundirse con el antiguo "PDF
+// informativo" (CORRECCIÓN 4), que fue eliminado por completo del sistema.
+const ROLE_FIELD_MAP = {
+  ADMIN: {
+    urlField: 'adminGuidePdfUrl',
+    publicIdField: 'adminGuidePdfPublicId',
+    nameField: 'adminGuideFileName',
+    publicIdPrefix: 'admin-guide',
+  },
+  CLIENT: {
+    urlField: 'clientGuidePdfUrl',
+    publicIdField: 'clientGuidePdfPublicId',
+    nameField: 'clientGuideFileName',
+    publicIdPrefix: 'client-guide',
+  },
+};
+
+const uploadGuide = asyncHandler(async (req, res) => {
+  const role = req.params.role?.toUpperCase();
+  const fields = ROLE_FIELD_MAP[role];
+  if (!fields) throw ApiError.badRequest('Rol de guía no válido');
+  if (!req.file) throw ApiError.badRequest('Debes adjuntar un archivo PDF');
 
   const settings = await getOrCreateSettings();
-
-  if (settings.infoPdfDriveFileId) {
-    await documentStorage.deleteDocument(settings.infoPdfDriveFileId).catch(() => {});
+  if (settings[fields.publicIdField]) {
+    await deleteGuidePdf(settings[fields.publicIdField]).catch(() => {});
   }
 
-  const folderId = await documentStorage.ensurePlatformFolder();
-  const uploaded = await documentStorage.uploadDocument(req.file.buffer, {
-    folderId,
-    fileName: req.file.originalname,
-    mimeType: req.file.mimetype,
-  });
+  const uploaded = await uploadGuidePdf(req.file.buffer, `${fields.publicIdPrefix}-${Date.now()}`);
 
   const updated = await prisma.platformSettings.update({
     where: { id: settings.id },
     data: {
-      infoPdfDriveFileId: uploaded.id,
-      infoPdfDriveFolderId: folderId,
-      infoPdfFileName: req.file.originalname,
-      infoPdfMimeType: req.file.mimetype,
-      infoPdfSizeBytes: req.file.size,
+      [fields.urlField]: uploaded.url,
+      [fields.publicIdField]: uploaded.publicId,
+      [fields.nameField]: req.file.originalname,
     },
   });
 
   res.status(201).json({ ok: true, settings: updated });
 });
 
-const deleteInfoPdf = asyncHandler(async (req, res) => {
-  const settings = await getOrCreateSettings();
-  if (!settings.infoPdfDriveFileId) throw ApiError.notFound('No hay un PDF informativo configurado');
+const deleteGuide = asyncHandler(async (req, res) => {
+  const role = req.params.role?.toUpperCase();
+  const fields = ROLE_FIELD_MAP[role];
+  if (!fields) throw ApiError.badRequest('Rol de guía no válido');
 
-  if (await documentStorage.isConfigured()) {
-    await documentStorage.deleteDocument(settings.infoPdfDriveFileId).catch(() => {});
-  }
+  const settings = await getOrCreateSettings();
+  if (!settings[fields.publicIdField]) throw ApiError.notFound('No hay una guía configurada para este rol');
+
+  await deleteGuidePdf(settings[fields.publicIdField]).catch(() => {});
 
   const updated = await prisma.platformSettings.update({
     where: { id: settings.id },
-    data: {
-      infoPdfDriveFileId: null,
-      infoPdfDriveFolderId: null,
-      infoPdfFileName: null,
-      infoPdfMimeType: null,
-      infoPdfSizeBytes: null,
-    },
+    data: { [fields.urlField]: null, [fields.publicIdField]: null, [fields.nameField]: null },
   });
 
   res.json({ ok: true, settings: updated });
 });
 
-// Lectura pública/cliente — solo la liga, nunca los datos internos del PDF.
-const getPlatformLinkForClient = asyncHandler(async (req, res) => {
+// El cliente/admin autenticado descarga SU guía según su propio rol — nunca
+// la del otro rol (alcance explícito de la corrección 27).
+const downloadMyGuide = asyncHandler(async (req, res) => {
+  const fields = ROLE_FIELD_MAP[req.user.role];
   const settings = await prisma.platformSettings.findFirst();
-  res.json({ ok: true, externalPlatformUrl: settings?.externalPlatformUrl || null });
+  const url = settings?.[fields.urlField];
+  if (!url) throw ApiError.notFound('Todavía no hay una guía de uso disponible.');
+  res.json({ ok: true, url, fileName: settings[fields.nameField] });
 });
 
 module.exports = {
   getPlatformSettingsAdmin,
   updatePlatformSettings,
-  uploadInfoPdf,
-  deleteInfoPdf,
   getPlatformLinkForClient,
+  uploadGuide,
+  deleteGuide,
+  downloadMyGuide,
 };

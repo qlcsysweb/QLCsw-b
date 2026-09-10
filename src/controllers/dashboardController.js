@@ -44,9 +44,9 @@ const getSummary = asyncHandler(async (req, res) => {
       orderBy: { createdAt: 'desc' },
       include: { client: { select: { firstName: true, lastName: true } } },
     }),
-    prisma.apiConnection.count({ where: { status: 'CONECTADA' } }),
-    prisma.apiConnection.count({ where: { status: 'DESCONECTADA' } }),
-    prisma.apiConnection.count({ where: { status: 'PENDIENTE' } }),
+    prisma.apiSubaccount.count({ where: { status: 'CONECTADA' } }),
+    prisma.apiSubaccount.count({ where: { status: 'DESCONECTADA' } }),
+    prisma.apiSubaccount.count({ where: { status: 'PENDIENTE' } }),
   ]);
 
   res.json({

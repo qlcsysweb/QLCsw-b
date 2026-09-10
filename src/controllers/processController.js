@@ -12,9 +12,11 @@ const CONDITION_LABELS = {
   ACTIVATION: 'Activación',
 };
 
+// Proceso de activación — por SUBCUENTA/API (CORRECCIÓN 11/12).
+
 const getProcess = asyncHandler(async (req, res) => {
   const process = await prisma.process.findUnique({
-    where: { clientId: req.params.clientId },
+    where: { apiSubaccountId: req.params.apiSubaccountId },
     include: { conditions: true },
   });
   if (!process) throw ApiError.notFound('Proceso no encontrado');
@@ -30,7 +32,10 @@ const updateCondition = asyncHandler(async (req, res) => {
   const { type } = req.params;
   const { status, note } = updateConditionSchema.parse(req.body);
 
-  const process = await prisma.process.findUnique({ where: { clientId: req.params.clientId } });
+  const process = await prisma.process.findUnique({
+    where: { apiSubaccountId: req.params.apiSubaccountId },
+    include: { apiSubaccount: { select: { clientId: true, identifier: true } } },
+  });
   if (!process) throw ApiError.notFound('Proceso no encontrado');
 
   const condition = await prisma.processCondition.update({
@@ -38,21 +43,21 @@ const updateCondition = asyncHandler(async (req, res) => {
     data: { status, note },
   });
 
-  await notifyClient(req.params.clientId, {
+  await notifyClient(process.apiSubaccount.clientId, {
     title: 'Actualización de tu proceso',
-    message: `${CONDITION_LABELS[type] || type}: ${status}`,
+    message: `${process.apiSubaccount.identifier ? `[${process.apiSubaccount.identifier}] ` : ''}${CONDITION_LABELS[type] || type}: ${status}`,
     type: status === 'REJECTED' ? 'warning' : 'info',
     templateKey: 'process_condition_updated',
-    templateParams: { conditionType: type, status },
+    templateParams: { conditionType: type, status, identifier: process.apiSubaccount.identifier },
   });
 
   res.json({ ok: true, condition });
 });
 
-const activateClient = asyncHandler(async (req, res) => {
+const activateSubaccount = asyncHandler(async (req, res) => {
   const process = await prisma.process.findUnique({
-    where: { clientId: req.params.clientId },
-    include: { conditions: true },
+    where: { apiSubaccountId: req.params.apiSubaccountId },
+    include: { conditions: true, apiSubaccount: { select: { clientId: true } } },
   });
   if (!process) throw ApiError.notFound('Proceso no encontrado');
 
@@ -69,11 +74,11 @@ const activateClient = asyncHandler(async (req, res) => {
   });
 
   await prisma.clientProfile.update({
-    where: { id: req.params.clientId },
+    where: { id: process.apiSubaccount.clientId },
     data: { status: 'ACTIVE' },
   });
 
-  await notifyClient(req.params.clientId, {
+  await notifyClient(process.apiSubaccount.clientId, {
     title: 'Cuenta activada',
     message: 'Tu cuenta QLC ha sido activada.',
     type: 'success',
@@ -83,8 +88,11 @@ const activateClient = asyncHandler(async (req, res) => {
   res.json({ ok: true, process: updatedProcess });
 });
 
-const deactivateClient = asyncHandler(async (req, res) => {
-  const process = await prisma.process.findUnique({ where: { clientId: req.params.clientId } });
+const deactivateSubaccount = asyncHandler(async (req, res) => {
+  const process = await prisma.process.findUnique({
+    where: { apiSubaccountId: req.params.apiSubaccountId },
+    include: { apiSubaccount: { select: { clientId: true } } },
+  });
   if (!process) throw ApiError.notFound('Proceso no encontrado');
 
   const updatedProcess = await prisma.process.update({
@@ -93,11 +101,11 @@ const deactivateClient = asyncHandler(async (req, res) => {
   });
 
   await prisma.clientProfile.update({
-    where: { id: req.params.clientId },
+    where: { id: process.apiSubaccount.clientId },
     data: { status: 'REVIEW' },
   });
 
   res.json({ ok: true, process: updatedProcess });
 });
 
-module.exports = { getProcess, updateCondition, activateClient, deactivateClient };
+module.exports = { getProcess, updateCondition, activateSubaccount, deactivateSubaccount };

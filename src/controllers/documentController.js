@@ -88,4 +88,33 @@ const deleteDocument = asyncHandler(async (req, res) => {
   res.json({ ok: true });
 });
 
-module.exports = { listDocumentsByClient, uploadDocument, downloadDocument, deleteDocument };
+// CORRECCIÓN (reversión A): por defecto el documento del cliente está
+// bloqueado. Esta acción es la ÚNICA forma de que el cliente pueda
+// eliminar/reemplazar un documento puntual — el ADMIN lo habilita
+// temporalmente para ese documento específico.
+const setDocumentUnlock = asyncHandler(async (req, res) => {
+  const unlocked = Boolean(req.body?.unlocked);
+  const document = await prisma.document.findUnique({ where: { id: req.params.id } });
+  if (!document) throw ApiError.notFound('Documento no encontrado');
+
+  const updated = await prisma.document.update({
+    where: { id: document.id },
+    data: unlocked
+      ? { clientEditUnlocked: true, unlockedByUserId: req.user.id, unlockedAt: new Date() }
+      : { clientEditUnlocked: false, unlockedByUserId: null, unlockedAt: null },
+  });
+
+  if (unlocked) {
+    await notifyClient(document.clientId, {
+      title: 'Puedes reemplazar un documento',
+      message: `QLC habilitó temporalmente tu documento de "${document.category}" para que puedas eliminarlo y volver a enviarlo.`,
+      type: 'info',
+      templateKey: 'document_unlocked',
+      templateParams: { category: document.category },
+    });
+  }
+
+  res.json({ ok: true, document: updated });
+});
+
+module.exports = { listDocumentsByClient, uploadDocument, downloadDocument, deleteDocument, setDocumentUnlock };

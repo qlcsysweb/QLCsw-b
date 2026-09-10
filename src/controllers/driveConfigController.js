@@ -1,10 +1,19 @@
 const { z } = require('zod');
 const driveConfigService = require('../services/driveConfigService');
+const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
+
+function shapeStatus(status, userId) {
+  return {
+    ...status,
+    isLockedByAnother: Boolean(status.configuredByUserId && status.configuredByUserId !== userId),
+    isConfiguredByMe: Boolean(status.configuredByUserId && status.configuredByUserId === userId),
+  };
+}
 
 const getConfig = asyncHandler(async (req, res) => {
   const status = await driveConfigService.getStatus();
-  res.json({ ok: true, config: status });
+  res.json({ ok: true, config: shapeStatus(status, req.user.id) });
 });
 
 const updateSchema = z.object({
@@ -15,21 +24,37 @@ const updateSchema = z.object({
 
 const updateConfig = asyncHandler(async (req, res) => {
   const data = updateSchema.parse(req.body);
-  await driveConfigService.updateConfig(data, req.user.id);
+  try {
+    await driveConfigService.updateConfig(data, req.user.id);
+  } catch (err) {
+    if (err instanceof driveConfigService.DriveConfigLockedError) throw ApiError.forbidden(err.message);
+    throw err;
+  }
   const status = await driveConfigService.getStatus();
-  res.json({ ok: true, config: status, message: 'Configuración de Google Drive guardada correctamente.' });
+  res.json({ ok: true, config: shapeStatus(status, req.user.id), message: 'Configuración de Google Drive guardada correctamente.' });
 });
 
 const disconnect = asyncHandler(async (req, res) => {
-  await driveConfigService.disconnect(req.user.id);
+  try {
+    await driveConfigService.disconnect(req.user.id);
+  } catch (err) {
+    if (err instanceof driveConfigService.DriveConfigLockedError) throw ApiError.forbidden(err.message);
+    throw err;
+  }
   const status = await driveConfigService.getStatus();
-  res.json({ ok: true, config: status, message: 'Google Drive fue desconectado.' });
+  res.json({ ok: true, config: shapeStatus(status, req.user.id), message: 'Google Drive fue desconectado.' });
 });
 
 const testConnection = asyncHandler(async (req, res) => {
   const result = await driveConfigService.testConnection();
   const status = await driveConfigService.getStatus();
-  res.json({ ok: result.ok, message: result.message, capabilities: result.capabilities, folderName: result.folderName, config: status });
+  res.json({
+    ok: result.ok,
+    message: result.message,
+    capabilities: result.capabilities,
+    folderName: result.folderName,
+    config: shapeStatus(status, req.user.id),
+  });
 });
 
 module.exports = { getConfig, updateConfig, disconnect, testConnection };

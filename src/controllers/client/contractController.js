@@ -11,26 +11,27 @@ async function assertDriveReady() {
   }
 }
 
+async function assertOwnsSubaccount(clientId, apiSubaccountId) {
+  const subaccount = await prisma.apiSubaccount.findFirst({ where: { id: apiSubaccountId, clientId } });
+  if (!subaccount) throw ApiError.notFound('Subcuenta no encontrada');
+  return subaccount;
+}
+
 const getContract = asyncHandler(async (req, res) => {
-  const contract = await prisma.contract.findFirst({
-    where: { clientId: req.clientProfile.id },
-    orderBy: { createdAt: 'desc' },
-  });
+  await assertOwnsSubaccount(req.clientProfile.id, req.params.apiSubaccountId);
+  const contract = await prisma.contract.findUnique({ where: { apiSubaccountId: req.params.apiSubaccountId } });
   res.json({ ok: true, contract });
 });
 
 const uploadSignedContract = asyncHandler(async (req, res) => {
   if (!req.file) throw ApiError.badRequest('Debes adjuntar un archivo');
+  const subaccount = await assertOwnsSubaccount(req.clientProfile.id, req.params.apiSubaccountId);
 
-  const contract = await prisma.contract.findFirst({
-    where: { clientId: req.clientProfile.id },
-    orderBy: { createdAt: 'desc' },
-  });
+  const contract = await prisma.contract.findUnique({ where: { apiSubaccountId: subaccount.id } });
   if (!contract) throw ApiError.notFound('Todavía no existe un contrato para firmar');
 
   // Regla definitiva: una vez enviado, el cliente no puede reemplazarlo.
   // Solo el administrador puede liberar el bloqueo (eliminar el firmado).
-  // Se valida ANTES de tocar Google Drive.
   if (contract.signedDriveFileId) {
     throw ApiError.conflict(
       'Ya enviaste tu contrato firmado. Si necesitas reemplazarlo, contacta con QLC.'
@@ -67,10 +68,9 @@ const downloadContractFile = asyncHandler(async (req, res) => {
   const { variant } = req.params;
   if (!['original', 'signed'].includes(variant)) throw ApiError.badRequest('Variante no válida');
 
-  const contract = await prisma.contract.findFirst({
-    where: { id: req.params.id, clientId: req.clientProfile.id },
-  });
+  const contract = await prisma.contract.findUnique({ where: { id: req.params.id } });
   if (!contract) throw ApiError.notFound('Contrato no encontrado');
+  await assertOwnsSubaccount(req.clientProfile.id, contract.apiSubaccountId);
 
   const fileId = variant === 'original' ? contract.originalDriveFileId : contract.signedDriveFileId;
   if (!fileId) throw ApiError.notFound('El archivo solicitado no existe todavía');
