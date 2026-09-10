@@ -24,6 +24,7 @@ enum ClientStatus {
 }
 
 enum ProcessConditionType {
+  WALLET
   CONTRACT
   FUNDS
   PAYMENT
@@ -89,6 +90,20 @@ enum ConnectionEventType {
   RECONNECTED
 }
 
+// CORRECCIÓN 7 — Invitación para aumento de saldo operativo.
+enum CapitalInvitationStatus {
+  DESBLOQUEADA
+  ACEPTADA
+  RECHAZADA
+}
+
+enum CapitalRequestStatus {
+  EN_PROCESO
+  DISTRIBUCION_EN_PROCESO
+  INSTRUCCIONES_EMITIDAS
+  COMPLETADA
+}
+
 // ==========================================================
 // IDENTITY
 // ==========================================================
@@ -128,6 +143,7 @@ model User {
   mediaAssetUpdates     MediaAsset[]         @relation("MediaAssetUpdatedBy")
   statementsCreated     Statement[]          @relation("StatementCreatedBy")
   documentUnlocksGranted Document[]          @relation("DocumentUnlockedBy")
+  capitalInvitationsCreated CapitalIncreaseInvitation[] @relation("CapitalInvitationCreatedBy")
 
   @@map("users")
 }
@@ -151,6 +167,9 @@ model ClientProfile {
   user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   firstName String
   lastName  String
+  // CORRECCIÓN 4: capturada en el registro, reutilizada automáticamente en
+  // la generación del contrato — nunca se vuelve a pedir.
+  nationality String?
   status    ClientStatus @default(PENDING)
   notes     String?
   isDemo    Boolean      @default(false)
@@ -178,6 +197,9 @@ model ClientProfile {
 
   // CORRECCIÓN 11/16: hasta 20 subcuentas/API por cliente.
   apiSubaccounts ApiSubaccount[]
+
+  // CORRECCIÓN 7: invitaciones de aumento de saldo operativo (historial completo).
+  capitalIncreaseInvitations CapitalIncreaseInvitation[]
 
   @@map("client_profiles")
 }
@@ -238,6 +260,7 @@ model ApiSubaccount {
   paymentReports   PaymentReport[]
   statements       Statement[]
   connectionEvents ApiConnectionEvent[]
+  capitalDistributionItems CapitalDistributionItem[]
 
   @@unique([clientId, slotIndex])
   @@map("api_subaccounts")
@@ -251,6 +274,82 @@ model ApiConnectionEvent {
   occurredAt      DateTime            @default(now())
 
   @@map("api_connection_events")
+}
+
+// ==========================================================
+// INVITACIÓN PARA AUMENTO DE SALDO OPERATIVO (CORRECCIÓN 7)
+// ==========================================================
+// Solo QLC/ADMIN puede emitir una invitación — el cliente nunca la genera.
+// Flujo: DESBLOQUEADA -> ACEPTADA (crea CapitalIncreaseRequest) o RECHAZADA.
+// Una vez aceptada y con solicitud enviada, el admin arma una distribución
+// real usando las subcuentas/API existentes del cliente (nunca nombres
+// ficticios) y la publica; el cliente la consulta y la marca como leída.
+model CapitalIncreaseInvitation {
+  id              String   @id @default(cuid())
+  clientId        String
+  client          ClientProfile @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  // Dato informativo capturado manualmente por el admin — el sistema NUNCA
+  // consulta saldo real en el exchange.
+  currentBalance  Decimal  @db.Decimal(14, 2)
+  maxAmount       Decimal  @db.Decimal(14, 2)
+  validityDays    Int      @default(10)
+  expiresAt       DateTime
+
+  status          CapitalInvitationStatus @default(DESBLOQUEADA)
+  respondedAt     DateTime?
+
+  createdByUserId String
+  createdBy       User     @relation("CapitalInvitationCreatedBy", fields: [createdByUserId], references: [id])
+  createdAt       DateTime @default(now())
+
+  request CapitalIncreaseRequest?
+
+  @@map("capital_increase_invitations")
+}
+
+model CapitalIncreaseRequest {
+  id              String   @id @default(cuid())
+  invitationId    String   @unique
+  invitation      CapitalIncreaseInvitation @relation(fields: [invitationId], references: [id], onDelete: Cascade)
+
+  requestedAmount Decimal  @db.Decimal(14, 2)
+  status          CapitalRequestStatus @default(EN_PROCESO)
+  requestedAt     DateTime @default(now())
+  // CORRECCIÓN 7: 72 horas para que QLC procese y emita instrucciones.
+  deadlineAt      DateTime
+  readAt          DateTime?
+
+  distribution CapitalDistribution?
+
+  @@map("capital_increase_requests")
+}
+
+model CapitalDistribution {
+  id          String   @id @default(cuid())
+  requestId   String   @unique
+  request     CapitalIncreaseRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  publishedAt DateTime?
+  createdAt   DateTime @default(now())
+
+  items CapitalDistributionItem[]
+
+  @@map("capital_distributions")
+}
+
+model CapitalDistributionItem {
+  id              String   @id @default(cuid())
+  distributionId  String
+  distribution    CapitalDistribution @relation(fields: [distributionId], references: [id], onDelete: Cascade)
+  // Siempre una subcuenta/API REAL del cliente — nunca un nombre ficticio.
+  // onDelete: Cascade para no bloquear la eliminación real de un cliente
+  // (deleteClient) cuando cascada a través de sus subcuentas/API.
+  apiSubaccountId String
+  apiSubaccount   ApiSubaccount @relation(fields: [apiSubaccountId], references: [id], onDelete: Cascade)
+  amount          Decimal  @db.Decimal(14, 2)
+  order           Int      @default(0)
+
+  @@map("capital_distribution_items")
 }
 
 // ==========================================================
@@ -396,6 +495,13 @@ model Document {
   unlockedBy           User?     @relation("DocumentUnlockedBy", fields: [unlockedByUserId], references: [id])
   unlockedAt           DateTime?
 
+  // CORRECCIÓN 5: si este documento es evidencia de un Estado de Cuenta
+  // (no un documento de identidad del cliente), queda referenciado aquí —
+  // reutiliza exactamente el mismo almacenamiento (Google Drive), nunca
+  // una arquitectura paralela.
+  statementId String?
+  statement   Statement? @relation(fields: [statementId], references: [id], onDelete: Cascade)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -521,6 +627,10 @@ model Statement {
   endingBalance    Decimal @db.Decimal(14, 2)
   resultAmount     Decimal @db.Decimal(14, 2)
   resultPercentage Decimal @db.Decimal(7, 2)
+  // CORRECCIÓN 5: volatilidad y resultado neto del periodo (dato libre
+  // capturado por el administrador, igual que el resto del resumen).
+  volatility  String?
+  netResult   Decimal? @db.Decimal(14, 2)
   commission       Decimal @db.Decimal(14, 2) @default(0)
 
   activityNotes String?
@@ -540,8 +650,12 @@ model Statement {
   createdBy       User     @relation("StatementCreatedBy", fields: [createdByUserId], references: [id])
   createdAt       DateTime @default(now())
 
-  paymentReports PaymentReport[]
+  paymentReports    PaymentReport[]
+  evidenceDocuments Document[]
 
+  // CORRECCIÓN 5: no permitir dos Estados de Cuenta iguales para la misma
+  // subcuenta/API + mismo periodo.
+  @@unique([apiSubaccountId, periodStart, periodEnd])
   @@map("statements")
 }
 

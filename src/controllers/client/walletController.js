@@ -54,6 +54,26 @@ const updateWallet = asyncHandler(async (req, res) => {
     },
     select: { walletAddress: true, walletNetwork: true, walletQrUrl: true },
   });
+
+  // CORRECCIÓN 1: registrar la wallet confirma el paso "WALLET" del proceso
+  // de activación en TODAS las subcuentas/API del cliente — la wallet es un
+  // dato del cliente, no de una subcuenta puntual, así que nunca se le
+  // vuelve a pedir por cada API que tenga.
+  if (updated.walletAddress) {
+    const processes = await prisma.process.findMany({
+      where: { apiSubaccount: { clientId: req.clientProfile.id } },
+      select: { id: true },
+    });
+    await Promise.all(
+      processes.map((p) =>
+        prisma.processCondition.updateMany({
+          where: { processId: p.id, type: 'WALLET' },
+          data: { status: 'CONFIRMED' },
+        })
+      )
+    );
+  }
+
   res.json({ ok: true, wallet: updated });
 });
 

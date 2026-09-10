@@ -15,6 +15,7 @@ const getMe = asyncHandler(async (req, res) => {
       id: client.id,
       firstName: client.firstName,
       lastName: client.lastName,
+      nationality: client.nationality,
       status: client.status,
       email: client.user.email,
       memberSince: client.user.createdAt,

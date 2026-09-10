@@ -22,6 +22,7 @@ const prospectController = require('../controllers/prospectController');
 const driveConfigController = require('../controllers/driveConfigController');
 const mediaController = require('../controllers/mediaController');
 const platformSettingsController = require('../controllers/platformSettingsController');
+const capitalIncreaseController = require('../controllers/capitalIncreaseController');
 
 const router = Router();
 
@@ -38,6 +39,14 @@ router.patch('/clients/:id', clientController.updateClient);
 router.patch('/clients/:id/active', clientController.setClientActive);
 router.get('/clients/:id/wallet', clientController.getWallet);
 router.delete('/clients/:id', clientController.deleteClient);
+
+// CORRECCIÓN 7 — Invitación para aumento de saldo operativo (solo ADMIN).
+router.get('/clients/:clientId/capital-increase', capitalIncreaseController.listForClient);
+router.post('/clients/:clientId/capital-increase/invitations', capitalIncreaseController.createInvitation);
+router.post('/capital-increase/requests/:requestId/distribution', capitalIncreaseController.startDistribution);
+router.post('/capital-increase/distributions/:distributionId/items', capitalIncreaseController.upsertDistributionItem);
+router.delete('/capital-increase/items/:itemId', capitalIncreaseController.removeDistributionItem);
+router.post('/capital-increase/distributions/:distributionId/publish', capitalIncreaseController.publishDistribution);
 
 // Subcuentas / API (CORRECCIÓN 11) — hasta 20 por cliente
 router.post('/clients/:clientId/api-subaccounts', apiSubaccountController.createSubaccount);
@@ -109,6 +118,15 @@ router.patch('/documents/:id/unlock', documentController.setDocumentUnlock);
 router.get('/api-subaccounts/:apiSubaccountId/statements', statementController.listStatements);
 router.post('/api-subaccounts/:apiSubaccountId/statements', statementController.createStatement);
 router.get('/statements/:id/download', statementController.downloadStatementFile);
+// CORRECCIÓN 5: reenvío al cliente + evidencia documental (misma
+// arquitectura de almacenamiento que el resto de documentos).
+router.post('/statements/:id/send', statementController.sendStatementToClient);
+router.get('/statements/:id/evidence', statementController.listStatementEvidence);
+router.post(
+  '/statements/:id/evidence',
+  uploadDocumentFile.single('file'),
+  statementController.uploadStatementEvidence
+);
 
 // Payments (QR → Cloudinary imagen, comprobante → Google Drive documento)
 router.get('/payment-config', paymentController.getPaymentConfig);

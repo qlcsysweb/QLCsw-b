@@ -8,7 +8,7 @@
 const PDFDocument = require('pdfkit');
 const { formatCdmx } = require('../timezone');
 
-function generateContractPdf({ client, model, identifier }) {
+function generateContractPdf({ client, model, identifier, qlcWallet }) {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: 'LETTER', margin: 56 });
     const chunks = [];
@@ -26,8 +26,24 @@ function generateContractPdf({ client, model, identifier }) {
     doc.text(`Fecha de emisión: ${formatCdmx(new Date())}`);
     doc.text(`Cliente: ${client.firstName} ${client.lastName}`);
     doc.text(`Correo: ${client.user?.email || ''}`);
+    if (client.nationality) doc.text(`Nacionalidad: ${client.nationality}`);
     if (identifier) doc.text(`Subcuenta/API: ${identifier}`);
     doc.moveDown(1);
+
+    if (client.walletAddress || (qlcWallet && qlcWallet.address)) {
+      doc.fontSize(13).text('Datos de wallet', { underline: true });
+      doc.moveDown(0.4);
+      doc.fontSize(10);
+      if (client.walletAddress) {
+        doc.text(`Wallet del cliente: ${client.walletAddress}`);
+        if (client.walletNetwork) doc.text(`Red: ${client.walletNetwork}`);
+      }
+      if (qlcWallet && qlcWallet.address) {
+        doc.text(`Wallet de depósito QLC (${qlcWallet.currency || 'USDT'}): ${qlcWallet.address}`);
+        if (qlcWallet.network) doc.text(`Red: ${qlcWallet.network}`);
+      }
+      doc.moveDown(1);
+    }
 
     doc.fontSize(13).text('Modelo de participación seleccionado', { underline: true });
     doc.moveDown(0.4);

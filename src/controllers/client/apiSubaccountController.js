@@ -143,7 +143,11 @@ const selectModel = asyncHandler(async (req, res) => {
 const confirmModel = asyncHandler(async (req, res) => {
   const subaccount = await prisma.apiSubaccount.findFirst({
     where: { id: req.params.id, clientId: req.clientProfile.id },
-    include: { client: { include: { user: { select: { email: true } } } } },
+    include: {
+      client: {
+        include: { user: { select: { email: true } } },
+      },
+    },
   });
   if (!subaccount) throw ApiError.notFound('Subcuenta no encontrada');
 
@@ -164,10 +168,17 @@ const confirmModel = asyncHandler(async (req, res) => {
 
   if (await documentStorage.isConfigured()) {
     try {
+      // CORRECCIÓN 4: nacionalidad y wallet del cliente ya están capturadas
+      // desde el registro — nunca se le vuelven a pedir aquí. La wallet de
+      // depósito de QLC se lee de la configuración ya existente del admin.
+      const paymentConfig = await prisma.paymentConfiguration.findFirst();
       const pdfBuffer = await generateContractPdf({
         client: subaccount.client,
         model: confirmed.model,
         identifier: subaccount.identifier,
+        qlcWallet: paymentConfig
+          ? { address: paymentConfig.walletAddress, network: paymentConfig.network, currency: paymentConfig.currency }
+          : null,
       });
       const { contractsFolderId } = await documentStorage.ensureClientFolders(subaccount.client);
       const fileName = `Contrato_${subaccount.client.firstName}_${subaccount.client.lastName}.pdf`.replace(/\s+/g, '_');

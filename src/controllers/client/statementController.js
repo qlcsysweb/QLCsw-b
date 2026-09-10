@@ -9,13 +9,25 @@ async function assertOwnsSubaccount(clientId, apiSubaccountId) {
   return subaccount;
 }
 
+// CORRECCIÓN 5: estado visible derivado — nunca una columna redundante que
+// pueda desincronizarse del dato real (commission/commissionPaid).
+function displayStatusOf(statement) {
+  if (Number(statement.commission) > 0 && !statement.commissionPaid) return 'PENDIENTE_DE_PAGO';
+  return 'DISPONIBLE';
+}
+
+function shapeStatement(statement) {
+  return { ...statement, displayStatus: displayStatusOf(statement) };
+}
+
 const listStatements = asyncHandler(async (req, res) => {
   await assertOwnsSubaccount(req.clientProfile.id, req.params.apiSubaccountId);
   const statements = await prisma.statement.findMany({
     where: { apiSubaccountId: req.params.apiSubaccountId },
     orderBy: { createdAt: 'desc' },
+    include: { evidenceDocuments: true },
   });
-  res.json({ ok: true, statements });
+  res.json({ ok: true, statements: statements.map(shapeStatement) });
 });
 
 const downloadStatementFile = asyncHandler(async (req, res) => {
@@ -31,4 +43,18 @@ const downloadStatementFile = asyncHandler(async (req, res) => {
   stream.pipe(res);
 });
 
-module.exports = { listStatements, downloadStatementFile };
+// CORRECCIÓN 5: el cliente puede ver (nunca modificar) la evidencia
+// documental que el admin adjuntó a su estado de cuenta.
+const listStatementEvidence = asyncHandler(async (req, res) => {
+  const statement = await prisma.statement.findUnique({ where: { id: req.params.id } });
+  if (!statement) throw ApiError.notFound('Estado de cuenta no encontrado');
+  await assertOwnsSubaccount(req.clientProfile.id, statement.apiSubaccountId);
+
+  const documents = await prisma.document.findMany({
+    where: { statementId: statement.id },
+    orderBy: { createdAt: 'desc' },
+  });
+  res.json({ ok: true, documents });
+});
+
+module.exports = { listStatements, downloadStatementFile, listStatementEvidence };

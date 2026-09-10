@@ -17,6 +17,7 @@ const chatController = require('../controllers/client/chatController');
 const appointmentController = require('../controllers/client/appointmentController');
 const notificationController = require('../controllers/client/notificationController');
 const platformSettingsController = require('../controllers/platformSettingsController');
+const capitalIncreaseController = require('../controllers/client/capitalIncreaseController');
 
 const router = Router();
 
@@ -26,6 +27,14 @@ router.use(requireAuth, requireRole('CLIENT'), resolveOwnClientProfile);
 // Perfil / Dashboard
 router.get('/me', profileController.getMe);
 router.get('/dashboard', profileController.getDashboard);
+
+// CORRECCIÓN 7 — Invitación para aumento de saldo operativo (solo lectura +
+// aceptar/rechazar/marcar como leído — el cliente nunca crea/modifica
+// invitaciones ni distribuciones). Ownership siempre vía req.clientProfile.id.
+router.get('/capital-increase', capitalIncreaseController.getMine);
+router.post('/capital-increase/invitations/:id/accept', capitalIncreaseController.acceptInvitation);
+router.post('/capital-increase/invitations/:id/reject', capitalIncreaseController.rejectInvitation);
+router.post('/capital-increase/requests/:id/mark-read', capitalIncreaseController.markInstructionsRead);
 
 // Modelos de participación (lectura pública, ya activos)
 router.get('/models', modelController.listModelsPublic);
@@ -69,6 +78,9 @@ router.get('/payment-reports/:id/proof', paymentController.downloadPaymentProof)
 // Estados de cuenta (CORRECCIÓN 14) — por subcuenta
 router.get('/api-subaccounts/:apiSubaccountId/statements', statementController.listStatements);
 router.get('/statements/:id/download', statementController.downloadStatementFile);
+// CORRECCIÓN 5: solo lectura — el cliente nunca puede subir/modificar
+// evidencia, solo verla (descarga vía /client/documents/:id/download).
+router.get('/statements/:id/evidence', statementController.listStatementEvidence);
 
 // Wallet personal (CORRECCIÓN 28)
 router.get('/wallet', walletController.getWallet);

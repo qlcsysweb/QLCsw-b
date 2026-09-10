@@ -5,7 +5,9 @@ const asyncHandler = require('../utils/asyncHandler');
 const { encrypt, decrypt } = require('../utils/crypto');
 const { notifyClient } = require('../utils/notify');
 
-const PROCESS_CONDITION_TYPES = ['CONTRACT', 'FUNDS', 'PAYMENT', 'API', 'ACTIVATION'];
+// CORRECCIÓN 1: WALLET va primero — así se refleja el orden real de la
+// guía de uso (cargar wallet antes de contrato/pagos/API).
+const PROCESS_CONDITION_TYPES = ['WALLET', 'CONTRACT', 'FUNDS', 'PAYMENT', 'API', 'ACTIVATION'];
 // CORRECCIÓN 11: hasta 20 subcuentas/API por cliente. Se aplica aquí (no
 // hay forma nativa de limitarlo en Prisma/Postgres para este caso).
 const MAX_SUBACCOUNTS_PER_CLIENT = 20;
@@ -32,6 +34,11 @@ const createSubaccount = asyncHandler(async (req, res) => {
     if (existingIdentifier) throw ApiError.conflict('Ese identificador ya está en uso por otra subcuenta.');
   }
 
+  // CORRECCIÓN 1: si el cliente ya registró su wallet antes de que existiera
+  // esta subcuenta, el paso "WALLET" nace confirmado — nunca se le vuelve a
+  // pedir un dato que ya tiene guardado.
+  const clientHasWallet = Boolean(client.walletAddress);
+
   const nextSlot = count + 1;
   const subaccount = await prisma.apiSubaccount.create({
     data: {
@@ -42,7 +49,12 @@ const createSubaccount = asyncHandler(async (req, res) => {
       updatedByUserId: req.user.id,
       process: {
         create: {
-          conditions: { create: PROCESS_CONDITION_TYPES.map((type) => ({ type, status: 'PENDING' })) },
+          conditions: {
+            create: PROCESS_CONDITION_TYPES.map((type) => ({
+              type,
+              status: type === 'WALLET' && clientHasWallet ? 'CONFIRMED' : 'PENDING',
+            })),
+          },
         },
       },
     },

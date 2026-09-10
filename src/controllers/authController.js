@@ -129,6 +129,9 @@ const registerSchema = z.object({
   lastName: z.string().min(1, 'El apellido es obligatorio'),
   email: z.string().email('Email inválido'),
   password: z.string().min(8, 'La contraseña debe tener al menos 8 caracteres'),
+  // CORRECCIÓN 4: se captura una sola vez en el registro y se reutiliza
+  // automáticamente en la generación del contrato — nunca se vuelve a pedir.
+  nationality: z.string().min(1, 'La nacionalidad es obligatoria'),
 });
 
 const register = asyncHandler(async (req, res) => {
@@ -148,6 +151,7 @@ const register = asyncHandler(async (req, res) => {
         create: {
           firstName: data.firstName,
           lastName: data.lastName,
+          nationality: data.nationality,
         },
       },
     },
