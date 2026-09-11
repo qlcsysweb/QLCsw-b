@@ -54,6 +54,8 @@ const getDashboard = asyncHandler(async (req, res) => {
       subaccounts: subaccounts.map((s) => ({
         id: s.id,
         identifier: s.identifier,
+        isPrincipal: s.isPrincipal,
+        slotIndex: s.slotIndex,
         apiStatus: s.status,
         model: s.clientModel?.model || null,
         contractStatus: s.contract?.status || 'PENDING',

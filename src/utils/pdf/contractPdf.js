@@ -8,7 +8,7 @@
 const PDFDocument = require('pdfkit');
 const { formatCdmx } = require('../timezone');
 
-function generateContractPdf({ client, model, identifier, qlcWallet }) {
+function generateContractPdf({ client, model, identifier, qlcWallet, requiredCapital }) {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: 'LETTER', margin: 56 });
     const chunks = [];
@@ -28,6 +28,7 @@ function generateContractPdf({ client, model, identifier, qlcWallet }) {
     doc.text(`Correo: ${client.user?.email || ''}`);
     if (client.nationality) doc.text(`Nacionalidad: ${client.nationality}`);
     if (identifier) doc.text(`Subcuenta/API: ${identifier}`);
+    if (requiredCapital) doc.text(`Capital operativo requerido: ${Number(requiredCapital).toFixed(2)} USDT`);
     doc.moveDown(1);
 
     if (client.walletAddress || (qlcWallet && qlcWallet.address)) {

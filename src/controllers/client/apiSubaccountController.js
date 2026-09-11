@@ -111,6 +111,42 @@ const reportCapitalReady = asyncHandler(async (req, res) => {
   res.json({ ok: true, subaccount: shape(updated) });
 });
 
+// CORREGIR.xlsx CLIENTE 13 — reporte real de distribución de capital
+// ("YA DISTRIBUÍ MI CAPITAL"), con el mismo patrón que los reportes de
+// pago: el cliente declara monto/nota, QLC revisa y aprueba/rechaza. El
+// sistema NUNCA se conecta al exchange para validar el saldo.
+const reportCapitalDistributionSchema = z.object({
+  amount: z.coerce.number().positive(),
+  note: z.string().max(500).optional(),
+});
+
+const reportCapitalDistribution = asyncHandler(async (req, res) => {
+  const { amount, note } = reportCapitalDistributionSchema.parse(req.body);
+  const subaccount = await prisma.apiSubaccount.findFirst({
+    where: { id: req.params.id, clientId: req.clientProfile.id },
+  });
+  if (!subaccount) throw ApiError.notFound('Subcuenta no encontrada');
+
+  const report = await prisma.capitalDistributionReport.create({
+    data: { apiSubaccountId: subaccount.id, amount, note: note || null, status: 'PENDING' },
+  });
+
+  res.status(201).json({ ok: true, report });
+});
+
+const listCapitalDistributionReports = asyncHandler(async (req, res) => {
+  const subaccount = await prisma.apiSubaccount.findFirst({
+    where: { id: req.params.id, clientId: req.clientProfile.id },
+  });
+  if (!subaccount) throw ApiError.notFound('Subcuenta no encontrada');
+
+  const reports = await prisma.capitalDistributionReport.findMany({
+    where: { apiSubaccountId: subaccount.id },
+    orderBy: { reportedAt: 'desc' },
+  });
+  res.json({ ok: true, reports });
+});
+
 const selectModelSchema = z.object({ modelId: z.string().min(1) });
 
 const selectModel = asyncHandler(async (req, res) => {
@@ -177,6 +213,7 @@ const confirmModel = asyncHandler(async (req, res) => {
         client: subaccount.client,
         model: confirmed.model,
         identifier: subaccount.identifier,
+        requiredCapital: subaccount.requiredCapital,
         qlcWallet: paymentConfig
           ? { address: paymentConfig.walletAddress, network: paymentConfig.network, currency: paymentConfig.currency }
           : null,
@@ -216,4 +253,13 @@ const confirmModel = asyncHandler(async (req, res) => {
   res.json({ ok: true, clientModel: confirmed, contract });
 });
 
-module.exports = { listMine, getMine, updateMine, reportCapitalReady, selectModel, confirmModel };
+module.exports = {
+  listMine,
+  getMine,
+  updateMine,
+  reportCapitalReady,
+  reportCapitalDistribution,
+  listCapitalDistributionReports,
+  selectModel,
+  confirmModel,
+};

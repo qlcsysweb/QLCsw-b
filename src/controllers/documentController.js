@@ -24,7 +24,7 @@ const listDocumentsByClient = asyncHandler(async (req, res) => {
 const uploadDocument = asyncHandler(async (req, res) => {
   await assertDriveReady();
   if (!req.file) throw ApiError.badRequest('Debes adjuntar un archivo');
-  const { category, description } = req.body;
+  const { category, description, year, month, periodLabel } = req.body;
   if (!category) throw ApiError.badRequest('La categoría es obligatoria');
 
   const client = await prisma.clientProfile.findUnique({ where: { id: req.params.clientId } });
@@ -50,10 +50,35 @@ const uploadDocument = asyncHandler(async (req, res) => {
       mimeType: req.file.mimetype,
       sizeBytes: req.file.size,
       uploadedByUserId: req.user.id,
+      // CORREGIR.xlsx ADMIN 07 — organización opcional Año/Periodo/Mes
+      year: year ? Number(year) : null,
+      month: month ? Number(month) : null,
+      periodLabel: periodLabel || null,
     },
   });
 
   res.status(201).json({ ok: true, document });
+});
+
+// CORREGIR.xlsx ADMIN 07 — el admin puede clasificar/reclasificar un
+// documento ya subido dentro del árbol Año → Periodo → Mes (metadata
+// organizativa sobre el mismo archivo real en Google Drive; nunca mueve ni
+// duplica el archivo físico).
+const setDocumentOrganization = asyncHandler(async (req, res) => {
+  const { year, month, periodLabel } = req.body;
+  const document = await prisma.document.findUnique({ where: { id: req.params.id } });
+  if (!document) throw ApiError.notFound('Documento no encontrado');
+
+  const updated = await prisma.document.update({
+    where: { id: document.id },
+    data: {
+      year: year === null || year === undefined || year === '' ? null : Number(year),
+      month: month === null || month === undefined || month === '' ? null : Number(month),
+      periodLabel: periodLabel || null,
+    },
+  });
+
+  res.json({ ok: true, document: updated });
 });
 
 const downloadDocument = asyncHandler(async (req, res) => {
@@ -117,4 +142,11 @@ const setDocumentUnlock = asyncHandler(async (req, res) => {
   res.json({ ok: true, document: updated });
 });
 
-module.exports = { listDocumentsByClient, uploadDocument, downloadDocument, deleteDocument, setDocumentUnlock };
+module.exports = {
+  listDocumentsByClient,
+  uploadDocument,
+  downloadDocument,
+  deleteDocument,
+  setDocumentUnlock,
+  setDocumentOrganization,
+};

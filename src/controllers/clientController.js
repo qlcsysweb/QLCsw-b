@@ -6,6 +6,7 @@ const asyncHandler = require('../utils/asyncHandler');
 const documentStorage = require('../services/documentStorage');
 const { enforceCommissionDeadline } = require('../utils/connectionDeadlines');
 const { ensureAllSubaccounts } = require('../utils/subaccountProvisioning');
+const { verifyClientDeletionPassword } = require('./securityConfigController');
 
 const PROCESS_CONDITION_TYPES = ['CONTRACT', 'FUNDS', 'PAYMENT', 'API', 'ACTIVATION'];
 
@@ -233,7 +234,13 @@ const getWallet = asyncHandler(async (req, res) => {
 // Esta ruta SOLO puede alcanzar clientes: un ClientProfile nunca existe
 // para una cuenta ADMIN, así que es estructuralmente imposible borrar un
 // administrador desde aquí.
+// CORREGIR.xlsx ADMIN 06: solo el administrador general puede eliminar
+// clientes, y siempre con la contraseña de seguridad exclusiva — validado
+// en backend, nunca solo en frontend, e imposible de sortear vía API
+// directa porque la verificación ocurre aquí mismo antes de tocar la BD.
 const deleteClient = asyncHandler(async (req, res) => {
+  await verifyClientDeletionPassword(req.user.id, req.body?.securityPassword);
+
   const client = await prisma.clientProfile.findUnique({
     where: { id: req.params.id },
     include: {

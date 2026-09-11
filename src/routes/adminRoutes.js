@@ -25,6 +25,9 @@ const platformSettingsController = require('../controllers/platformSettingsContr
 const capitalIncreaseController = require('../controllers/capitalIncreaseController');
 const guideController = require('../controllers/guideController');
 const capitalRescueController = require('../controllers/capitalRescueController');
+const securityConfigController = require('../controllers/securityConfigController');
+const processStepController = require('../controllers/processStepController');
+const adminMessageController = require('../controllers/adminMessageController');
 
 const router = Router();
 
@@ -69,6 +72,10 @@ router.post('/clients/:clientId/api-subaccounts', apiSubaccountController.create
 router.post('/clients/:clientId/api-subaccounts/ensure-all', apiSubaccountController.ensureSubaccounts);
 router.patch('/api-subaccounts/:id', apiSubaccountController.updateSubaccount);
 router.get('/api-subaccounts/:id/secrets', apiSubaccountController.getSubaccountSecrets);
+
+// CORREGIR.xlsx CLIENTE 13 — revisión de reportes de distribución de capital
+router.get('/capital-distribution-reports', apiSubaccountController.listCapitalDistributionReports);
+router.patch('/capital-distribution-reports/:id', apiSubaccountController.reviewCapitalDistributionReport);
 
 // Process / activation — por subcuenta
 router.get('/api-subaccounts/:apiSubaccountId/process', processController.getProcess);
@@ -130,6 +137,8 @@ router.delete('/documents/:id', documentController.deleteDocument);
 // REVERSIÓN A: única forma de que el cliente pueda eliminar/reemplazar un
 // documento puntual — el admin lo habilita temporalmente.
 router.patch('/documents/:id/unlock', documentController.setDocumentUnlock);
+// CORREGIR.xlsx ADMIN 07 — organización Año/Periodo/Mes tipo Google Drive
+router.patch('/documents/:id/organize', documentController.setDocumentOrganization);
 
 // Estados de cuenta (CORRECCIÓN 14) — por subcuenta
 router.get('/api-subaccounts/:apiSubaccountId/statements', statementController.listStatements);
@@ -176,6 +185,33 @@ router.post('/chat/:id/close', chatController.closeSession);
 // Prospects
 router.get('/prospects', prospectController.listProspects);
 router.patch('/prospects/:id', prospectController.updateProspectStatus);
+// CORREGIR.xlsx ADMIN 05: borrado manual (además de la limpieza automática
+// a los 5 días de DESCARTADO, ejecutada de forma perezosa en listProspects).
+router.delete('/prospects/:id', prospectController.deleteProspect);
+
+// CORREGIR.xlsx ADMIN 06 — contraseña de seguridad para eliminar clientes
+router.get('/security-config', securityConfigController.getStatus);
+router.put('/security-config/password', securityConfigController.setPassword);
+
+// CORREGIR.xlsx ADMIN 08 — archivo/historial de estados de cuenta (todos los clientes)
+router.get('/statements', statementController.listAllStatements);
+router.patch('/statements/:id/archive', statementController.setStatementArchived);
+
+// CORREGIR.xlsx ADMIN 11/12/13 — bandeja de contratos, organización por
+// año/mes/periodo, vigencia + alerta de vencimiento
+router.get('/contracts', contractController.listAllContracts);
+router.patch('/contracts/:id/review', contractController.markContractReviewed);
+router.patch('/contracts/:id/vigencia', contractController.setContractVigencia);
+
+// CORREGIR.xlsx ADMIN 14 — mensajería manual admin→cliente
+router.get('/clients/:clientId/messages', adminMessageController.listForClient);
+router.post('/clients/:clientId/messages', adminMessageController.sendMessage);
+
+// CORREGIR.xlsx CLIENTE 07 — "Tu proceso paso a paso" editable (CMS)
+router.get('/process-steps', processStepController.listStepsAdmin);
+router.post('/process-steps', processStepController.createStep);
+router.patch('/process-steps/:id', processStepController.updateStep);
+router.delete('/process-steps/:id', processStepController.deleteStep);
 
 // Configuración de Google Drive (Admin → Configuración → Google Drive)
 // CORRECCIÓN 24: bloqueada tras la primera configuración — solo quien la

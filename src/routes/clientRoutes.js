@@ -20,6 +20,7 @@ const platformSettingsController = require('../controllers/platformSettingsContr
 const capitalIncreaseController = require('../controllers/client/capitalIncreaseController');
 const guideController = require('../controllers/client/guideController');
 const capitalRescueController = require('../controllers/client/capitalRescueController');
+const processStepController = require('../controllers/processStepController');
 
 const router = Router();
 
@@ -56,6 +57,9 @@ router.get('/api-subaccounts', apiSubaccountController.listMine);
 router.get('/api-subaccounts/:id', apiSubaccountController.getMine);
 router.patch('/api-subaccounts/:id', apiSubaccountController.updateMine);
 router.post('/api-subaccounts/:id/report-capital-ready', apiSubaccountController.reportCapitalReady);
+// CORREGIR.xlsx CLIENTE 13 — reporte real de distribución de capital
+router.get('/api-subaccounts/:id/capital-distribution-reports', apiSubaccountController.listCapitalDistributionReports);
+router.post('/api-subaccounts/:id/capital-distribution-reports', apiSubaccountController.reportCapitalDistribution);
 router.post('/api-subaccounts/:id/model', apiSubaccountController.selectModel);
 router.post('/api-subaccounts/:id/model/confirm', apiSubaccountController.confirmModel);
 
@@ -120,6 +124,9 @@ router.post('/chat/:id/messages', chatController.sendMessage);
 router.get('/availability', appointmentController.listAvailability);
 router.get('/appointments', appointmentController.listAppointments);
 router.post('/appointments', appointmentController.createAppointment);
+
+// CORREGIR.xlsx CLIENTE 07 — "Tu proceso paso a paso" (solo lectura, CMS editable desde ADMIN)
+router.get('/process-steps', processStepController.listStepsPublic);
 
 // Notificaciones
 router.get('/notifications', notificationController.listNotifications);

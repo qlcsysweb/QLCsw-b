@@ -131,6 +131,17 @@ enum RescueParticipationStatus {
   FINALIZADA
 }
 
+// CORRECCIÓN CORREGIR.xlsx — ADMIN 14: mensajería manual admin→cliente,
+// reutilizando Notification (nunca una tabla paralela). "SYSTEM" son las
+// notificaciones automáticas de siempre (con templateKey); "MANUAL" son
+// mensajes redactados a mano por un admin y quedan excluidos de la
+// limpieza automática de 34 días para preservar el historial del "correo
+// interno".
+enum NotificationKind {
+  SYSTEM
+  MANUAL
+}
+
 // ==========================================================
 // IDENTITY
 // ==========================================================
@@ -172,6 +183,11 @@ model User {
   documentUnlocksGranted Document[]          @relation("DocumentUnlockedBy")
   capitalInvitationsCreated CapitalIncreaseInvitation[] @relation("CapitalInvitationCreatedBy")
   rescueInvitationsCreated  CapitalRescueInvitation[]   @relation("RescueInvitationCreatedBy")
+  contractsReviewed         Contract[]                  @relation("ContractReviewedBy")
+  notificationsSent         Notification[]              @relation("NotificationSentBy")
+  capitalDistributionReportsReviewed CapitalDistributionReport[] @relation("CapitalDistReportReviewedBy")
+  securityConfigsUpdated    SecurityConfiguration[]     @relation("SecurityConfigUpdatedBy")
+  processStepsUpdated       ProcessStep[]                @relation("ProcessStepUpdatedBy")
 
   @@map("users")
 }
@@ -183,10 +199,30 @@ model AdminProfile {
   firstName   String
   lastName    String
   permissions Json     @default("{}")
+  // CORRECGIR.xlsx ADMIN 06 — solo el "administrador general" puede
+  // eliminar clientes; el resto de admins nunca ve/usa la contraseña de
+  // seguridad (SecurityConfiguration.clientDeletionPasswordHash).
+  isGeneralAdmin Boolean @default(false)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   @@map("admin_profiles")
+}
+
+// CORREGIR.xlsx ADMIN 06 — fila única (singleton) con la contraseña de
+// seguridad exclusiva para eliminar clientes. Solo el administrador
+// general puede configurarla/usarla; nunca se devuelve el hash al
+// frontend. Reutiliza bcrypt (igual que User.passwordHash), nunca texto
+// plano.
+model SecurityConfiguration {
+  id                         String    @id @default(cuid())
+  clientDeletionPasswordHash String?
+  updatedByUserId            String?
+  updatedBy                  User?     @relation("SecurityConfigUpdatedBy", fields: [updatedByUserId], references: [id])
+  updatedAt                  DateTime  @updatedAt
+  createdAt                  DateTime  @default(now())
+
+  @@map("security_configuration")
 }
 
 model ClientProfile {
@@ -254,7 +290,15 @@ model ApiSubaccount {
   client   ClientProfile @relation(fields: [clientId], references: [id], onDelete: Cascade)
 
   // Orden de creación (1..20) — estable aunque se reasigne el identificador.
+  // CORREGIR.xlsx CLIENTE 06: la cuenta PRINCIPAL usa slotIndex 0 (siempre
+  // ordena primero) y no cuenta contra el máximo de 20 subcuentas/API.
   slotIndex Int
+
+  // CORREGIR.xlsx CLIENTE 06 — true únicamente para la fila PRINCIPAL que
+  // ensureAllSubaccounts crea automáticamente (slotIndex 0). Comparte
+  // exactamente el mismo modelo/panel que las subcuentas 1..20 (contrato,
+  // modelo, estados de cuenta, pagos) — nunca una arquitectura paralela.
+  isPrincipal Boolean @default(false)
 
   // Identificador visible tipo "PCB-1-A-1", asignado manualmente por ADMIN.
   // Null mientras el administrador no lo haya asignado todavía.
@@ -293,6 +337,7 @@ model ApiSubaccount {
   capitalDistributionItems CapitalDistributionItem[]
   capitalRescueInvitations CapitalRescueInvitation[]
   rescueDistributionItems  CapitalRescueDistributionItem[] @relation("RescueDistributionItems")
+  capitalDistributionReports CapitalDistributionReport[]
 
   @@unique([clientId, slotIndex])
   @@map("api_subaccounts")
@@ -598,6 +643,21 @@ model Contract {
   signedSizeBytes     Int?
   signedUploadedAt    DateTime?
 
+  // CORREGIR.xlsx ADMIN 13 — vigencia del contrato: el admin define inicio
+  // y vencimiento; el sistema genera una alerta (Notification) 10 días
+  // antes de expirationDate. expirationAlertSentAt evita alertas
+  // duplicadas para el mismo vencimiento.
+  startDate            DateTime?
+  expirationDate        DateTime?
+  expirationAlertSentAt DateTime?
+
+  // CORREGIR.xlsx ADMIN 12 — bandeja de entrada de contratos: permite
+  // identificar cuáles contratos firmados ya fueron revisados por el
+  // admin sin depender de un estado adicional en ContractStatus.
+  reviewedAt       DateTime?
+  reviewedByUserId String?
+  reviewedBy       User?     @relation("ContractReviewedBy", fields: [reviewedByUserId], references: [id])
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -633,6 +693,15 @@ model Document {
   unlockedByUserId     String?
   unlockedBy           User?     @relation("DocumentUnlockedBy", fields: [unlockedByUserId], references: [id])
   unlockedAt           DateTime?
+
+  // CORREGIR.xlsx ADMIN 07 — organización tipo Google Drive (Año → Periodo
+  // → Mes) dentro de la ficha del cliente. Metadata puramente organizativa
+  // que agrupa documentos YA almacenados en Drive — nunca una carpeta
+  // física paralela ni un cambio del árbol real en Drive. Opcional: un
+  // documento sin asignar aparece en "Sin clasificar".
+  year        Int?
+  periodLabel String?
+  month       Int?
 
   // CORRECCIÓN 5: si este documento es evidencia de un Estado de Cuenta
   // (no un documento de identidad del cliente), queda referenciado aquí —
@@ -797,6 +866,12 @@ model Statement {
   createdBy       User     @relation("StatementCreatedBy", fields: [createdByUserId], references: [id])
   createdAt       DateTime @default(now())
 
+  // CORREGIR.xlsx ADMIN 08 — el admin puede archivar un estado de cuenta
+  // desde la nueva sección de archivo/historial (nunca se elimina el
+  // registro, solo se marca como archivado).
+  archived   Boolean   @default(false)
+  archivedAt DateTime?
+
   paymentReports    PaymentReport[]
   evidenceDocuments Document[]
 
@@ -826,6 +901,11 @@ model Appointment {
   client           ClientProfile?    @relation(fields: [clientId], references: [id], onDelete: SetNull)
   prospectId       String?
   prospect         Prospect?         @relation(fields: [prospectId], references: [id], onDelete: SetNull)
+  // CORREGIR.xlsx CLIENTE 02 — la cita debe quedar asociada obligatoriamente
+  // al número de caso (SupportCase.caseNumber) generado previamente por el
+  // propio cliente; el admin puede revisarlo antes de autorizar la cita.
+  supportCaseId    String?
+  supportCase      SupportCase?      @relation(fields: [supportCaseId], references: [id], onDelete: SetNull)
   requestedDate    DateTime
   requestedTime    String
   status           AppointmentStatus @default(PENDING)
@@ -857,6 +937,8 @@ model SupportCase {
   status     SupportCaseStatus @default(OPEN)
   createdAt  DateTime          @default(now())
   closedAt   DateTime?
+
+  appointments Appointment[]
 
   @@map("support_cases")
 }
@@ -1046,5 +1128,56 @@ model Notification {
   isRead         Boolean  @default(false)
   createdAt      DateTime @default(now())
 
+  // CORREGIR.xlsx ADMIN 14 — mensajería manual admin→cliente. "kind"
+  // distingue un mensaje redactado a mano (MANUAL, con senderUserId) de una
+  // notificación automática del sistema (SYSTEM, default, comportamiento
+  // idéntico a como funcionaba antes de esta corrección). Los MANUAL quedan
+  // excluidos de la limpieza automática de 34 días — ver
+  // client/notificationController.js.
+  kind         NotificationKind @default(SYSTEM)
+  senderUserId String?
+  sender       User?            @relation("NotificationSentBy", fields: [senderUserId], references: [id])
+
   @@map("notifications")
+}
+
+// CORREGIR.xlsx CLIENTE 07 — "Tu proceso paso a paso" administrable desde
+// el panel (CMS), el cliente solo lo consulta. Reemplaza el listado
+// hardcodeado en i18n (clientDashboard.flow*).
+model ProcessStep {
+  id            String   @id @default(cuid())
+  stepNumber    Int
+  titleEs       String
+  titleEn       String?
+  descriptionEs String?
+  descriptionEn String?
+  displayOrder  Int      @default(0)
+  isActive      Boolean  @default(true)
+  updatedByUserId String?
+  updatedBy     User?    @relation("ProcessStepUpdatedBy", fields: [updatedByUserId], references: [id])
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("process_steps")
+}
+
+// CORREGIR.xlsx CLIENTE 13 — reporte real de "ya distribuí mi capital en
+// el exchange", con el mismo patrón de revisión que PaymentReport (nunca
+// solo un booleano). El sistema JAMÁS se conecta al exchange para validar
+// el saldo: solo administra el reporte/revisión — la validación real la
+// hace QLC externamente.
+model CapitalDistributionReport {
+  id              String        @id @default(cuid())
+  apiSubaccountId String
+  apiSubaccount   ApiSubaccount @relation(fields: [apiSubaccountId], references: [id], onDelete: Cascade)
+  amount          Decimal       @db.Decimal(14, 2)
+  note            String?
+  status          PaymentReportStatus @default(PENDING)
+  reviewNote      String?
+  reviewedByUserId String?
+  reviewedBy      User?         @relation("CapitalDistReportReviewedBy", fields: [reviewedByUserId], references: [id])
+  reviewedAt      DateTime?
+  reportedAt      DateTime      @default(now())
+
+  @@map("capital_distribution_reports")
 }

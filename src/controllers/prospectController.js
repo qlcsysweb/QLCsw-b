@@ -17,7 +17,19 @@ async function getRegisteredEmailSet() {
   return new Set(users.map((u) => normalizeEmail(u.email)));
 }
 
+// CORREGIR.xlsx ADMIN 05 — los prospectos marcados DESCARTADO se eliminan
+// solos 5 días después de marcarse (limpieza perezosa, mismo patrón que la
+// limpieza de notificaciones a 34 días — ver client/notificationController.js).
+// Nunca toca prospectos activos (NUEVO/CONTACTADO/CONVERTIDO).
+const DISCARDED_TTL_DAYS = 5;
+
+async function cleanupDiscardedProspects() {
+  const cutoff = new Date(Date.now() - DISCARDED_TTL_DAYS * 24 * 60 * 60 * 1000);
+  await prisma.prospect.deleteMany({ where: { status: 'DESCARTADO', updatedAt: { lt: cutoff } } });
+}
+
 const listProspects = asyncHandler(async (req, res) => {
+  await cleanupDiscardedProspects();
   const { status, registration } = req.query;
   const prospects = await prisma.prospect.findMany({
     where: status ? { status } : {},
@@ -102,9 +114,20 @@ const updateProspectStatus = asyncHandler(async (req, res) => {
   res.json({ ok: true, prospect: updated });
 });
 
+// CORREGIR.xlsx ADMIN 05 — opción manual de borrado (además de la limpieza
+// automática a los 5 días). Permite borrar cualquier prospecto puntual sin
+// esperar el plazo, a discreción del admin.
+const deleteProspect = asyncHandler(async (req, res) => {
+  const prospect = await prisma.prospect.findUnique({ where: { id: req.params.id } });
+  if (!prospect) throw ApiError.notFound('Prospecto no encontrado');
+  await prisma.prospect.delete({ where: { id: prospect.id } });
+  res.json({ ok: true });
+});
+
 module.exports = {
   listProspects,
   createProspect,
   updateProspectStatus,
+  deleteProspect,
   countUnregisteredProspects,
 };

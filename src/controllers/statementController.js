@@ -34,6 +34,39 @@ const listStatements = asyncHandler(async (req, res) => {
   res.json({ ok: true, statements: statements.map(shapeStatement) });
 });
 
+// CORREGIR.xlsx ADMIN 08 — sección dedicada donde el admin visualiza y
+// archiva TODOS los estados de cuenta generados (de cualquier cliente/
+// subcuenta), no solo desde la ficha de una subcuenta puntual.
+const listAllStatements = asyncHandler(async (req, res) => {
+  const { archived, clientId, apiSubaccountId } = req.query;
+  const statements = await prisma.statement.findMany({
+    where: {
+      ...(archived !== undefined ? { archived: archived === 'true' } : {}),
+      ...(apiSubaccountId ? { apiSubaccountId } : {}),
+      ...(clientId ? { apiSubaccount: { clientId } } : {}),
+    },
+    orderBy: { createdAt: 'desc' },
+    include: {
+      apiSubaccount: {
+        select: { identifier: true, slotIndex: true, client: { select: { firstName: true, lastName: true } } },
+      },
+    },
+  });
+  res.json({ ok: true, statements: statements.map(shapeStatement) });
+});
+
+const setStatementArchived = asyncHandler(async (req, res) => {
+  const archived = Boolean(req.body?.archived);
+  const statement = await prisma.statement.findUnique({ where: { id: req.params.id } });
+  if (!statement) throw ApiError.notFound('Estado de cuenta no encontrado');
+
+  const updated = await prisma.statement.update({
+    where: { id: statement.id },
+    data: { archived, archivedAt: archived ? new Date() : null },
+  });
+  res.json({ ok: true, statement: shapeStatement(updated) });
+});
+
 const createStatementSchema = z
   .object({
     // CORRECCIÓN 5: "DESDE" se autocompleta desde el periodo anterior de la
@@ -248,6 +281,8 @@ const listStatementEvidence = asyncHandler(async (req, res) => {
 
 module.exports = {
   listStatements,
+  listAllStatements,
+  setStatementArchived,
   createStatement,
   downloadStatementFile,
   sendStatementToClient,

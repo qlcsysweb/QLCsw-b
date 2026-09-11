@@ -8,7 +8,11 @@ const NOTIFICATION_TTL_DAYS = 34;
 
 async function cleanupExpiredNotifications(userId) {
   const cutoff = new Date(Date.now() - NOTIFICATION_TTL_DAYS * 24 * 60 * 60 * 1000);
-  await prisma.notification.deleteMany({ where: { userId, createdAt: { lt: cutoff } } });
+  // CORREGIR.xlsx ADMIN 14 — los mensajes manuales admin→cliente (kind
+  // MANUAL) son un "correo interno" con historial permanente: nunca se
+  // eliminan automáticamente, a diferencia de las notificaciones normales
+  // del sistema (kind SYSTEM, comportamiento sin cambios).
+  await prisma.notification.deleteMany({ where: { userId, kind: 'SYSTEM', createdAt: { lt: cutoff } } });
 }
 
 const listNotifications = asyncHandler(async (req, res) => {

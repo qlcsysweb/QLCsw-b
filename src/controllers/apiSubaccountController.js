@@ -22,7 +22,9 @@ const createSubaccount = asyncHandler(async (req, res) => {
   const client = await prisma.clientProfile.findUnique({ where: { id: req.params.clientId } });
   if (!client) throw ApiError.notFound('Cliente no encontrado');
 
-  const count = await prisma.apiSubaccount.count({ where: { clientId: client.id } });
+  // CORREGIR.xlsx CLIENTE 06: la cuenta PRINCIPAL (slotIndex 0) nunca cuenta
+  // contra el máximo de 20 subcuentas/API numeradas.
+  const count = await prisma.apiSubaccount.count({ where: { clientId: client.id, isPrincipal: false } });
   if (count >= MAX_SUBACCOUNTS_PER_CLIENT) {
     throw ApiError.conflict(`Este cliente ya tiene el máximo de ${MAX_SUBACCOUNTS_PER_CLIENT} subcuentas/API.`);
   }
@@ -184,10 +186,73 @@ const ensureSubaccounts = asyncHandler(async (req, res) => {
   res.json({ ok: true, createdCount: created.length });
 });
 
+// CORREGIR.xlsx CLIENTE 13 — revisión admin de los reportes de distribución
+// de capital (mismo patrón que la revisión de pagos): el admin aprueba o
+// rechaza; solo al aprobar se confirma la condición FUNDS y se marca
+// clientReportedCapitalReady (nunca automáticamente al reportar).
+const listCapitalDistributionReports = asyncHandler(async (req, res) => {
+  const { status, clientId, apiSubaccountId } = req.query;
+  const reports = await prisma.capitalDistributionReport.findMany({
+    where: {
+      ...(status ? { status } : {}),
+      ...(apiSubaccountId ? { apiSubaccountId } : {}),
+      ...(clientId ? { apiSubaccount: { clientId } } : {}),
+    },
+    orderBy: { reportedAt: 'desc' },
+    include: {
+      apiSubaccount: { select: { identifier: true, slotIndex: true, client: { select: { firstName: true, lastName: true } } } },
+    },
+  });
+  res.json({ ok: true, reports });
+});
+
+const reviewCapitalDistributionReportSchema = z.object({
+  status: z.enum(['APROBADO', 'RECHAZADO', 'EN_REVISION']),
+  reviewNote: z.string().max(500).optional(),
+});
+
+const reviewCapitalDistributionReport = asyncHandler(async (req, res) => {
+  const { status, reviewNote } = reviewCapitalDistributionReportSchema.parse(req.body);
+  const report = await prisma.capitalDistributionReport.findUnique({ where: { id: req.params.id } });
+  if (!report) throw ApiError.notFound('Reporte no encontrado');
+
+  const updated = await prisma.capitalDistributionReport.update({
+    where: { id: report.id },
+    data: { status, reviewNote: reviewNote || null, reviewedByUserId: req.user.id, reviewedAt: new Date() },
+  });
+
+  if (status === 'APROBADO') {
+    await prisma.apiSubaccount.update({
+      where: { id: report.apiSubaccountId },
+      data: { clientReportedCapitalReady: true, clientReportedCapitalAt: new Date() },
+    });
+    const process = await prisma.process.findUnique({ where: { apiSubaccountId: report.apiSubaccountId } });
+    if (process) {
+      await prisma.processCondition.updateMany({
+        where: { processId: process.id, type: 'FUNDS' },
+        data: { status: 'CONFIRMED' },
+      });
+    }
+  }
+
+  const subaccount = await prisma.apiSubaccount.findUnique({ where: { id: report.apiSubaccountId } });
+  await notifyClient(subaccount.clientId, {
+    title: 'Actualización de tu reporte de distribución de capital',
+    message: `Tu reporte de distribución de capital (${report.amount} USDT) fue marcado como: ${status}`,
+    type: status === 'APROBADO' ? 'success' : status === 'RECHAZADO' ? 'warning' : 'info',
+    templateKey: 'capital_distribution_report_updated',
+    templateParams: { amount: String(report.amount), status },
+  });
+
+  res.json({ ok: true, report: updated });
+});
+
 module.exports = {
   createSubaccount,
   updateSubaccount,
   getSubaccountSecrets,
   ensureSubaccounts,
+  listCapitalDistributionReports,
+  reviewCapitalDistributionReport,
   MAX_SUBACCOUNTS_PER_CLIENT,
 };

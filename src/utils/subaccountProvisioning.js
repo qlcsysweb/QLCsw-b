@@ -32,6 +32,32 @@ async function ensureAllSubaccounts(clientId) {
   const clientHasWallet = Boolean(client.walletAddress);
 
   const created = [];
+
+  // CORREGIR.xlsx CLIENTE 06 — cuenta PRINCIPAL (slotIndex 0), siempre por
+  // encima de las 20 subcuentas/API numeradas y con el mismo panel interno
+  // (contrato/modelo/proceso/pagos/estados de cuenta) que cualquier otra
+  // subcuenta. No cuenta contra el límite de 20.
+  if (!existingSlots.has(0)) {
+    const principal = await prisma.apiSubaccount.create({
+      data: {
+        clientId,
+        slotIndex: 0,
+        isPrincipal: true,
+        process: {
+          create: {
+            conditions: {
+              create: PROCESS_CONDITION_TYPES.map((type) => ({
+                type,
+                status: type === 'WALLET' && clientHasWallet ? 'CONFIRMED' : 'PENDING',
+              })),
+            },
+          },
+        },
+      },
+    });
+    created.push(principal);
+  }
+
   for (let slot = 1; slot <= MAX_SUBACCOUNTS_PER_CLIENT; slot += 1) {
     if (existingSlots.has(slot)) continue;
     // eslint-disable-next-line no-await-in-loop

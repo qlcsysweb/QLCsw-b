@@ -1,8 +1,61 @@
+const { z } = require('zod');
 const documentStorage = require('../services/documentStorage');
 const prisma = require('../config/prisma');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const { notifyClient } = require('../utils/notify');
+
+// CORREGIR.xlsx ADMIN 13 — alerta 10 días antes del vencimiento del
+// contrato. Ejecutada de forma perezosa (mismo patrón que la limpieza de
+// notificaciones/prospectos) cada vez que el admin abre la bandeja de
+// contratos. expirationAlertSentAt evita generar alertas duplicadas para
+// el mismo vencimiento.
+const EXPIRATION_ALERT_DAYS = 10;
+
+async function checkContractExpirations() {
+  const now = new Date();
+  const windowEnd = new Date(now.getTime() + EXPIRATION_ALERT_DAYS * 24 * 60 * 60 * 1000);
+
+  const dueSoon = await prisma.contract.findMany({
+    where: {
+      expirationDate: { gte: now, lte: windowEnd },
+      expirationAlertSentAt: null,
+    },
+    include: { apiSubaccount: { include: { client: { include: { user: { select: { id: true } } } } } } },
+  });
+  if (dueSoon.length === 0) return;
+
+  const admins = await prisma.user.findMany({ where: { role: 'ADMIN', isActive: true }, select: { id: true } });
+
+  for (const contract of dueSoon) {
+    const client = contract.apiSubaccount.client;
+    const daysRemaining = Math.ceil((contract.expirationDate - now) / (24 * 60 * 60 * 1000));
+    // eslint-disable-next-line no-await-in-loop
+    await Promise.all(
+      admins.map((admin) =>
+        prisma.notification.create({
+          data: {
+            userId: admin.id,
+            title: 'Contrato próximo a vencer',
+            message: `El contrato de ${client.firstName} ${client.lastName}${
+              contract.apiSubaccount.identifier ? ` (${contract.apiSubaccount.identifier})` : ''
+            } vence el ${contract.expirationDate.toISOString().slice(0, 10)} (${daysRemaining} día(s) restantes).`,
+            type: 'warning',
+            templateKey: 'contract_expiration_alert',
+            templateParams: {
+              clientName: `${client.firstName} ${client.lastName}`,
+              identifier: contract.apiSubaccount.identifier,
+              expirationDate: contract.expirationDate.toISOString().slice(0, 10),
+              daysRemaining: String(daysRemaining),
+            },
+          },
+        })
+      )
+    );
+    // eslint-disable-next-line no-await-in-loop
+    await prisma.contract.update({ where: { id: contract.id }, data: { expirationAlertSentAt: new Date() } });
+  }
+}
 
 async function assertDriveReady() {
   if (!(await documentStorage.isConfigured())) {
@@ -202,6 +255,79 @@ const deleteContract = asyncHandler(async (req, res) => {
   res.json({ ok: true });
 });
 
+// CORREGIR.xlsx ADMIN 11/12 — bandeja de entrada + organización tipo Drive
+// (Año → Mes) de TODOS los contratos, para identificar cuáles llegaron
+// firmados, revisarlos/descargarlos y saber cliente/subcuenta/periodo de
+// recepción. Nunca mezcla contratos entre subcuentas (Contract es 1:1 por
+// ApiSubaccount desde su diseño original).
+const listAllContracts = asyncHandler(async (req, res) => {
+  await checkContractExpirations();
+
+  const { status, reviewed, clientId } = req.query;
+  const contracts = await prisma.contract.findMany({
+    where: {
+      ...(status ? { status } : {}),
+      ...(reviewed === 'true' ? { reviewedAt: { not: null } } : {}),
+      ...(reviewed === 'false' ? { reviewedAt: null } : {}),
+      ...(clientId ? { apiSubaccount: { clientId } } : {}),
+    },
+    orderBy: { createdAt: 'desc' },
+    include: {
+      apiSubaccount: {
+        select: {
+          identifier: true,
+          slotIndex: true,
+          isPrincipal: true,
+          client: { select: { id: true, firstName: true, lastName: true } },
+        },
+      },
+    },
+  });
+  res.json({ ok: true, contracts });
+});
+
+const markContractReviewed = asyncHandler(async (req, res) => {
+  const reviewed = req.body?.reviewed !== false;
+  const contract = await prisma.contract.findUnique({ where: { id: req.params.id } });
+  if (!contract) throw ApiError.notFound('Contrato no encontrado');
+
+  const updated = await prisma.contract.update({
+    where: { id: contract.id },
+    data: reviewed
+      ? { reviewedAt: new Date(), reviewedByUserId: req.user.id }
+      : { reviewedAt: null, reviewedByUserId: null },
+  });
+  res.json({ ok: true, contract: updated });
+});
+
+// CORREGIR.xlsx ADMIN 13 — vigencia del contrato (inicio/vencimiento).
+const setContractVigenciaSchema = z.object({
+  startDate: z.coerce.date().nullable().optional(),
+  expirationDate: z.coerce.date().nullable().optional(),
+});
+
+const setContractVigencia = asyncHandler(async (req, res) => {
+  const { startDate, expirationDate } = setContractVigenciaSchema.parse(req.body);
+  const contract = await prisma.contract.findUnique({ where: { id: req.params.id } });
+  if (!contract) throw ApiError.notFound('Contrato no encontrado');
+
+  const expirationChanged =
+    expirationDate !== undefined && expirationDate?.getTime() !== contract.expirationDate?.getTime();
+
+  const updated = await prisma.contract.update({
+    where: { id: contract.id },
+    data: {
+      ...(startDate !== undefined ? { startDate } : {}),
+      ...(expirationDate !== undefined ? { expirationDate } : {}),
+      // Si cambia la fecha de vencimiento, se limpia la marca de alerta
+      // enviada para que el aviso de 10 días vuelva a evaluarse contra la
+      // nueva fecha (nunca deja de avisar por una vigencia renovada).
+      ...(expirationChanged ? { expirationAlertSentAt: null } : {}),
+    },
+  });
+  res.json({ ok: true, contract: updated });
+});
+
 module.exports = {
   getContractBySubaccount,
   uploadOriginalContract,
@@ -210,4 +336,7 @@ module.exports = {
   downloadContractFile,
   resetSignedContract,
   deleteContract,
+  listAllContracts,
+  markContractReviewed,
+  setContractVigencia,
 };
