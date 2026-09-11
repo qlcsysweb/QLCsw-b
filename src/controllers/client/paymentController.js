@@ -43,9 +43,22 @@ const createPaymentReportSchema = z.object({
   statementId: z.string().optional(),
 });
 
+// CORRECCIÓN 6 — flujo del cliente: "GARANTÍA — pago de garantía mínimo
+// 10% del capital invertido". Esta validación solo aplica al pago inicial
+// de garantía (sin statementId); los pagos de comisión ligados a un
+// estado de cuenta ya tienen su propio monto definido por el admin.
 const createPaymentReport = asyncHandler(async (req, res) => {
   const subaccount = await assertOwnsSubaccount(req.clientProfile.id, req.params.apiSubaccountId);
   const { amount, currency, reference, statementId } = createPaymentReportSchema.parse(req.body);
+
+  if (!statementId && subaccount.requiredCapital) {
+    const minimumGuarantee = Number(subaccount.requiredCapital) * 0.1;
+    if (amount < minimumGuarantee) {
+      throw ApiError.badRequest(
+        `El pago de garantía debe ser de al menos el 10% del capital invertido (mínimo ${minimumGuarantee.toFixed(2)} USDT).`
+      );
+    }
+  }
 
   let proofData = {};
   if (req.file) {

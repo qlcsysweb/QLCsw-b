@@ -19,6 +19,7 @@ const notificationController = require('../controllers/client/notificationContro
 const platformSettingsController = require('../controllers/platformSettingsController');
 const capitalIncreaseController = require('../controllers/client/capitalIncreaseController');
 const guideController = require('../controllers/client/guideController');
+const capitalRescueController = require('../controllers/client/capitalRescueController');
 
 const router = Router();
 
@@ -38,6 +39,14 @@ router.post('/capital-increase/invitations/:id/accept', capitalIncreaseControlle
 router.post('/capital-increase/invitations/:id/reject', capitalIncreaseController.rejectInvitation);
 router.post('/capital-increase/requests/:id/distribution/toggle', capitalIncreaseController.toggleDistributionItem);
 router.post('/capital-increase/requests/:id/distribution/confirm', capitalIncreaseController.confirmDistribution);
+
+// CORRECCIÓN 4 — Invitación para Capital Temporal para Rescate: el cliente
+// solo acepta/rechaza y confirma su monto; las instrucciones de depósito y
+// devolución las determina siempre QLC.
+router.get('/capital-rescue', capitalRescueController.getMine);
+router.post('/capital-rescue/invitations/:id/reject', capitalRescueController.rejectInvitation);
+router.post('/capital-rescue/invitations/:id/confirm-participation', capitalRescueController.confirmParticipation);
+router.get('/capital-rescue/participations/:id/comprobante', capitalRescueController.downloadComprobante);
 
 // Modelos de participación (lectura pública, ya activos)
 router.get('/models', modelController.listModelsPublic);

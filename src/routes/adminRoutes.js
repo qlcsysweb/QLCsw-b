@@ -24,6 +24,7 @@ const mediaController = require('../controllers/mediaController');
 const platformSettingsController = require('../controllers/platformSettingsController');
 const capitalIncreaseController = require('../controllers/capitalIncreaseController');
 const guideController = require('../controllers/guideController');
+const capitalRescueController = require('../controllers/capitalRescueController');
 
 const router = Router();
 
@@ -47,6 +48,20 @@ router.delete('/clients/:id', clientController.deleteClient);
 router.get('/clients/:clientId/capital-increase', capitalIncreaseController.listForClient);
 router.post('/clients/:clientId/capital-increase/invitations', capitalIncreaseController.createInvitation);
 router.post('/capital-increase/requests/:requestId/authorize', capitalIncreaseController.authorizeRequest);
+
+// CORRECCIÓN 4 — Invitación para Capital Temporal para Rescate (solo
+// ADMIN). Aquí SÍ es el admin quien determina la distribución de
+// depósito/devolución — flujo independiente del de arriba.
+router.get('/clients/:clientId/capital-rescue', capitalRescueController.listForClient);
+router.post('/clients/:clientId/capital-rescue/invitations', capitalRescueController.createInvitation);
+router.post('/capital-rescue/participations/:participationId/distribution', capitalRescueController.startDistribution);
+router.post('/capital-rescue/distributions/:distributionId/items', capitalRescueController.upsertDistributionItem);
+router.delete('/capital-rescue/items/:itemId', capitalRescueController.removeDistributionItem);
+router.post('/capital-rescue/distributions/:distributionId/publish', capitalRescueController.publishDistribution);
+router.post('/capital-rescue/participations/:participationId/confirm-deposit', capitalRescueController.confirmDeposit);
+router.post('/capital-rescue/participations/:participationId/finalize', capitalRescueController.finalizeRescue);
+router.post('/capital-rescue/participations/:participationId/remuneration', capitalRescueController.registerRemuneration);
+router.get('/capital-rescue/participations/:id/comprobante', capitalRescueController.downloadComprobante);
 
 // Subcuentas / API (CORRECCIÓN 10/11/27) — 1 cuenta principal + 20
 // subcuentas, creadas automáticamente al registrar/crear un cliente.

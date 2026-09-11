@@ -51,7 +51,7 @@ async function ensureClientFolders(client) {
     };
   }
 
-  const drive = getDriveClient();
+  const drive = await getDriveClient();
   const rootId = await resolveRootFolderId();
   if (!rootId) {
     throw new Error(
@@ -85,7 +85,7 @@ async function ensureClientFolders(client) {
 // cliente específico) — hoy solo el PDF informativo que se adjunta al
 // correo de bienvenida de un prospecto (alcance §1/§9).
 async function ensurePlatformFolder() {
-  const drive = getDriveClient();
+  const drive = await getDriveClient();
   const rootId = await resolveRootFolderId();
   if (!rootId) {
     throw new Error(
@@ -96,7 +96,7 @@ async function ensurePlatformFolder() {
 }
 
 async function uploadDocument(buffer, { folderId, fileName, mimeType }) {
-  const drive = getDriveClient();
+  const drive = await getDriveClient();
   const { data } = await drive.files.create({
     requestBody: { name: fileName, parents: [folderId] },
     media: { mimeType, body: Readable.from(buffer) },
@@ -106,12 +106,12 @@ async function uploadDocument(buffer, { folderId, fileName, mimeType }) {
 }
 
 async function deleteDocument(fileId) {
-  const drive = getDriveClient();
+  const drive = await getDriveClient();
   await drive.files.delete({ fileId });
 }
 
 async function downloadDocument(fileId) {
-  const drive = getDriveClient();
+  const drive = await getDriveClient();
   const { data: meta } = await drive.files.get({ fileId, fields: 'name, mimeType, size' });
   const { data: stream } = await drive.files.get(
     { fileId, alt: 'media' },

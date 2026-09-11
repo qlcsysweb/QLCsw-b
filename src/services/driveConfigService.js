@@ -10,6 +10,7 @@ const {
   serviceAccountEmail,
 } = require('../config/googleDrive');
 const prisma = require('../config/prisma');
+const { encrypt } = require('../utils/crypto');
 
 function maskEmail(email) {
   if (!email) return null;
@@ -21,7 +22,7 @@ function maskEmail(email) {
 
 async function getStatus() {
   const row = await getDriveConfigRow();
-  const hasCreds = hasServiceAccountCreds();
+  const hasCreds = await hasServiceAccountCreds();
   const resolvedFolderId = row.rootFolderId || process.env.GOOGLE_DRIVE_FOLDER_ID || null;
   const isConnected = Boolean(hasCreds && row.isEnabled && resolvedFolderId);
 
@@ -29,7 +30,8 @@ async function getStatus() {
     isConnected,
     isEnabled: row.isEnabled,
     hasServiceAccountCreds: hasCreds,
-    serviceAccountEmailMasked: maskEmail(serviceAccountEmail()),
+    hasOwnCredentials: Boolean(row.serviceAccountEmail && row.serviceAccountPrivateKeyEncrypted),
+    serviceAccountEmailMasked: maskEmail(await serviceAccountEmail()),
     rootFolderId: resolvedFolderId,
     rootFolderName: row.rootFolderName,
     usingBootstrapFolder: !row.rootFolderId && Boolean(process.env.GOOGLE_DRIVE_FOLDER_ID),
@@ -47,7 +49,10 @@ async function getStatus() {
 
 class DriveConfigLockedError extends Error {}
 
-async function updateConfig({ rootFolderId, rootFolderName, isEnabled }, userId) {
+async function updateConfig(
+  { rootFolderId, rootFolderName, isEnabled, serviceAccountEmail: newEmail, serviceAccountPrivateKey },
+  userId
+) {
   const row = await getDriveConfigRow();
   if (row.configuredByUserId && row.configuredByUserId !== userId) {
     throw new DriveConfigLockedError(
@@ -61,6 +66,11 @@ async function updateConfig({ rootFolderId, rootFolderName, isEnabled }, userId)
       ...(rootFolderId !== undefined ? { rootFolderId: rootFolderId || null } : {}),
       ...(rootFolderName ? { rootFolderName } : {}),
       ...(isEnabled !== undefined ? { isEnabled } : {}),
+      // CORRECCIÓN 7: credencial técnica editable desde el panel — la
+      // private key SIEMPRE se cifra antes de guardarse, nunca en texto
+      // plano. Si el admin deja el campo vacío, se conserva la existente.
+      ...(newEmail ? { serviceAccountEmail: newEmail } : {}),
+      ...(serviceAccountPrivateKey ? { serviceAccountPrivateKeyEncrypted: encrypt(serviceAccountPrivateKey) } : {}),
       configuredByUserId: row.configuredByUserId || userId,
       updatedByUserId: userId,
     },
@@ -75,9 +85,19 @@ async function disconnect(userId) {
       'Solo el administrador que configuró Google Drive puede desconectarlo.'
     );
   }
+  // CORRECCIÓN 7: "eliminar configuración" — libera por completo la fila
+  // (incluida la credencial guardada en BD) para que otro administrador
+  // autorizado pueda configurar una nueva. El bootstrap de .env, si
+  // existe, sigue disponible como respaldo tras esto.
   return prisma.driveConfiguration.update({
     where: { id: row.id },
-    data: { isEnabled: false, configuredByUserId: null, updatedByUserId: userId },
+    data: {
+      isEnabled: false,
+      configuredByUserId: null,
+      updatedByUserId: userId,
+      serviceAccountEmail: null,
+      serviceAccountPrivateKeyEncrypted: null,
+    },
   });
 }
 
@@ -86,7 +106,7 @@ async function disconnect(userId) {
 async function testConnection() {
   const row = await getDriveConfigRow();
 
-  if (!hasServiceAccountCreds()) {
+  if (!(await hasServiceAccountCreds())) {
     return await recordTestResult(row.id, 'ERROR', 'Falta configurar la credencial técnica en el servidor.');
   }
 
@@ -96,7 +116,7 @@ async function testConnection() {
   }
 
   try {
-    const drive = getDriveClient();
+    const drive = await getDriveClient();
     const { data } = await drive.files.get({
       fileId: folderId,
       fields: 'id, name, mimeType, capabilities',

@@ -113,6 +113,24 @@ enum GuideAudience {
   BOTH
 }
 
+// CORRECCIÓN 4 (nueva actualización) — Invitación para Capital Temporal
+// para Rescate. Flujo independiente de "Aumento de saldo operativo": aquí
+// SÍ es el ADMIN quien determina la distribución (depósito/devolución)
+// entre las cuentas/subcuentas del cliente — nunca el cliente.
+enum RescueInvitationStatus {
+  DESBLOQUEADA
+  ACEPTADA
+  RECHAZADA
+}
+
+enum RescueParticipationStatus {
+  EN_PROCESO
+  PENDIENTE_DE_DEPOSITO
+  EN_UTILIZACION
+  DISPONIBLE_PARA_DEVOLUCION
+  FINALIZADA
+}
+
 // ==========================================================
 // IDENTITY
 // ==========================================================
@@ -153,6 +171,7 @@ model User {
   statementsCreated     Statement[]          @relation("StatementCreatedBy")
   documentUnlocksGranted Document[]          @relation("DocumentUnlockedBy")
   capitalInvitationsCreated CapitalIncreaseInvitation[] @relation("CapitalInvitationCreatedBy")
+  rescueInvitationsCreated  CapitalRescueInvitation[]   @relation("RescueInvitationCreatedBy")
 
   @@map("users")
 }
@@ -209,6 +228,8 @@ model ClientProfile {
 
   // CORRECCIÓN 7: invitaciones de aumento de saldo operativo (historial completo).
   capitalIncreaseInvitations CapitalIncreaseInvitation[]
+  // CORRECCIÓN 4: invitaciones de capital temporal para rescate (historial completo).
+  capitalRescueInvitations   CapitalRescueInvitation[]
 
   @@map("client_profiles")
 }
@@ -270,6 +291,8 @@ model ApiSubaccount {
   statements       Statement[]
   connectionEvents ApiConnectionEvent[]
   capitalDistributionItems CapitalDistributionItem[]
+  capitalRescueInvitations CapitalRescueInvitation[]
+  rescueDistributionItems  CapitalRescueDistributionItem[] @relation("RescueDistributionItems")
 
   @@unique([clientId, slotIndex])
   @@map("api_subaccounts")
@@ -366,6 +389,106 @@ model CapitalDistributionItem {
   order           Int      @default(0)
 
   @@map("capital_distribution_items")
+}
+
+// ==========================================================
+// INVITACIÓN PARA CAPITAL TEMPORAL PARA RESCATE (CORRECCIÓN 4)
+// ==========================================================
+// Flujo independiente de la invitación de "Aumento de saldo operativo".
+// Solo QLC/ADMIN puede emitir la invitación. Si el cliente acepta y
+// confirma su monto de participación, el ADMIN determina en qué
+// cuenta/subcuenta (siempre reales, del propio cliente) debe depositarse y,
+// al finalizar el rescate, desde cuáles debe retirarse — el cliente solo
+// consulta las instrucciones, nunca las genera.
+model CapitalRescueInvitation {
+  id       String        @id @default(cuid())
+  clientId String
+  client   ClientProfile @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  // Subcuenta/API específica cuando la invitación aplica a una en concreto
+  // (opcional — el documento indica "cuando aplique").
+  apiSubaccountId String?
+  apiSubaccount   ApiSubaccount? @relation(fields: [apiSubaccountId], references: [id], onDelete: SetNull)
+
+  requestedAmount Decimal @db.Decimal(14, 2)
+  // Remuneración diaria (%) mientras el capital esté en utilización.
+  dailyRate       Decimal @db.Decimal(6, 3)
+  validityDays    Int     @default(10)
+  expiresAt       DateTime
+  message         String?
+
+  status      RescueInvitationStatus @default(DESBLOQUEADA)
+  respondedAt DateTime?
+
+  createdByUserId String
+  createdBy       User     @relation("RescueInvitationCreatedBy", fields: [createdByUserId], references: [id])
+  createdAt       DateTime @default(now())
+
+  participation CapitalRescueParticipation?
+
+  @@map("capital_rescue_invitations")
+}
+
+model CapitalRescueParticipation {
+  id           String                    @id @default(cuid())
+  invitationId String                    @unique
+  invitation   CapitalRescueInvitation   @relation(fields: [invitationId], references: [id], onDelete: Cascade)
+
+  // Monto que el cliente confirmó (puede ser menor o igual al solicitado).
+  participationAmount Decimal @db.Decimal(14, 2)
+  status              RescueParticipationStatus @default(EN_PROCESO)
+  confirmedAt         DateTime @default(now())
+
+  // CAPITAL EN UTILIZACIÓN — inicia cuando el admin confirma el depósito.
+  depositConfirmedAt DateTime?
+  // Fin de la utilización (CAPITAL DISPONIBLE PARA DEVOLUCIÓN).
+  usageEndedAt       DateTime?
+
+  // Remuneración — SIEMPRE independiente/separada del capital principal.
+  remunerationAmount   Decimal?  @db.Decimal(14, 2)
+  remunerationWallet   String?
+  remunerationTxHash   String?
+  remunerationPaidAt   DateTime?
+
+  finalizedAt DateTime?
+
+  // Estado de Cuenta / Comprobante de Operación generado al finalizar —
+  // mismo patrón que Statement/Contract (PDF real en Google Drive).
+  comprobantePdfDriveFileId   String?
+  comprobantePdfDriveFolderId String?
+  comprobantePdfFileName      String?
+
+  distribution CapitalRescueDistribution?
+
+  @@map("capital_rescue_participations")
+}
+
+// Instrucciones de depósito Y, más adelante, de devolución — mismas
+// cuentas/montos por diseño (el capital principal se retira exactamente de
+// donde se depositó), por eso un solo set de items sirve para ambas.
+model CapitalRescueDistribution {
+  id              String    @id @default(cuid())
+  participationId String    @unique
+  participation   CapitalRescueParticipation @relation(fields: [participationId], references: [id], onDelete: Cascade)
+  publishedAt     DateTime?
+  createdAt       DateTime  @default(now())
+
+  items CapitalRescueDistributionItem[]
+
+  @@map("capital_rescue_distributions")
+}
+
+model CapitalRescueDistributionItem {
+  id             String    @id @default(cuid())
+  distributionId String
+  distribution   CapitalRescueDistribution @relation(fields: [distributionId], references: [id], onDelete: Cascade)
+  // Siempre una subcuenta/API REAL del cliente — nunca un nombre ficticio.
+  apiSubaccountId String
+  apiSubaccount   ApiSubaccount @relation("RescueDistributionItems", fields: [apiSubaccountId], references: [id], onDelete: Cascade)
+  amount          Decimal @db.Decimal(14, 2)
+  order           Int     @default(0)
+
+  @@map("capital_rescue_distribution_items")
 }
 
 // ==========================================================
@@ -554,6 +677,14 @@ model PaymentConfiguration {
 // desconectarla. Al desconectar, vuelve a estar disponible para cualquiera.
 model DriveConfiguration {
   id                String    @id @default(cuid())
+  // CORRECCIÓN 7 — la credencial técnica ahora puede configurarse desde el
+  // panel (además del bootstrap por .env, que sigue funcionando como
+  // respaldo mientras esta fila no tenga sus propias credenciales). El
+  // email NO es secreto; la private key SIEMPRE se guarda cifrada con el
+  // mismo mecanismo (utils/crypto.js) usado para las API Keys de exchange
+  // — nunca en texto plano, nunca se devuelve completa al frontend.
+  serviceAccountEmail               String?
+  serviceAccountPrivateKeyEncrypted String?
   rootFolderId      String?
   rootFolderName    String    @default("QLC")
   isEnabled         Boolean   @default(true)

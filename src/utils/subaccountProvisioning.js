@@ -11,7 +11,12 @@
  */
 const prisma = require('../config/prisma');
 
-const PROCESS_CONDITION_TYPES = ['WALLET', 'CONTRACT', 'FUNDS', 'PAYMENT', 'API', 'ACTIVATION'];
+// CORRECCIÓN 6 — orden alineado al flujo real del cliente: Wallet/API →
+// Contrato → Garantía (PAYMENT, mínimo 10% del capital) → Capital
+// distribuido en el exchange (FUNDS) → Activación. Los VALORES del enum no
+// cambian (compatibilidad con filas existentes) — solo el orden en el que
+// se crean/muestran las condiciones de cada subcuenta nueva.
+const PROCESS_CONDITION_TYPES = ['WALLET', 'CONTRACT', 'PAYMENT', 'FUNDS', 'API', 'ACTIVATION'];
 const MAX_SUBACCOUNTS_PER_CLIENT = 20;
 
 async function ensureAllSubaccounts(clientId) {

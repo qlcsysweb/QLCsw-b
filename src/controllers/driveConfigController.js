@@ -20,6 +20,10 @@ const updateSchema = z.object({
   rootFolderId: z.string().optional(),
   rootFolderName: z.string().min(1).optional(),
   isEnabled: z.boolean().optional(),
+  // CORRECCIÓN 7: credencial técnica configurable desde el panel — ambos
+  // opcionales (dejar vacío conserva la credencial ya guardada).
+  serviceAccountEmail: z.string().email('Email inválido').optional(),
+  serviceAccountPrivateKey: z.string().min(1).optional(),
 });
 
 const updateConfig = asyncHandler(async (req, res) => {
