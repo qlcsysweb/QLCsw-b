@@ -28,6 +28,12 @@ const capitalRescueController = require('../controllers/capitalRescueController'
 const securityConfigController = require('../controllers/securityConfigController');
 const processStepController = require('../controllers/processStepController');
 const adminMessageController = require('../controllers/adminMessageController');
+// AUDITORÍA FINAL — Pendiente #1: el controlador de notificaciones ya es
+// genérico (usa req.user.id, sin lógica específica de cliente); se reutiliza
+// tal cual para exponer las notificaciones del ADMIN (antes no existía
+// ninguna ruta/interfaz para verlas, por lo que la alerta de vencimiento de
+// contrato quedaba invisible aunque se generara en BD).
+const notificationController = require('../controllers/client/notificationController');
 
 const router = Router();
 
@@ -202,6 +208,12 @@ router.patch('/statements/:id/archive', statementController.setStatementArchived
 router.get('/contracts', contractController.listAllContracts);
 router.patch('/contracts/:id/review', contractController.markContractReviewed);
 router.patch('/contracts/:id/vigencia', contractController.setContractVigencia);
+
+// AUDITORÍA FINAL — Pendiente #1: notificaciones del admin (incluye la
+// alerta de vencimiento de contrato generada por checkContractExpirations).
+router.get('/notifications', notificationController.listNotifications);
+router.patch('/notifications/:id/read', notificationController.markAsRead);
+router.post('/notifications/read-all', notificationController.markAllAsRead);
 
 // CORREGIR.xlsx ADMIN 14 — mensajería manual admin→cliente
 router.get('/clients/:clientId/messages', adminMessageController.listForClient);

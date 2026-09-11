@@ -3,6 +3,7 @@ const documentStorage = require('../../services/documentStorage');
 const prisma = require('../../config/prisma');
 const ApiError = require('../../utils/ApiError');
 const asyncHandler = require('../../utils/asyncHandler');
+const { notifyAdmins } = require('../../utils/notify');
 
 async function assertDriveReady() {
   if (!(await documentStorage.isConfigured())) {
@@ -87,6 +88,21 @@ const createPaymentReport = asyncHandler(async (req, res) => {
       statementId: statementId || null,
       ...proofData,
       status: 'PENDING',
+    },
+  });
+
+  // El cliente reportó que ya realizó la transferencia — notifica a
+  // administración de inmediato (mismo sistema de notificaciones existente,
+  // sin módulo paralelo).
+  await notifyAdmins({
+    title: 'Transferencia reportada',
+    message: `${req.clientProfile.firstName} ${req.clientProfile.lastName} indicó que ya realizó la transferencia (${amount} ${currency || 'USDT'}).`,
+    type: 'info',
+    templateKey: 'payment_reported',
+    templateParams: {
+      clientName: `${req.clientProfile.firstName} ${req.clientProfile.lastName}`,
+      amount: String(amount),
+      currency: currency || 'USDT',
     },
   });
 
