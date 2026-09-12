@@ -15,16 +15,22 @@ const listAppointments = asyncHandler(async (req, res) => {
   const appointments = await prisma.appointment.findMany({
     where: { clientId: req.clientProfile.id },
     orderBy: { requestedDate: 'desc' },
+    include: {
+      apiSubaccount: { select: { id: true, identifier: true, isPrincipal: true } },
+      supportCase: { select: { caseNumber: true } },
+    },
   });
   res.json({ ok: true, appointments });
 });
 
-// CORREGIR.xlsx CLIENTE 02 — la cita exige obligatoriamente el número de
-// caso (SupportCase.caseNumber) generado previamente por el propio
-// cliente; se valida que ese caso exista y pertenezca al cliente antes de
-// crear la cita, para que el admin pueda revisarlo antes de autorizarla.
+// CORREGIR(2).xlsx CLIENTE 25/26 — la cita exige obligatoriamente el número
+// de caso (SupportCase.caseNumber) generado previamente por el propio
+// cliente Y la cuenta/subcuenta que se va a revisar; ambos se validan como
+// pertenecientes al cliente antes de crear la cita, para que el admin pueda
+// revisarlos antes de autorizarla.
 const createAppointmentSchema = z.object({
   caseNumber: z.coerce.number().int().positive('Debes indicar el número de caso generado previamente.'),
+  apiSubaccountId: z.string().min(1, 'Debes indicar la cuenta/subcuenta que se va a revisar.'),
   requestedDate: z.string(),
   requestedTime: z.string(),
   notes: z.string().optional(),
@@ -40,10 +46,18 @@ const createAppointment = asyncHandler(async (req, res) => {
     throw ApiError.badRequest('El número de caso indicado no existe o no pertenece a tu cuenta.');
   }
 
+  const subaccount = await prisma.apiSubaccount.findFirst({
+    where: { id: data.apiSubaccountId, clientId: req.clientProfile.id },
+  });
+  if (!subaccount) {
+    throw ApiError.badRequest('La cuenta/subcuenta indicada no existe o no pertenece a tu cuenta.');
+  }
+
   const appointment = await prisma.appointment.create({
     data: {
       clientId: req.clientProfile.id,
       supportCaseId: supportCase.id,
+      apiSubaccountId: subaccount.id,
       requestedDate: new Date(data.requestedDate),
       requestedTime: data.requestedTime,
       notes: data.notes,

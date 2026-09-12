@@ -14,7 +14,6 @@ const getSummary = asyncHandler(async (req, res) => {
     unregisteredProspects,
     pendingAppointments,
     pendingPayments,
-    pendingContracts,
     recentDocuments,
     connectedApis,
     disconnectedApis,
@@ -38,7 +37,6 @@ const getSummary = asyncHandler(async (req, res) => {
     countUnregisteredProspects(),
     prisma.appointment.count({ where: { status: 'PENDING' } }),
     prisma.paymentReport.count({ where: { status: { in: ['PENDING', 'EN_REVISION'] } } }),
-    prisma.contract.count({ where: { status: { in: ['PENDING', 'UPLOADED'] } } }),
     prisma.document.findMany({
       take: 5,
       orderBy: { createdAt: 'desc' },
@@ -63,7 +61,6 @@ const getSummary = asyncHandler(async (req, res) => {
       prospects: { new: newProspects, unregistered: unregisteredProspects },
       appointments: { pending: pendingAppointments },
       payments: { pending: pendingPayments },
-      contracts: { pending: pendingContracts },
       apiConnections: {
         connected: connectedApis,
         disconnected: disconnectedApis,

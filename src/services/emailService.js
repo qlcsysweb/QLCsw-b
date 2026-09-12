@@ -56,4 +56,28 @@ async function sendProspectWelcomeEmail(prospect, language) {
   return { sent: true };
 }
 
-module.exports = { sendProspectWelcomeEmail };
+// CORREGIR(2).xlsx CLIENTE 15 — cuando se genera un estado de cuenta con
+// comisión pendiente de pago, además de la notificación interna, se envía
+// un correo al cliente con el asunto EXACTO solicitado. No se inventan
+// datos bancarios: el correo solo informa, el pago sigue siendo el flujo de
+// USDT ya definido por QLC (reportar transferencia → admin confirma).
+async function sendStatementGeneratedEmail(user, { identifier, commissionDueHours }) {
+  const transport = getTransport();
+  if (!transport) {
+    return { sent: false, reason: 'Credenciales de Gmail no configuradas en .env' };
+  }
+
+  const subject = 'Estado de cuenta QLC generado y pendiente de pago';
+  const text = `Se generó un nuevo estado de cuenta${identifier ? ` para tu subcuenta/API ${identifier}` : ''} y quedó pendiente de pago. Dispones de ${commissionDueHours} horas para reportar el pago correspondiente desde tu panel de QLC (sección Pagos). Ingresa a tu panel para ver el detalle completo y reportar tu transferencia en USDT.`;
+
+  await transport.sendMail({
+    from: process.env.GMAIL_USER,
+    to: user.email,
+    subject,
+    text,
+  });
+
+  return { sent: true };
+}
+
+module.exports = { sendProspectWelcomeEmail, sendStatementGeneratedEmail };

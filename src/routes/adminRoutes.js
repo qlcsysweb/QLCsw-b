@@ -11,7 +11,6 @@ const contentController = require('../controllers/contentController');
 const faqController = require('../controllers/faqController');
 const trackRecordController = require('../controllers/trackRecordController');
 const adminController = require('../controllers/adminController');
-const contractController = require('../controllers/contractController');
 const documentController = require('../controllers/documentController');
 const statementController = require('../controllers/statementController');
 const paymentController = require('../controllers/paymentController');
@@ -113,23 +112,12 @@ router.patch('/track-record/:id', trackRecordController.updateTrackRecord);
 router.get('/admins', adminController.listAdmins);
 router.post('/admins', adminController.createAdmin);
 router.patch('/admins/:id', adminController.updateAdmin);
-
-// Contracts (documentos → Google Drive) — por subcuenta
-router.get('/api-subaccounts/:apiSubaccountId/contract', contractController.getContractBySubaccount);
-router.post(
-  '/api-subaccounts/:apiSubaccountId/contract',
-  uploadDocumentFile.single('file'),
-  contractController.uploadOriginalContract
-);
-router.post(
-  '/contracts/:id/signed',
-  uploadDocumentFile.single('file'),
-  contractController.uploadSignedContract
-);
-router.get('/contracts/:id/download/:variant', contractController.downloadContractFile);
-router.patch('/contracts/:id/status', contractController.updateContractStatus);
-router.post('/contracts/:id/reset-signed', contractController.resetSignedContract);
-router.delete('/contracts/:id', contractController.deleteContract);
+// CORREGIR(2).xlsx ADMIN 36 — designar/quitar al "administrador general"
+// (único que puede eliminar clientes con la contraseña de seguridad).
+// Solo un administrador general existente puede otorgar/quitar el rol a
+// otro; si todavía no existe ninguno, se permite el auto-nombramiento una
+// sola vez (arranque del sistema).
+router.patch('/admins/:id/general', adminController.setGeneralAdmin);
 
 // Documents (identidad del cliente → Google Drive)
 router.get('/clients/:clientId/documents', documentController.listDocumentsByClient);
@@ -183,6 +171,9 @@ router.patch('/appointments/:id/status', appointmentController.updateAppointment
 router.get('/support-cases', supportController.listSupportCases);
 router.patch('/support-cases/:id', supportController.updateSupportCase);
 router.get('/chat-sessions', chatController.listSessions);
+// CORREGIR(2).xlsx ADMIN 28 — permite ver/entrar directamente al chat de una
+// cita ya autorizada desde la propia vista de la cita.
+router.get('/appointments/:appointmentId/chat-session', chatController.getSessionByAppointment);
 router.get('/chat/:id', chatController.getSession);
 router.post('/chat/:id/start', chatController.startSession);
 router.post('/chat/:id/messages', chatController.sendMessage);
@@ -203,14 +194,7 @@ router.put('/security-config/password', securityConfigController.setPassword);
 router.get('/statements', statementController.listAllStatements);
 router.patch('/statements/:id/archive', statementController.setStatementArchived);
 
-// CORREGIR.xlsx ADMIN 11/12/13 — bandeja de contratos, organización por
-// año/mes/periodo, vigencia + alerta de vencimiento
-router.get('/contracts', contractController.listAllContracts);
-router.patch('/contracts/:id/review', contractController.markContractReviewed);
-router.patch('/contracts/:id/vigencia', contractController.setContractVigencia);
-
-// AUDITORÍA FINAL — Pendiente #1: notificaciones del admin (incluye la
-// alerta de vencimiento de contrato generada por checkContractExpirations).
+// AUDITORÍA FINAL — Pendiente #1: notificaciones del admin.
 router.get('/notifications', notificationController.listNotifications);
 router.patch('/notifications/:id/read', notificationController.markAsRead);
 router.post('/notifications/read-all', notificationController.markAllAsRead);

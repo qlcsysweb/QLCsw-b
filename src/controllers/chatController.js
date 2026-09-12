@@ -22,6 +22,14 @@ const listSessions = asyncHandler(async (req, res) => {
   res.json({ ok: true, sessions });
 });
 
+// CORREGIR(2).xlsx ADMIN 28 — ver/entrar directamente al chat de una cita ya
+// autorizada desde la propia vista de la cita.
+const getSessionByAppointment = asyncHandler(async (req, res) => {
+  const session = await prisma.chatSession.findUnique({ where: { appointmentId: req.params.appointmentId } });
+  if (!session) throw ApiError.notFound('Sesión de chat no encontrada');
+  res.json({ ok: true, session });
+});
+
 const getSession = asyncHandler(async (req, res) => {
   let session = await getSessionOrThrow(req.params.id);
 
@@ -80,4 +88,4 @@ const closeSession = asyncHandler(async (req, res) => {
   res.json({ ok: true, session: updated });
 });
 
-module.exports = { listSessions, getSession, startSession, sendMessage, closeSession };
+module.exports = { listSessions, getSessionByAppointment, getSession, startSession, sendMessage, closeSession };

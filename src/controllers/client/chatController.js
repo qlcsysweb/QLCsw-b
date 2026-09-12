@@ -15,6 +15,17 @@ const listChatSessions = asyncHandler(async (req, res) => {
   res.json({ ok: true, sessions });
 });
 
+// CORREGIR(2).xlsx CLIENTE 28 — botón "Entrar al chat" en la cita ya
+// autorizada: resuelve directamente la sesión asociada sin que el cliente
+// tenga que buscarla manualmente en Soporte.
+const getSessionByAppointment = asyncHandler(async (req, res) => {
+  const session = await prisma.chatSession.findFirst({
+    where: { appointmentId: req.params.appointmentId, clientId: req.clientProfile.id },
+  });
+  if (!session) throw ApiError.notFound('Sesión de chat no encontrada');
+  res.json({ ok: true, session });
+});
+
 async function getOwnSessionOrThrow(req) {
   const session = await prisma.chatSession.findFirst({
     where: { id: req.params.id, clientId: req.clientProfile.id },
@@ -72,4 +83,4 @@ const sendMessage = asyncHandler(async (req, res) => {
   res.status(201).json({ ok: true, message });
 });
 
-module.exports = { listChatSessions, getSession, startSession, sendMessage };
+module.exports = { listChatSessions, getSessionByAppointment, getSession, startSession, sendMessage };

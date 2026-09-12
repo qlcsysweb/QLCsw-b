@@ -24,7 +24,7 @@ const getMe = asyncHandler(async (req, res) => {
 });
 
 // CORRECCIÓN 11/12: el dashboard resume TODAS las subcuentas/API del
-// cliente (hasta 20), cada una con su propio modelo/contrato/proceso.
+// cliente (hasta 20), cada una con su propio modelo/proceso.
 const getDashboard = asyncHandler(async (req, res) => {
   const clientId = req.clientProfile.id;
 
@@ -35,7 +35,6 @@ const getDashboard = asyncHandler(async (req, res) => {
       orderBy: { slotIndex: 'asc' },
       include: {
         clientModel: { include: { model: true } },
-        contract: true,
         process: { include: { conditions: true } },
       },
     }),
@@ -58,7 +57,6 @@ const getDashboard = asyncHandler(async (req, res) => {
         slotIndex: s.slotIndex,
         apiStatus: s.status,
         model: s.clientModel?.model || null,
-        contractStatus: s.contract?.status || 'PENDING',
         process: s.process,
       })),
       unreadNotifications,

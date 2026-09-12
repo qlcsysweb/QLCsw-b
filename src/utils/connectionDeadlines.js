@@ -7,7 +7,7 @@
  * cliente) — funcionalmente equivalente y sin dependencias nuevas.
  */
 const prisma = require('../config/prisma');
-const { notifyClient } = require('./notify');
+const { notifyClient, notifyAdmins } = require('./notify');
 
 async function enforceCommissionDeadline(apiSubaccountId) {
   const overdue = await prisma.statement.findFirst({
@@ -19,7 +19,10 @@ async function enforceCommissionDeadline(apiSubaccountId) {
   });
   if (!overdue) return;
 
-  const subaccount = await prisma.apiSubaccount.findUnique({ where: { id: apiSubaccountId } });
+  const subaccount = await prisma.apiSubaccount.findUnique({
+    where: { id: apiSubaccountId },
+    include: { client: { select: { firstName: true, lastName: true } } },
+  });
   if (!subaccount || subaccount.status !== 'CONECTADA') return;
 
   await prisma.apiSubaccount.update({
@@ -29,13 +32,26 @@ async function enforceCommissionDeadline(apiSubaccountId) {
   await prisma.apiConnectionEvent.create({
     data: { apiSubaccountId, eventType: 'DISCONNECTED' },
   });
+  const identifier = subaccount.identifier || (subaccount.isPrincipal ? 'PRINCIPAL' : subaccount.id);
+
   await notifyClient(subaccount.clientId, {
     title: 'Conexión API desactivada',
     message:
       'El plazo de 72 horas para el pago de la comisión venció sin recibir el pago. La conexión API fue desactivada. Se reactivará una vez que el pago haya sido reportado y validado.',
     type: 'warning',
     templateKey: 'api_connection_auto_disconnected',
-    templateParams: { identifier: subaccount.identifier },
+    templateParams: { identifier },
+  });
+
+  // CORREGIR(2).xlsx CLIENTE 10/16 — el admin también debe enterarse cuando
+  // el plazo vence y la API queda desactivada, no solo el cliente.
+  const clientName = `${subaccount.client?.firstName || ''} ${subaccount.client?.lastName || ''}`.trim();
+  await notifyAdmins({
+    title: 'Conexión API desactivada por plazo vencido',
+    message: `El plazo de 72 horas para el pago de la comisión de ${clientName || 'un cliente'} (${identifier}) venció sin recibir el pago. Su conexión API fue desactivada automáticamente.`,
+    type: 'warning',
+    templateKey: 'api_connection_auto_disconnected_admin',
+    templateParams: { identifier, clientName },
   });
 }
 

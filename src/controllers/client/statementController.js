@@ -20,6 +20,19 @@ function shapeStatement(statement) {
   return { ...statement, displayStatus: displayStatusOf(statement) };
 }
 
+// CORREGIR(2).xlsx CLIENTE 39 — el cliente debe poder consultar TODOS sus
+// estados de cuenta (de cualquier subcuenta/API) en un solo lugar, agrupables
+// por año/periodo/mes en el frontend. Ownership siempre vía
+// req.clientProfile.id — nunca se filtra por un id recibido del cliente.
+const listAllMine = asyncHandler(async (req, res) => {
+  const statements = await prisma.statement.findMany({
+    where: { apiSubaccount: { clientId: req.clientProfile.id } },
+    orderBy: { periodStart: 'desc' },
+    include: { apiSubaccount: { select: { id: true, identifier: true, isPrincipal: true } } },
+  });
+  res.json({ ok: true, statements: statements.map(shapeStatement) });
+});
+
 const listStatements = asyncHandler(async (req, res) => {
   await assertOwnsSubaccount(req.clientProfile.id, req.params.apiSubaccountId);
   const statements = await prisma.statement.findMany({
@@ -57,4 +70,4 @@ const listStatementEvidence = asyncHandler(async (req, res) => {
   res.json({ ok: true, documents });
 });
 
-module.exports = { listStatements, downloadStatementFile, listStatementEvidence };
+module.exports = { listAllMine, listStatements, downloadStatementFile, listStatementEvidence };

@@ -3,8 +3,6 @@ const prisma = require('../../config/prisma');
 const ApiError = require('../../utils/ApiError');
 const asyncHandler = require('../../utils/asyncHandler');
 const { encrypt } = require('../../utils/crypto');
-const documentStorage = require('../../services/documentStorage');
-const { generateContractPdf } = require('../../utils/pdf/contractPdf');
 const { enforceCommissionDeadline } = require('../../utils/connectionDeadlines');
 
 function shape(subaccount) {
@@ -28,7 +26,6 @@ const listMine = asyncHandler(async (req, res) => {
     include: {
       clientModel: { include: { model: true } },
       process: { include: { conditions: true } },
-      contract: true,
     },
   });
   res.json({ ok: true, subaccounts: subaccounts.map(shape) });
@@ -41,7 +38,6 @@ const getMine = asyncHandler(async (req, res) => {
     include: {
       clientModel: { include: { model: true } },
       process: { include: { conditions: true } },
-      contract: true,
       paymentReports: { orderBy: { reportedAt: 'desc' } },
       statements: { orderBy: { createdAt: 'desc' } },
       connectionEvents: { orderBy: { occurredAt: 'desc' } },
@@ -174,17 +170,12 @@ const selectModel = asyncHandler(async (req, res) => {
   res.json({ ok: true, clientModel });
 });
 
-// CORRECCIÓN 23: al confirmar el modelo se genera el contrato (PDF con los
-// datos reales del cliente y del modelo) y queda disponible para que el
-// cliente lo descargue, imprima, firme y vuelva a subirlo firmado.
+// El contrato ya no forma parte del flujo: confirmar el modelo únicamente
+// marca clientModel.confirmedAt. La autorización legal de la operación ya
+// se obtuvo en el registro (Aviso de Privacidad + Términos y Condiciones).
 const confirmModel = asyncHandler(async (req, res) => {
   const subaccount = await prisma.apiSubaccount.findFirst({
     where: { id: req.params.id, clientId: req.clientProfile.id },
-    include: {
-      client: {
-        include: { user: { select: { email: true } } },
-      },
-    },
   });
   if (!subaccount) throw ApiError.notFound('Subcuenta no encontrada');
 
@@ -201,56 +192,7 @@ const confirmModel = asyncHandler(async (req, res) => {
     include: { model: true },
   });
 
-  let contract = await prisma.contract.findUnique({ where: { apiSubaccountId: subaccount.id } });
-
-  if (await documentStorage.isConfigured()) {
-    try {
-      // CORRECCIÓN 4: nacionalidad y wallet del cliente ya están capturadas
-      // desde el registro — nunca se le vuelven a pedir aquí. La wallet de
-      // depósito de QLC se lee de la configuración ya existente del admin.
-      const paymentConfig = await prisma.paymentConfiguration.findFirst();
-      const pdfBuffer = await generateContractPdf({
-        client: subaccount.client,
-        model: confirmed.model,
-        identifier: subaccount.identifier,
-        requiredCapital: subaccount.requiredCapital,
-        qlcWallet: paymentConfig
-          ? { address: paymentConfig.walletAddress, network: paymentConfig.network, currency: paymentConfig.currency }
-          : null,
-      });
-      const { contractsFolderId } = await documentStorage.ensureClientFolders(subaccount.client);
-      const fileName = `Contrato_${subaccount.client.firstName}_${subaccount.client.lastName}.pdf`.replace(/\s+/g, '_');
-
-      if (contract?.originalDriveFileId) {
-        await documentStorage.deleteDocument(contract.originalDriveFileId).catch(() => {});
-      }
-
-      const uploaded = await documentStorage.uploadDocument(pdfBuffer, {
-        folderId: contractsFolderId,
-        fileName,
-        mimeType: 'application/pdf',
-      });
-
-      const contractData = {
-        status: 'UPLOADED',
-        originalDriveFileId: uploaded.id,
-        originalDriveFolderId: contractsFolderId,
-        originalFileName: fileName,
-        originalMimeType: 'application/pdf',
-        uploadedAt: new Date(),
-        generatedAt: new Date(),
-      };
-
-      contract = contract
-        ? await prisma.contract.update({ where: { id: contract.id }, data: contractData })
-        : await prisma.contract.create({ data: { apiSubaccountId: subaccount.id, ...contractData } });
-    } catch {
-      // Si Drive falla puntualmente, el modelo queda confirmado igual — el
-      // administrador puede subir el contrato manualmente como respaldo.
-    }
-  }
-
-  res.json({ ok: true, clientModel: confirmed, contract });
+  res.json({ ok: true, clientModel: confirmed });
 });
 
 module.exports = {

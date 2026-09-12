@@ -46,9 +46,10 @@ const listAppointments = asyncHandler(async (req, res) => {
     include: {
       client: { select: { firstName: true, lastName: true } },
       prospect: { select: { firstName: true, lastName: true, email: true } },
-      // CORREGIR.xlsx CLIENTE 02 — el admin debe poder ver el número de
-      // caso asociado antes de autorizar/revisar la cita.
+      // CORREGIR(2).xlsx ADMIN 27 — el admin debe poder ver el número de
+      // caso y la cuenta/subcuenta asociados antes de autorizar/revisar la cita.
       supportCase: { select: { caseNumber: true, subject: true, status: true } },
+      apiSubaccount: { select: { identifier: true, isPrincipal: true } },
     },
   });
   res.json({ ok: true, appointments });

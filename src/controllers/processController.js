@@ -5,7 +5,7 @@ const asyncHandler = require('../utils/asyncHandler');
 const { notifyClient } = require('../utils/notify');
 
 const CONDITION_LABELS = {
-  CONTRACT: 'Contrato firmado',
+  WALLET: 'Wallet registrada',
   FUNDS: 'Fondos disponibles',
   PAYMENT: 'Pago reportado',
   API: 'Conexión API',

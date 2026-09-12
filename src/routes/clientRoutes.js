@@ -6,7 +6,6 @@ const { uploadDocument: uploadDocumentFile } = require('../middleware/upload');
 const modelController = require('../controllers/modelController');
 const profileController = require('../controllers/client/profileController');
 const apiSubaccountController = require('../controllers/client/apiSubaccountController');
-const contractController = require('../controllers/client/contractController');
 const documentController = require('../controllers/client/documentController');
 const paymentController = require('../controllers/client/paymentController');
 const statementController = require('../controllers/client/statementController');
@@ -66,15 +65,6 @@ router.post('/api-subaccounts/:id/model/confirm', apiSubaccountController.confir
 // Proceso de activación (solo lectura) — por subcuenta
 router.get('/api-subaccounts/:apiSubaccountId/process', processController.getProcess);
 
-// Contrato — por subcuenta
-router.get('/api-subaccounts/:apiSubaccountId/contract', contractController.getContract);
-router.post(
-  '/api-subaccounts/:apiSubaccountId/contract/signed',
-  uploadDocumentFile.single('file'),
-  contractController.uploadSignedContract
-);
-router.get('/contract/:id/download/:variant', contractController.downloadContractFile);
-
 // Documentos de identidad (a nivel cliente — REVERSIÓN A: bloqueados por defecto)
 router.get('/documents', documentController.listDocuments);
 router.post('/documents', uploadDocumentFile.single('file'), documentController.uploadDocument);
@@ -91,7 +81,9 @@ router.post(
 );
 router.get('/payment-reports/:id/proof', paymentController.downloadPaymentProof);
 
-// Estados de cuenta (CORRECCIÓN 14) — por subcuenta
+// Estados de cuenta (CORRECCIÓN 14) — por subcuenta, y (CORREGIR(2).xlsx
+// CLIENTE 39) listado propio agrupable por año/periodo/mes en un solo lugar.
+router.get('/statements', statementController.listAllMine);
 router.get('/api-subaccounts/:apiSubaccountId/statements', statementController.listStatements);
 router.get('/statements/:id/download', statementController.downloadStatementFile);
 // CORRECCIÓN 5: solo lectura — el cliente nunca puede subir/modificar
@@ -116,6 +108,10 @@ router.post('/support-cases', supportController.createSupportCase);
 
 // Chat
 router.get('/chat-sessions', chatController.listChatSessions);
+// CORREGIR(2).xlsx CLIENTE 28 — permite al botón "Entrar al chat" de la cita
+// resolver directamente la sesión asociada, sin que el cliente tenga que
+// buscarla manualmente en Soporte.
+router.get('/appointments/:appointmentId/chat-session', chatController.getSessionByAppointment);
 router.get('/chat/:id', chatController.getSession);
 router.post('/chat/:id/start', chatController.startSession);
 router.post('/chat/:id/messages', chatController.sendMessage);

@@ -8,8 +8,6 @@ const { enforceCommissionDeadline } = require('../utils/connectionDeadlines');
 const { ensureAllSubaccounts } = require('../utils/subaccountProvisioning');
 const { verifyClientDeletionPassword } = require('./securityConfigController');
 
-const PROCESS_CONDITION_TYPES = ['CONTRACT', 'FUNDS', 'PAYMENT', 'API', 'ACTIVATION'];
-
 // Resumen de avance de UNA subcuenta/API — para el indicador de "lista
 // para activar" (una subcuenta está lista cuando todas sus condiciones
 // están confirmadas y todavía no ha sido activada).
@@ -110,7 +108,6 @@ const getClient = asyncHandler(async (req, res) => {
         include: {
           clientModel: { include: { model: true } },
           process: { include: { conditions: true } },
-          contract: true,
           paymentReports: { orderBy: { reportedAt: 'desc' } },
           statements: { orderBy: { createdAt: 'desc' } },
           connectionEvents: { orderBy: { occurredAt: 'desc' } },
@@ -226,7 +223,7 @@ const getWallet = asyncHandler(async (req, res) => {
 // Eliminación REAL y permanente del cliente (su cuenta, perfil y TODO lo
 // dependiente) — nunca una simple desactivación. Las relaciones hijas de
 // ClientProfile (Document, Appointment→SetNull, SupportCase, ChatSession,
-// ApiSubaccount→ClientModel/Process/Contract/PaymentReport/Statement/
+// ApiSubaccount→ClientModel/Process/PaymentReport/Statement/
 // ApiConnectionEvent) están definidas con onDelete: Cascade (excepto
 // Appointment, que usa SetNull a propósito para conservar el historial de
 // citas), así que borrar el User cascada de forma segura sin huérfanos.
@@ -246,7 +243,7 @@ const deleteClient = asyncHandler(async (req, res) => {
     include: {
       user: { select: { id: true, role: true } },
       documents: true,
-      apiSubaccounts: { include: { contract: true, paymentReports: true, statements: true } },
+      apiSubaccounts: { include: { paymentReports: true, statements: true } },
     },
   });
   if (!client) throw ApiError.notFound('Cliente no encontrado');
@@ -262,7 +259,6 @@ const deleteClient = asyncHandler(async (req, res) => {
   if (await documentStorage.isConfigured()) {
     const fileIds = [
       ...client.documents.map((d) => d.driveFileId),
-      ...client.apiSubaccounts.flatMap((s) => [s.contract?.originalDriveFileId, s.contract?.signedDriveFileId]),
       ...client.apiSubaccounts.flatMap((s) => s.paymentReports.map((p) => p.proofDriveFileId)),
       ...client.apiSubaccounts.flatMap((s) => s.statements.map((st) => st.pdfDriveFileId)),
     ].filter(Boolean);

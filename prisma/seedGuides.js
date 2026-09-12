@@ -18,18 +18,18 @@ const guides = [
     displayOrder: 1,
     contentEs: `
       <h3>1. Su cuenta principal y sus 20 subcuentas</h3>
-      <p>Al completar su registro, el sistema genera automáticamente:</p>
+      <p>Al completar su registro — datos personales, aceptación del <strong>Aviso de Privacidad</strong> y de los <strong>Términos y Condiciones del Servicio de Copytrading</strong> (incluida la autorización de conexión API, sin facultad de retiro) — el sistema genera automáticamente:</p>
       <ul>
         <li>1 cuenta principal</li>
         <li>20 subcuentas individuales</li>
       </ul>
       <p>Las 20 subcuentas están vinculadas a su cuenta principal y pertenecen exclusivamente a su perfil. Usted no tendrá que registrarse nuevamente para cada subcuenta.</p>
-      <p>Su información general — nombre completo, nacionalidad, información de registro, contrato y documentación correspondiente — queda asociada automáticamente a sus 20 subcuentas.</p>
+      <p>Su información general — nombre completo, nacionalidad y documentación correspondiente — queda asociada automáticamente a sus 20 subcuentas.</p>
 
       <h3>2. Wallet del cliente</h3>
-      <p>Desde <strong>Wallet personal</strong> en su panel puede registrar la dirección/enlace de su wallet y la red correspondiente. Esta información le pertenece únicamente a usted, se utiliza posteriormente en la integración de su contrato y QLC nunca ejecuta transferencias automáticas.</p>
+      <p>Desde <strong>Wallet personal</strong> en su panel puede registrar la dirección/enlace de su wallet y la red correspondiente. Esta información le pertenece únicamente a usted, se utiliza únicamente en el supuesto establecido por los Términos y Condiciones del servicio, y QLC nunca ejecuta transferencias automáticas.</p>
 
-      <h3>3. Configuración de API por subcuenta</h3>
+      <h3>3. Configuración de API por subcuenta y capital operativo</h3>
       <p>Cada subcuenta funciona de manera individual y, por seguridad y control operativo, cada una requiere su propia API Key. Aunque todas las subcuentas pertenecen a su mismo perfil, usted deberá configurar la API correspondiente en cada una desde <strong>Subcuentas / API</strong>.</p>
       <table>
         <thead><tr><th>Subcuenta</th><th>API</th></tr></thead>
@@ -40,9 +40,15 @@ const guides = [
           <tr><td>Subcuenta #20</td><td>API Key #20 (independiente)</td></tr>
         </tbody>
       </table>
-      <p>No es necesario volver a proporcionar sus datos personales o contractuales. Únicamente deberá configurar la API correspondiente a cada subcuenta.</p>
+      <p>No es necesario volver a proporcionar sus datos personales. Únicamente deberá configurar la API correspondiente a cada subcuenta.</p>
+      <p>Cada subcuenta muestra el <strong>capital operativo requerido</strong> (en USDT) que QLC establece para ella — este valor es fijo y usted no puede modificarlo, solo consultarlo para saber cuánto capital necesita tener disponible.</p>
 
-      <h3>4. Ingreso y distribución de saldo</h3>
+      <h3>4. Garantía, pago y distribución de capital</h3>
+      <p>El depósito en garantía se realiza siempre en <strong>USDT</strong>, nunca en moneda fiat. Una vez transferido, repórtelo desde <strong>Pagos</strong> con "Ya mandé la transferencia"; QLC revisará y confirmará la recepción, y usted verá el cambio de estado sin necesidad de recargar la página.</p>
+      <p>Cuando ya haya distribuido su capital en el exchange, repórtelo desde su subcuenta con "Ya realicé la distribución" para que QLC lo verifique.</p>
+      <p>Si QLC le emite una invitación para <strong>Capital Temporal para Rescate</strong>, la verá disponible en el menú de su panel — permanece bloqueada hasta que exista una invitación activa.</p>
+
+      <h3>5. Ingreso y distribución de saldo</h3>
       <p>Cuando disponga de saldo autorizado, podrá ingresarlo respetando esta regla: <strong>desde 20 USDT, siempre en tramos de 20 USDT</strong> (múltiplos de 20).</p>
       <table>
         <thead><tr><th>Permitido</th><th>No permitido</th></tr></thead>
@@ -71,17 +77,22 @@ const guides = [
         <li>Configure la API Key individual de cada subcuenta que vaya a usar.</li>
         <li>Cuando reciba saldo autorizado, distribúyalo usted mismo entre las subcuentas que desee, en bloques de 20 USDT.</li>
       </ol>
-      <p><em>Importante: la información personal y contractual no se registra nuevamente por subcuenta — solo la API es independiente.</em></p>
+      <p><em>Importante: la información personal no se registra nuevamente por subcuenta — solo la API es independiente.</em></p>
     `,
     contentEn: `
       <h3>1. Your main account and your 20 subaccounts</h3>
-      <p>When you complete your registration, the system automatically creates 1 main account and 20 individual subaccounts, linked to your profile only. You never register again per subaccount.</p>
-      <p>Your general information — full name, nationality, registration data, contract and required documentation — is automatically associated with all 20 subaccounts.</p>
+      <p>When you complete your registration — personal data, acceptance of the <strong>Privacy Notice</strong> and the <strong>Copytrading Service Terms and Conditions</strong> (including API connection authorization, with no withdrawal permission) — the system automatically creates 1 main account and 20 individual subaccounts, linked to your profile only. You never register again per subaccount.</p>
+      <p>Your general information — full name, nationality and required documentation — is automatically associated with all 20 subaccounts.</p>
       <h3>2. Client wallet</h3>
-      <p>From <strong>Personal wallet</strong> in your panel you can register your wallet address/link and network. This information belongs only to you, is later used for your contract, and QLC never executes automatic transfers.</p>
-      <h3>3. API configuration per subaccount</h3>
+      <p>From <strong>Personal wallet</strong> in your panel you can register your wallet address/link and network. This information belongs only to you, is used only in the scenario established by the service's Terms and Conditions, and QLC never executes automatic transfers.</p>
+      <h3>3. API configuration per subaccount and operating capital</h3>
       <p>Each subaccount works independently and, for security and operational control, requires its own API Key. Configure it from <strong>Subaccounts / API</strong> for each one you use.</p>
-      <h3>4. Depositing and distributing balance</h3>
+      <p>Each subaccount shows the <strong>required operating capital</strong> (in USDT) QLC sets for it — a fixed value you can only view, not edit, so you know how much capital you need available.</p>
+      <h3>4. Guarantee, payment and capital distribution</h3>
+      <p>The guarantee deposit is always made in <strong>USDT</strong>, never in fiat currency. Once transferred, report it from <strong>Payments</strong> with "I already sent the transfer"; QLC will review and confirm receipt, and you'll see the status change without needing to reload the page.</p>
+      <p>Once you've distributed your capital on the exchange, report it from your subaccount with "I already distributed my capital" so QLC can verify it.</p>
+      <p>If QLC issues you a <strong>Temporary Capital for Rescue</strong> invitation, you'll find it available in your panel's menu — it stays blocked until an active invitation exists.</p>
+      <h3>5. Depositing and distributing balance</h3>
       <p>Whenever you have authorized balance, you may enter it following this rule: <strong>from 20 USDT, always in blocks of 20 USDT</strong> (multiples of 20).</p>
       <p>Once you have available balance, you decide which subaccounts to distribute it to, in 20 USDT blocks, always from your own panel — QLC never distributes it for you. Your panel always shows: available balance, selected subaccounts, amount per subaccount, pending balance and total distributed.</p>
       <h3>Summary</h3>
@@ -185,7 +196,7 @@ const guides = [
     ├── Subcuenta #2  → Información del cliente + API Key #2
     ├── ...
     └── Subcuenta #20 → Información del cliente + API Key #20</pre>
-      <p>Su información del cliente (nombre, nacionalidad, contrato) se registra una sola vez y se asocia automáticamente a las 20 subcuentas. Solo la <strong>API Key</strong> es independiente por subcuenta — nunca se comparte entre ellas.</p>
+      <p>Su información del cliente (nombre, nacionalidad) se registra una sola vez y se asocia automáticamente a las 20 subcuentas. Solo la <strong>API Key</strong> es independiente por subcuenta — nunca se comparte entre ellas.</p>
       <h4>Usuario operativo de subcuenta</h4>
       <p>El administrador de QLC asigna manualmente un identificador operativo a cada subcuenta (ejemplo: <code>PCB-1-A-1</code>). Este identificador NO es su usuario de acceso — usted siempre inicia sesión con su correo y contraseña.</p>
     `,
@@ -197,7 +208,7 @@ const guides = [
     ├── Subaccount #2  → Client info + API Key #2
     ├── ...
     └── Subaccount #20 → Client info + API Key #20</pre>
-      <p>Your client information (name, nationality, contract) is registered once and automatically associated with all 20 subaccounts. Only the <strong>API Key</strong> is independent per subaccount.</p>
+      <p>Your client information (name, nationality) is registered once and automatically associated with all 20 subaccounts. Only the <strong>API Key</strong> is independent per subaccount.</p>
       <h4>Subaccount operator ID</h4>
       <p>QLC's admin manually assigns an operational identifier to each subaccount (e.g. <code>PCB-1-A-1</code>). This is NOT your login username — you always sign in with your email and password.</p>
     `,

@@ -6,6 +6,7 @@ const asyncHandler = require('../utils/asyncHandler');
 const documentStorage = require('../services/documentStorage');
 const { generateStatementPdf } = require('../utils/pdf/statementPdf');
 const { notifyClient } = require('../utils/notify');
+const { sendStatementGeneratedEmail } = require('../services/emailService');
 
 // CORRECCIÓN 14 — Estados de cuenta, uno por SUBCUENTA/API, nunca mezclados
 // entre subcuentas de un mismo cliente.
@@ -97,7 +98,10 @@ const createStatement = asyncHandler(async (req, res) => {
   const data = createStatementSchema.parse(req.body);
   const subaccount = await prisma.apiSubaccount.findUnique({
     where: { id: req.params.apiSubaccountId },
-    include: { client: true, clientModel: { include: { model: true } } },
+    include: {
+      client: { include: { user: { select: { email: true } } } },
+      clientModel: { include: { model: true } },
+    },
   });
   if (!subaccount) throw ApiError.notFound('Subcuenta no encontrada');
 
@@ -182,11 +186,21 @@ const createStatement = asyncHandler(async (req, res) => {
     type: 'info',
     templateKey: 'statement_generated',
     templateParams: {
-      identifier: subaccount.identifier,
+      identifier: subaccount.identifier || (subaccount.isPrincipal ? 'PRINCIPAL' : ''),
       commission: String(data.commission),
       commissionDueHours: String(data.commissionDueHours),
     },
   });
+
+  if (data.commission > 0 && subaccount.client?.user?.email) {
+    // Best-effort: si Gmail no está configurado o el envío falla, el
+    // estado de cuenta queda generado igual — la notificación interna ya
+    // se registró arriba y nunca depende del correo.
+    await sendStatementGeneratedEmail(subaccount.client.user, {
+      identifier: subaccount.identifier,
+      commissionDueHours: data.commissionDueHours,
+    }).catch(() => {});
+  }
 
   res.status(201).json({ ok: true, statement: shapeStatement(updatedStatement) });
 });
@@ -213,14 +227,16 @@ const sendStatementToClient = asyncHandler(async (req, res) => {
   });
   if (!statement) throw ApiError.notFound('Estado de cuenta no encontrado');
 
+  const resentIdentifier =
+    statement.apiSubaccount.identifier || (statement.apiSubaccount.isPrincipal ? 'PRINCIPAL' : '');
   await notifyClient(statement.apiSubaccount.clientId, {
     title: 'Estado de cuenta disponible',
     message: `QLC puso a tu disposición nuevamente tu estado de cuenta${
-      statement.apiSubaccount.identifier ? ` de la subcuenta/API ${statement.apiSubaccount.identifier}` : ''
+      resentIdentifier ? ` de la subcuenta/API ${resentIdentifier}` : ''
     }.`,
     type: 'info',
     templateKey: 'statement_resent',
-    templateParams: { identifier: statement.apiSubaccount.identifier },
+    templateParams: { identifier: resentIdentifier },
   });
 
   res.json({ ok: true });

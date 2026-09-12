@@ -1,12 +1,11 @@
 /*
- * Almacenamiento de DOCUMENTOS (contratos, comprobantes, archivos de clientes)
- * en Google Drive. NeonDB guarda únicamente metadata + el Drive File ID.
+ * Almacenamiento de DOCUMENTOS (comprobantes, archivos de clientes) en
+ * Google Drive. NeonDB guarda únicamente metadata + el Drive File ID.
  *
  * Estructura en Drive:
  *   <GOOGLE_DRIVE_FOLDER_ID> (raíz "QLC")
  *   └── Clientes/
  *       └── <Nombre Apellido (clientId)>/
- *           ├── Contratos/
  *           ├── Documentos/
  *           └── Pagos/
  *
@@ -37,15 +36,9 @@ async function findOrCreateFolder(drive, name, parentId) {
 }
 
 async function ensureClientFolders(client) {
-  if (
-    client.driveClientFolderId &&
-    client.driveContractsFolderId &&
-    client.driveDocumentsFolderId &&
-    client.drivePaymentsFolderId
-  ) {
+  if (client.driveClientFolderId && client.driveDocumentsFolderId && client.drivePaymentsFolderId) {
     return {
       clientFolderId: client.driveClientFolderId,
-      contractsFolderId: client.driveContractsFolderId,
       documentsFolderId: client.driveDocumentsFolderId,
       paymentsFolderId: client.drivePaymentsFolderId,
     };
@@ -64,7 +57,6 @@ async function ensureClientFolders(client) {
     `${client.firstName} ${client.lastName} (${client.id})`,
     clientesFolderId
   );
-  const contractsFolderId = await findOrCreateFolder(drive, 'Contratos', clientFolderId);
   const documentsFolderId = await findOrCreateFolder(drive, 'Documentos', clientFolderId);
   const paymentsFolderId = await findOrCreateFolder(drive, 'Pagos', clientFolderId);
 
@@ -72,13 +64,12 @@ async function ensureClientFolders(client) {
     where: { id: client.id },
     data: {
       driveClientFolderId: clientFolderId,
-      driveContractsFolderId: contractsFolderId,
       driveDocumentsFolderId: documentsFolderId,
       drivePaymentsFolderId: paymentsFolderId,
     },
   });
 
-  return { clientFolderId, contractsFolderId, documentsFolderId, paymentsFolderId };
+  return { clientFolderId, documentsFolderId, paymentsFolderId };
 }
 
 // Carpeta raíz para archivos GLOBALES de la plataforma (no ligados a un

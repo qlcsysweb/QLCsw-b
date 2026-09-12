@@ -25,7 +25,6 @@ enum ClientStatus {
 
 enum ProcessConditionType {
   WALLET
-  CONTRACT
   FUNDS
   PAYMENT
   API
@@ -35,13 +34,6 @@ enum ProcessConditionType {
 enum ConditionStatus {
   PENDING
   CONFIRMED
-  REJECTED
-}
-
-enum ContractStatus {
-  PENDING
-  UPLOADED
-  RECEIVED_SIGNED
   REJECTED
 }
 
@@ -183,7 +175,6 @@ model User {
   documentUnlocksGranted Document[]          @relation("DocumentUnlockedBy")
   capitalInvitationsCreated CapitalIncreaseInvitation[] @relation("CapitalInvitationCreatedBy")
   rescueInvitationsCreated  CapitalRescueInvitation[]   @relation("RescueInvitationCreatedBy")
-  contractsReviewed         Contract[]                  @relation("ContractReviewedBy")
   notificationsSent         Notification[]              @relation("NotificationSentBy")
   capitalDistributionReportsReviewed CapitalDistributionReport[] @relation("CapitalDistReportReviewedBy")
   securityConfigsUpdated    SecurityConfiguration[]     @relation("SecurityConfigUpdatedBy")
@@ -242,7 +233,6 @@ model ClientProfile {
 
   // Cache de IDs de carpetas de Google Drive (evita crear/buscar carpetas en cada subida)
   driveClientFolderId    String?
-  driveContractsFolderId String?
   driveDocumentsFolderId String?
   drivePaymentsFolderId  String?
 
@@ -340,13 +330,13 @@ model ApiSubaccount {
 
   clientModel      ClientModel?
   process          Process?
-  contract         Contract?
   paymentReports   PaymentReport[]
   statements       Statement[]
   connectionEvents ApiConnectionEvent[]
   capitalDistributionItems CapitalDistributionItem[]
   capitalRescueInvitations CapitalRescueInvitation[]
   rescueDistributionItems  CapitalRescueDistributionItem[] @relation("RescueDistributionItems")
+  appointments             Appointment[]
   capitalDistributionReports CapitalDistributionReport[]
 
   @@unique([clientId, slotIndex])
@@ -508,7 +498,7 @@ model CapitalRescueParticipation {
   finalizedAt DateTime?
 
   // Estado de Cuenta / Comprobante de Operación generado al finalizar —
-  // mismo patrón que Statement/Contract (PDF real en Google Drive).
+  // mismo patrón que Statement (PDF real en Google Drive).
   comprobantePdfDriveFileId   String?
   comprobantePdfDriveFolderId String?
   comprobantePdfFileName      String?
@@ -623,55 +613,6 @@ model ProcessCondition {
 
   @@unique([processId, type])
   @@map("process_conditions")
-}
-
-// ==========================================================
-// CONTRACTS (por subcuenta/API)
-// ==========================================================
-
-model Contract {
-  id              String        @id @default(cuid())
-  apiSubaccountId String        @unique
-  apiSubaccount   ApiSubaccount @relation(fields: [apiSubaccountId], references: [id], onDelete: Cascade)
-  status          ContractStatus @default(PENDING)
-
-  // Original (generado a partir de los datos del cliente + modelo, o subido
-  // manualmente por el administrador) — Google Drive
-  originalDriveFileId   String?
-  originalDriveFolderId String?
-  originalFileName      String?
-  originalMimeType      String?
-  originalSizeBytes     Int?
-  uploadedAt            DateTime?
-  generatedAt           DateTime?
-
-  // Firmado (subido por el cliente) — Google Drive
-  signedDriveFileId   String?
-  signedDriveFolderId String?
-  signedFileName      String?
-  signedMimeType      String?
-  signedSizeBytes     Int?
-  signedUploadedAt    DateTime?
-
-  // CORREGIR.xlsx ADMIN 13 — vigencia del contrato: el admin define inicio
-  // y vencimiento; el sistema genera una alerta (Notification) 10 días
-  // antes de expirationDate. expirationAlertSentAt evita alertas
-  // duplicadas para el mismo vencimiento.
-  startDate            DateTime?
-  expirationDate        DateTime?
-  expirationAlertSentAt DateTime?
-
-  // CORREGIR.xlsx ADMIN 12 — bandeja de entrada de contratos: permite
-  // identificar cuáles contratos firmados ya fueron revisados por el
-  // admin sin depender de un estado adicional en ContractStatus.
-  reviewedAt       DateTime?
-  reviewedByUserId String?
-  reviewedBy       User?     @relation("ContractReviewedBy", fields: [reviewedByUserId], references: [id])
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@map("contracts")
 }
 
 // ==========================================================
@@ -916,6 +857,10 @@ model Appointment {
   // propio cliente; el admin puede revisarlo antes de autorizar la cita.
   supportCaseId    String?
   supportCase      SupportCase?      @relation(fields: [supportCaseId], references: [id], onDelete: SetNull)
+  // CORREGIR(2).xlsx CLIENTE 25/26 — la cita también debe quedar asociada
+  // obligatoriamente a la cuenta/subcuenta que se va a revisar.
+  apiSubaccountId  String?
+  apiSubaccount    ApiSubaccount?    @relation(fields: [apiSubaccountId], references: [id], onDelete: SetNull)
   requestedDate    DateTime
   requestedTime    String
   status           AppointmentStatus @default(PENDING)

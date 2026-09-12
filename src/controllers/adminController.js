@@ -98,4 +98,40 @@ const updateAdmin = asyncHandler(async (req, res) => {
   res.json({ ok: true, admin: { id: updated.id, email: updated.email, isActive: updated.isActive, profile: updated.adminProfile } });
 });
 
-module.exports = { listAdmins, createAdmin, updateAdmin, MAX_ADMINS };
+// CORREGIR(2).xlsx ADMIN 36 — designar/quitar al "administrador general"
+// (único que puede eliminar clientes con la contraseña de seguridad, ver
+// securityConfigController.js). Regla: si ya existe al menos un admin
+// general, solo otro admin general puede otorgar/quitar el rol, y nunca se
+// puede dejar el sistema sin ninguno. Si todavía no existe ninguno (arranque
+// del sistema), se permite auto-nombrarse una sola vez — nunca nombrar a
+// otro admin sin ya tener el rol.
+const setGeneralAdminSchema = z.object({ isGeneralAdmin: z.boolean() });
+
+const setGeneralAdmin = asyncHandler(async (req, res) => {
+  const { isGeneralAdmin } = setGeneralAdminSchema.parse(req.body);
+  const target = await prisma.user.findUnique({ where: { id: req.params.id }, include: { adminProfile: true } });
+  if (!target || target.role !== 'ADMIN' || !target.adminProfile) throw ApiError.notFound('Administrador no encontrado');
+
+  const actingAdmin = await prisma.adminProfile.findUnique({ where: { userId: req.user.id } });
+  const generalCount = await prisma.adminProfile.count({ where: { isGeneralAdmin: true } });
+
+  if (generalCount > 0) {
+    if (!actingAdmin?.isGeneralAdmin) {
+      throw ApiError.forbidden('Solo un administrador general puede otorgar o quitar este rol.');
+    }
+    if (!isGeneralAdmin && target.adminProfile.isGeneralAdmin && generalCount <= 1) {
+      throw ApiError.badRequest('Debe existir al menos un administrador general.');
+    }
+  } else if (req.params.id !== req.user.id) {
+    throw ApiError.forbidden('Todavía no existe un administrador general: solo puedes otorgarte este rol a ti mismo.');
+  }
+
+  const updated = await prisma.adminProfile.update({
+    where: { userId: target.id },
+    data: { isGeneralAdmin },
+  });
+
+  res.json({ ok: true, admin: { id: target.id, email: target.email, profile: updated } });
+});
+
+module.exports = { listAdmins, createAdmin, updateAdmin, setGeneralAdmin, MAX_ADMINS };
