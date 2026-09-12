@@ -254,6 +254,16 @@ model ClientProfile {
   walletQrUrl   String?
   walletQrPublicId String?
 
+  // El contrato ya NO forma parte del registro (sustituido por Aviso de
+  // Privacidad + Términos y Condiciones). Se conserva evidencia de qué
+  // versión aceptó el cliente y cuándo, no solo un booleano.
+  privacyNoticeAcceptedAt     DateTime?
+  privacyNoticeVersion        String?
+  termsAcceptedAt             DateTime?
+  termsVersion                String?
+  apiAuthorizationAccepted    Boolean   @default(false)
+  apiAuthorizationAcceptedAt  DateTime?
+
   documents    Document[]      @relation("ClientDocuments")
   appointments Appointment[]
   supportCases SupportCase[]

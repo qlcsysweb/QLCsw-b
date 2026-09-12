@@ -121,6 +121,14 @@ const changePassword = asyncHandler(async (req, res) => {
   res.json({ ok: true, message: 'Contraseña actualizada correctamente.' });
 });
 
+// El contrato ya NO forma parte del registro: se sustituye por la
+// aceptación electrónica del Aviso de Privacidad y los Términos y
+// Condiciones del Servicio de Copytrading (incluye la autorización de
+// conexión API sin facultad de retiro). Las versiones vigentes se fijan
+// aquí para poder auditar qué versión aceptó cada cliente y cuándo.
+const PRIVACY_NOTICE_VERSION = '2026-09-12';
+const TERMS_VERSION = '2026-09-12';
+
 // CORRECCIÓN 5: registro público directo — crea la cuenta CLIENT completa
 // (User + ClientProfile + Process/condiciones vacías listas para su primera
 // subcuenta) y deja al visitante con sesión iniciada. Ya NO pasa por
@@ -133,6 +141,15 @@ const registerSchema = z.object({
   // CORRECCIÓN 4: se captura una sola vez en el registro y se reutiliza
   // automáticamente en la generación del contrato — nunca se vuelve a pedir.
   nationality: z.string().min(1, 'La nacionalidad es obligatoria'),
+  privacyAccepted: z.literal(true, {
+    errorMap: () => ({ message: 'Debes aceptar el Aviso de Privacidad para continuar.' }),
+  }),
+  termsAccepted: z.literal(true, {
+    errorMap: () => ({ message: 'Debes aceptar los Términos y Condiciones para continuar.' }),
+  }),
+  apiAuthorizationAccepted: z.literal(true, {
+    errorMap: () => ({ message: 'Debes autorizar la conexión API para continuar.' }),
+  }),
 });
 
 const register = asyncHandler(async (req, res) => {
@@ -142,6 +159,7 @@ const register = asyncHandler(async (req, res) => {
   if (existing) throw ApiError.conflict('Ya existe una cuenta con este correo.');
 
   const passwordHash = await bcrypt.hash(data.password, 12);
+  const acceptedAt = new Date();
 
   const user = await prisma.user.create({
     data: {
@@ -153,6 +171,12 @@ const register = asyncHandler(async (req, res) => {
           firstName: data.firstName,
           lastName: data.lastName,
           nationality: data.nationality,
+          privacyNoticeAcceptedAt: acceptedAt,
+          privacyNoticeVersion: PRIVACY_NOTICE_VERSION,
+          termsAcceptedAt: acceptedAt,
+          termsVersion: TERMS_VERSION,
+          apiAuthorizationAccepted: true,
+          apiAuthorizationAcceptedAt: acceptedAt,
         },
       },
     },
