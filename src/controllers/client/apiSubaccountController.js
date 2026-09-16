@@ -5,6 +5,13 @@ const asyncHandler = require('../../utils/asyncHandler');
 const { encrypt } = require('../../utils/crypto');
 const { enforceCommissionDeadline } = require('../../utils/connectionDeadlines');
 const { isValidIp } = require('../../utils/ipValidation');
+const { notifyAdmins } = require('../../utils/notify');
+
+// CORRECCIÓN (subcuentas ocultas) — de las 20 subcuentas pre-creadas al
+// registro, el cliente solo ve la PRINCIPAL y las que un admin ya reveló
+// (visibleToClient=true). Mismo filtro en listMine/getMine para que una
+// subcuenta oculta tampoco sea accesible adivinando su URL/id.
+const VISIBLE_TO_CLIENT_WHERE = { OR: [{ isPrincipal: true }, { visibleToClient: true }] };
 
 function shape(subaccount) {
   const { apiKeyEncrypted, apiSecretEncrypted, apiPassphraseEncrypted, ...rest } = subaccount;
@@ -21,21 +28,57 @@ const listMine = asyncHandler(async (req, res) => {
   const preCheck = await prisma.apiSubaccount.findMany({ where: { clientId }, select: { id: true } });
   await Promise.all(preCheck.map((s) => enforceCommissionDeadline(s.id)));
 
-  const subaccounts = await prisma.apiSubaccount.findMany({
-    where: { clientId },
-    orderBy: { slotIndex: 'asc' },
-    include: {
-      clientModel: { include: { model: true } },
-      process: { include: { conditions: true } },
-    },
+  const [subaccounts, hiddenCount, client] = await Promise.all([
+    prisma.apiSubaccount.findMany({
+      where: { clientId, ...VISIBLE_TO_CLIENT_WHERE },
+      orderBy: { slotIndex: 'asc' },
+      include: {
+        clientModel: { include: { model: true } },
+        process: { include: { conditions: true } },
+      },
+    }),
+    prisma.apiSubaccount.count({ where: { clientId, isPrincipal: false, visibleToClient: false } }),
+    prisma.clientProfile.findUnique({ where: { id: clientId }, select: { subaccountRequestedAt: true } }),
+  ]);
+  res.json({
+    ok: true,
+    subaccounts: subaccounts.map(shape),
+    hiddenCount,
+    requestPending: Boolean(client?.subaccountRequestedAt),
   });
-  res.json({ ok: true, subaccounts: subaccounts.map(shape) });
+});
+
+// CORRECCIÓN (subcuentas ocultas) — el cliente ya no puede pedir una
+// subcuenta "nueva" (las 20 ya existen desde el registro): esto solo avisa
+// al equipo QLC para que revele manualmente una de las ocultas.
+const requestAdditionalSubaccount = asyncHandler(async (req, res) => {
+  const clientId = req.clientProfile.id;
+  const client = await prisma.clientProfile.findUnique({ where: { id: clientId } });
+  if (client.subaccountRequestedAt) {
+    throw ApiError.conflict('Ya tienes una solicitud pendiente de revisión por el equipo de QLC.');
+  }
+
+  const hiddenCount = await prisma.apiSubaccount.count({
+    where: { clientId, isPrincipal: false, visibleToClient: false },
+  });
+  if (hiddenCount === 0) {
+    throw ApiError.conflict('Ya tienes disponibles todas tus subcuentas.');
+  }
+
+  await prisma.clientProfile.update({ where: { id: clientId }, data: { subaccountRequestedAt: new Date() } });
+  await notifyAdmins({
+    title: 'Solicitud de nueva subcuenta',
+    message: `${client.firstName} ${client.lastName} solicitó que se le habilite una subcuenta adicional.`,
+    type: 'info',
+  });
+
+  res.json({ ok: true });
 });
 
 const getMine = asyncHandler(async (req, res) => {
   await enforceCommissionDeadline(req.params.id);
   const subaccount = await prisma.apiSubaccount.findFirst({
-    where: { id: req.params.id, clientId: req.clientProfile.id },
+    where: { id: req.params.id, clientId: req.clientProfile.id, ...VISIBLE_TO_CLIENT_WHERE },
     include: {
       clientModel: { include: { model: true } },
       process: { include: { conditions: true } },
@@ -124,22 +167,33 @@ const reportCapitalReady = asyncHandler(async (req, res) => {
 
 // CORREGIR.xlsx CLIENTE 13 — reporte real de distribución de capital
 // ("YA DISTRIBUÍ MI CAPITAL"), con el mismo patrón que los reportes de
-// pago: el cliente declara monto/nota, QLC revisa y aprueba/rechaza. El
-// sistema NUNCA se conecta al exchange para validar el saldo.
+// pago: el cliente confirma que ya distribuyó, QLC revisa y aprueba/rechaza.
+// El sistema NUNCA se conecta al exchange para validar el saldo.
+//
+// CORRECCIÓN (monto no editable por el cliente) — el monto reportado ya NO
+// lo escribe el cliente: siempre es el capital operativo requerido que fijó
+// el admin (requiredCapital). El cliente solo confirma + agrega una nota.
 const reportCapitalDistributionSchema = z.object({
-  amount: z.coerce.number().positive(),
   note: z.string().max(500).optional(),
 });
 
 const reportCapitalDistribution = asyncHandler(async (req, res) => {
-  const { amount, note } = reportCapitalDistributionSchema.parse(req.body);
+  const { note } = reportCapitalDistributionSchema.parse(req.body);
   const subaccount = await prisma.apiSubaccount.findFirst({
     where: { id: req.params.id, clientId: req.clientProfile.id },
   });
   if (!subaccount) throw ApiError.notFound('Subcuenta no encontrada');
+  if (subaccount.requiredCapital == null) {
+    throw ApiError.badRequest('QLC todavía no configuró el capital operativo requerido para esta subcuenta.');
+  }
 
   const report = await prisma.capitalDistributionReport.create({
-    data: { apiSubaccountId: subaccount.id, amount, note: note || null, status: 'PENDING' },
+    data: {
+      apiSubaccountId: subaccount.id,
+      amount: subaccount.requiredCapital,
+      note: note || null,
+      status: 'PENDING',
+    },
   });
 
   res.status(201).json({ ok: true, report });
@@ -212,6 +266,7 @@ const confirmModel = asyncHandler(async (req, res) => {
 
 module.exports = {
   listMine,
+  requestAdditionalSubaccount,
   getMine,
   updateMine,
   reportCapitalReady,

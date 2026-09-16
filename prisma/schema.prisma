@@ -261,6 +261,13 @@ model ClientProfile {
   apiAuthorizationAccepted    Boolean   @default(false)
   apiAuthorizationAcceptedAt  DateTime?
 
+  // CORRECCIÓN (subcuentas ocultas) — el cliente tiene sus 20 subcuentas
+  // pre-creadas desde el registro, pero solo ve la PRINCIPAL y las que ya
+  // están CONECTADA/reveladas por un admin (ver ApiSubaccount.visibleToClient).
+  // Este timestamp marca que el cliente pidió que se le habilite una más;
+  // se limpia en cuanto un admin revela una subcuenta oculta para él.
+  subaccountRequestedAt DateTime?
+
   documents    Document[]      @relation("ClientDocuments")
   appointments Appointment[]
   supportCases SupportCase[]
@@ -323,6 +330,14 @@ model ApiSubaccount {
   // contra el exchange, solo registra si el cliente debe declarar una IP.
   ipRequired Boolean @default(false)
   ipAddress  String?
+
+  // CORRECCIÓN (subcuentas ocultas) — de las 20 subcuentas pre-creadas al
+  // registrarse, el cliente solo ve la PRINCIPAL y las que ya tienen
+  // visibleToClient=true. Un admin la revela manualmente (indicando a la
+  // vez el capital operativo requerido) cuando el cliente solicita una
+  // subcuenta adicional — ver ClientProfile.subaccountRequestedAt. Nunca se
+  // vuelve a ocultar una vez revelada.
+  visibleToClient Boolean @default(false)
 
   // CORRECCIÓN 10: capital operativo requerido — configurable por ADMIN.
   // El cliente solo puede INFORMAR que ya lo tiene disponible; la

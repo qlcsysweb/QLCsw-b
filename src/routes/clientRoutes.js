@@ -53,6 +53,7 @@ router.get('/models', modelController.listModelsPublic);
 
 // Subcuentas / API (CORRECCIÓN 11) — hasta 20 por cliente
 router.get('/api-subaccounts', apiSubaccountController.listMine);
+router.post('/api-subaccounts/request-additional', apiSubaccountController.requestAdditionalSubaccount);
 router.get('/api-subaccounts/:id', apiSubaccountController.getMine);
 router.patch('/api-subaccounts/:id', apiSubaccountController.updateMine);
 router.post('/api-subaccounts/:id/report-capital-ready', apiSubaccountController.reportCapitalReady);

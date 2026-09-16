@@ -47,6 +47,10 @@ const createSubaccount = asyncHandler(async (req, res) => {
       slotIndex: nextSlot,
       identifier: data.identifier || null,
       requiredCapital: data.requiredCapital ?? null,
+      // A diferencia de las 20 subcuentas pre-creadas al registro (que
+      // nacen ocultas), una subcuenta que el admin crea aquí manualmente
+      // es visible de inmediato para el cliente.
+      visibleToClient: true,
       updatedByUserId: req.user.id,
       process: {
         create: {
@@ -81,12 +85,25 @@ const updateSubaccountSchema = z.object({
   // válido (se valida abajo, no en el schema, porque depende del otro campo).
   ipRequired: z.boolean().optional(),
   ipAddress: z.string().nullable().optional(),
+  // CORRECCIÓN (subcuentas ocultas) — revela al cliente una subcuenta que
+  // nació oculta. Nunca se vuelve a ocultar desde aquí (one-way).
+  visibleToClient: z.boolean().optional(),
 });
 
 const updateSubaccount = asyncHandler(async (req, res) => {
   const data = updateSubaccountSchema.parse(req.body);
   const existing = await prisma.apiSubaccount.findUnique({ where: { id: req.params.id } });
   if (!existing) throw ApiError.notFound('Subcuenta no encontrada');
+
+  // Revelar una subcuenta sin capital operativo configurado dejaría al
+  // cliente viendo "pendiente de configuración" justo cuando el admin cree
+  // que ya quedó lista — se exige el monto en el mismo paso.
+  const revealingNow = data.visibleToClient === true && !existing.visibleToClient;
+  if (revealingNow && data.requiredCapital == null && existing.requiredCapital == null) {
+    throw ApiError.badRequest(
+      'Indica el capital operativo requerido (USDT) antes de revelar esta subcuenta al cliente.'
+    );
+  }
 
   if (data.identifier && data.identifier !== existing.identifier) {
     const clash = await prisma.apiSubaccount.findUnique({ where: { identifier: data.identifier } });
@@ -114,11 +131,26 @@ const updateSubaccount = asyncHandler(async (req, res) => {
       ...(data.notes !== undefined ? { notes: data.notes } : {}),
       ...(data.ipRequired !== undefined ? { ipRequired: data.ipRequired } : {}),
       ...(data.ipAddress !== undefined ? { ipAddress: data.ipAddress } : {}),
+      ...(data.visibleToClient !== undefined ? { visibleToClient: data.visibleToClient } : {}),
       ...(statusChanged && data.status === 'DESCONECTADA' ? { disconnectedAt: new Date() } : {}),
       ...(statusChanged && data.status === 'CONECTADA' ? { reconnectedAt: new Date() } : {}),
       updatedByUserId: req.user.id,
     },
   });
+
+  if (revealingNow) {
+    await prisma.clientProfile.update({
+      where: { id: existing.clientId },
+      data: { subaccountRequestedAt: null },
+    });
+    await notifyClient(existing.clientId, {
+      title: 'Nueva subcuenta disponible',
+      message: `QLC habilitó una subcuenta adicional para ti${
+        updated.requiredCapital != null ? ` — capital operativo requerido: ${updated.requiredCapital} USDT` : ''
+      }.`,
+      type: 'success',
+    });
+  }
 
   if (statusChanged) {
     // CORRECCIÓN 19/25: historial detallado de conexión/desconexión — la

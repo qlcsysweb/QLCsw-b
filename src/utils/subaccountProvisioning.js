@@ -43,6 +43,9 @@ async function ensureAllSubaccounts(clientId) {
         clientId,
         slotIndex: 0,
         isPrincipal: true,
+        // La PRINCIPAL siempre es visible; las 20 numeradas nacen ocultas
+        // (ver ApiSubaccount.visibleToClient) hasta que un admin las revele.
+        visibleToClient: true,
         process: {
           create: {
             conditions: {
