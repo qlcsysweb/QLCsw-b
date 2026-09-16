@@ -55,7 +55,12 @@ const login = asyncHandler(async (req, res) => {
 
   const token = signToken(user);
   res.cookie(process.env.COOKIE_NAME, token, cookieOptions());
-  res.json({ ok: true, user: shapeUser(user) });
+  // El token también viaja en el cuerpo JSON (además de la cookie) porque
+  // frontend y backend están en dominios distintos (Vercel/Render): la
+  // cookie es "de terceros" para el navegador y muchos la bloquean por
+  // defecto aunque tenga Secure/SameSite=None correctos. El frontend la usa
+  // como respaldo vía header Authorization cuando la cookie no llega.
+  res.json({ ok: true, token, user: shapeUser(user) });
 });
 
 const twoFactorLoginSchema = z.object({
@@ -87,7 +92,7 @@ const loginWithTwoFactor = asyncHandler(async (req, res) => {
 
   const token = signToken(user);
   res.cookie(process.env.COOKIE_NAME, token, cookieOptions());
-  res.json({ ok: true, user: shapeUser(user) });
+  res.json({ ok: true, token, user: shapeUser(user) });
 });
 
 const logout = asyncHandler(async (req, res) => {
@@ -191,7 +196,7 @@ const register = asyncHandler(async (req, res) => {
 
   const token = signToken(user);
   res.cookie(process.env.COOKIE_NAME, token, cookieOptions());
-  res.status(201).json({ ok: true, user: shapeUser(user) });
+  res.status(201).json({ ok: true, token, user: shapeUser(user) });
 });
 
 module.exports = { login, loginWithTwoFactor, logout, me, changePassword, register };
