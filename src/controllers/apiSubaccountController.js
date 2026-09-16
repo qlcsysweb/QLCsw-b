@@ -4,6 +4,7 @@ const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const { encrypt, decrypt } = require('../utils/crypto');
 const { notifyClient } = require('../utils/notify');
+const { isValidIp } = require('../utils/ipValidation');
 const {
   ensureAllSubaccounts,
   MAX_SUBACCOUNTS_PER_CLIENT,
@@ -75,6 +76,11 @@ const updateSubaccountSchema = z.object({
   notes: z.string().optional(),
   // CORRECCIÓN 19: motivo opcional del cambio de estado de conexión.
   connectionReason: z.string().optional(),
+  // CORRECCIÓN 6/18 (bloque de 20) — dato administrativo, sin conexión real
+  // al exchange. Si se marca ipRequired=true, ipAddress debe tener formato
+  // válido (se valida abajo, no en el schema, porque depende del otro campo).
+  ipRequired: z.boolean().optional(),
+  ipAddress: z.string().nullable().optional(),
 });
 
 const updateSubaccount = asyncHandler(async (req, res) => {
@@ -85,6 +91,12 @@ const updateSubaccount = asyncHandler(async (req, res) => {
   if (data.identifier && data.identifier !== existing.identifier) {
     const clash = await prisma.apiSubaccount.findUnique({ where: { identifier: data.identifier } });
     if (clash) throw ApiError.conflict('Ese identificador ya está en uso por otra subcuenta.');
+  }
+
+  const willRequireIp = data.ipRequired ?? existing.ipRequired;
+  const finalIp = data.ipAddress !== undefined ? data.ipAddress : existing.ipAddress;
+  if (willRequireIp && finalIp && !isValidIp(finalIp)) {
+    throw ApiError.badRequest('La IP no tiene un formato válido.');
   }
 
   const statusChanged = data.status && data.status !== existing.status;
@@ -100,6 +112,8 @@ const updateSubaccount = asyncHandler(async (req, res) => {
       ...(data.status ? { status: data.status } : {}),
       ...(data.requiredCapital !== undefined ? { requiredCapital: data.requiredCapital } : {}),
       ...(data.notes !== undefined ? { notes: data.notes } : {}),
+      ...(data.ipRequired !== undefined ? { ipRequired: data.ipRequired } : {}),
+      ...(data.ipAddress !== undefined ? { ipAddress: data.ipAddress } : {}),
       ...(statusChanged && data.status === 'DESCONECTADA' ? { disconnectedAt: new Date() } : {}),
       ...(statusChanged && data.status === 'CONECTADA' ? { reconnectedAt: new Date() } : {}),
       updatedByUserId: req.user.id,

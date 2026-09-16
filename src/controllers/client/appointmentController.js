@@ -2,12 +2,24 @@ const { z } = require('zod');
 const prisma = require('../../config/prisma');
 const ApiError = require('../../utils/ApiError');
 const asyncHandler = require('../../utils/asyncHandler');
+const { getAvailableSlotsForDate, assertSlotIsAvailable } = require('../../utils/appointmentSlots');
 
 const listAvailability = asyncHandler(async (req, res) => {
   const slots = await prisma.availabilitySlot.findMany({
     where: { isActive: true },
     orderBy: { dayOfWeek: 'asc' },
   });
+  res.json({ ok: true, slots });
+});
+
+// CORRECCIÓN 16 (bloque de 20) — horarios reales de 15 en 15 minutos,
+// respetando la disponibilidad del admin, la anticipación mínima de 1 hora
+// y los horarios ya ocupados por otra cita activa.
+const availableSlotsSchema = z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha inválida') });
+
+const listAvailableSlots = asyncHandler(async (req, res) => {
+  const { date } = availableSlotsSchema.parse(req.query);
+  const slots = await getAvailableSlotsForDate(date);
   res.json({ ok: true, slots });
 });
 
@@ -53,6 +65,17 @@ const createAppointment = asyncHandler(async (req, res) => {
     throw ApiError.badRequest('La cuenta/subcuenta indicada no existe o no pertenece a tu cuenta.');
   }
 
+  // CORRECCIÓN 16 — nunca confiar en la hora que envía el frontend: debe
+  // seguir siendo un horario real disponible (dentro de la disponibilidad
+  // del admin, con al menos 1 hora de anticipación, y libre) en este mismo
+  // instante del servidor.
+  const isAvailable = await assertSlotIsAvailable(data.requestedDate, data.requestedTime);
+  if (!isAvailable) {
+    throw ApiError.conflict(
+      'Ese horario ya no está disponible (fue tomado, quedó fuera de la anticipación mínima de 1 hora, o no está dentro del horario de atención). Selecciona otro horario.'
+    );
+  }
+
   const appointment = await prisma.appointment.create({
     data: {
       clientId: req.clientProfile.id,
@@ -67,4 +90,4 @@ const createAppointment = asyncHandler(async (req, res) => {
   res.status(201).json({ ok: true, appointment });
 });
 
-module.exports = { listAvailability, listAppointments, createAppointment };
+module.exports = { listAvailability, listAvailableSlots, listAppointments, createAppointment };

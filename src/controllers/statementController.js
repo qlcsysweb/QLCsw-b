@@ -49,7 +49,11 @@ const listAllStatements = asyncHandler(async (req, res) => {
     orderBy: { createdAt: 'desc' },
     include: {
       apiSubaccount: {
-        select: { identifier: true, slotIndex: true, client: { select: { firstName: true, lastName: true } } },
+        select: {
+          identifier: true,
+          slotIndex: true,
+          client: { select: { username: true, firstName: true, lastName: true } },
+        },
       },
     },
   });

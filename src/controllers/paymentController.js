@@ -147,6 +147,30 @@ const downloadPaymentProof = asyncHandler(async (req, res) => {
   stream.pipe(res);
 });
 
+// CORRECCIÓN 10 (bloque de 20) — "Transferencia recibida" es un paso
+// INDEPENDIENTE de aprobar el pago: el admin confirma que ya identificó la
+// transferencia (revisó monto/hash/fecha/comprobante) sin que eso apruebe
+// el pago todavía. Solo "reviewPaymentReport" con status APROBADO
+// ("Garantía reportada") mueve el estado final y confirma la condición.
+const markTransferReceived = asyncHandler(async (req, res) => {
+  const report = await prisma.paymentReport.findUnique({ where: { id: req.params.id } });
+  if (!report) throw ApiError.notFound('Reporte de pago no encontrado');
+  if (report.transferReceivedAt) throw ApiError.conflict('Esta transferencia ya fue marcada como recibida.');
+
+  const updated = await prisma.paymentReport.update({
+    where: { id: report.id },
+    data: {
+      transferReceivedAt: new Date(),
+      transferReceivedByUserId: req.user.id,
+      // La transferencia recibida es evidencia suficiente para sacarla de
+      // "pendiente" y ponerla en revisión activa — pero NUNCA la aprueba.
+      status: report.status === 'PENDING' ? 'EN_REVISION' : report.status,
+    },
+  });
+
+  res.json({ ok: true, report: updated });
+});
+
 const reviewPaymentReportSchema = z.object({
   status: z.enum(['APROBADO', 'RECHAZADO', 'EN_REVISION']),
   reviewNote: z.string().optional(),
@@ -217,5 +241,6 @@ module.exports = {
   listPaymentReports,
   createPaymentReport,
   downloadPaymentProof,
+  markTransferReceived,
   reviewPaymentReport,
 };

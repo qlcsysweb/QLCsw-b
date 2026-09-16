@@ -4,6 +4,7 @@ const ApiError = require('../../utils/ApiError');
 const asyncHandler = require('../../utils/asyncHandler');
 const { encrypt } = require('../../utils/crypto');
 const { enforceCommissionDeadline } = require('../../utils/connectionDeadlines');
+const { isValidIp } = require('../../utils/ipValidation');
 
 function shape(subaccount) {
   const { apiKeyEncrypted, apiSecretEncrypted, apiPassphraseEncrypted, ...rest } = subaccount;
@@ -53,13 +54,17 @@ const updateSchema = z.object({
   apiKey: z.string().min(1).optional(),
   apiSecret: z.string().min(1).optional(),
   apiPassphrase: z.string().min(1).optional(),
+  // CORRECCIÓN 18 (bloque de 20) — el cliente puede declarar su propia IP
+  // únicamente cuando el admin ya marcó ipRequired=true en esta subcuenta;
+  // "ipRequired" en sí NUNCA lo puede cambiar el cliente (ver abajo).
+  ipAddress: z.string().min(1).optional(),
 });
 
 // El cliente NUNCA puede fijar su propio "status" (CORRECCIÓN 10): eso es
 // exclusivamente administrativo/visual, tras revisión manual del equipo.
 const updateMine = asyncHandler(async (req, res) => {
   const data = updateSchema.parse(req.body);
-  if (!data.exchangeName && !data.apiKey && !data.apiSecret && !data.apiPassphrase) {
+  if (!data.exchangeName && !data.apiKey && !data.apiSecret && !data.apiPassphrase && data.ipAddress === undefined) {
     throw ApiError.badRequest('Debes indicar al menos un dato para actualizar');
   }
 
@@ -68,6 +73,15 @@ const updateMine = asyncHandler(async (req, res) => {
   });
   if (!existing) throw ApiError.notFound('Subcuenta no encontrada');
 
+  if (data.ipAddress !== undefined) {
+    if (!existing.ipRequired) {
+      throw ApiError.badRequest('Esta subcuenta no requiere IP.');
+    }
+    if (!isValidIp(data.ipAddress)) {
+      throw ApiError.badRequest('La IP no tiene un formato válido.');
+    }
+  }
+
   const updated = await prisma.apiSubaccount.update({
     where: { id: existing.id },
     data: {
@@ -75,6 +89,7 @@ const updateMine = asyncHandler(async (req, res) => {
       ...(data.apiKey ? { apiKeyEncrypted: encrypt(data.apiKey) } : {}),
       ...(data.apiSecret ? { apiSecretEncrypted: encrypt(data.apiSecret) } : {}),
       ...(data.apiPassphrase ? { apiPassphraseEncrypted: encrypt(data.apiPassphrase) } : {}),
+      ...(data.ipAddress !== undefined ? { ipAddress: data.ipAddress } : {}),
       updatedByUserId: req.user.id,
     },
   });

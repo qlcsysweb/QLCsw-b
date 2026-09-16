@@ -120,12 +120,11 @@ router.patch('/admins/:id', adminController.updateAdmin);
 router.patch('/admins/:id/general', adminController.setGeneralAdmin);
 
 // Documents (identidad del cliente → Google Drive)
+// CORRECCIÓN 7 (bloque de 20) — el admin ya NO puede subir documentos desde
+// la ficha del cliente, solo visualizar/descargar. La carga es exclusiva
+// del cliente (ver clientRoutes.js) — se retira la ruta a propósito, no
+// solo el botón en el frontend.
 router.get('/clients/:clientId/documents', documentController.listDocumentsByClient);
-router.post(
-  '/clients/:clientId/documents',
-  uploadDocumentFile.single('file'),
-  documentController.uploadDocument
-);
 router.get('/documents/:id/download', documentController.downloadDocument);
 router.delete('/documents/:id', documentController.deleteDocument);
 // REVERSIÓN A: única forma de que el cliente pueda eliminar/reemplazar un
@@ -159,6 +158,7 @@ router.post(
   paymentController.createPaymentReport
 );
 router.get('/payment-reports/:id/proof', paymentController.downloadPaymentProof);
+router.patch('/payment-reports/:id/transfer-received', paymentController.markTransferReceived);
 router.patch('/payment-reports/:id', paymentController.reviewPaymentReport);
 
 // Appointments

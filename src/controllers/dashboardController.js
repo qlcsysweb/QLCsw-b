@@ -1,6 +1,5 @@
 const prisma = require('../config/prisma');
 const asyncHandler = require('../utils/asyncHandler');
-const { countUnregisteredProspects } = require('./prospectController');
 
 const getSummary = asyncHandler(async (req, res) => {
   const [
@@ -11,7 +10,7 @@ const getSummary = asyncHandler(async (req, res) => {
     inactiveClients,
     readyToActivate,
     newProspects,
-    unregisteredProspects,
+    expiredStatements,
     pendingAppointments,
     pendingPayments,
     recentDocuments,
@@ -34,7 +33,12 @@ const getSummary = asyncHandler(async (req, res) => {
       },
     }),
     prisma.prospect.count({ where: { status: 'NUEVO' } }),
-    countUnregisteredProspects(),
+    // CORRECCIÓN 13 (bloque de 20) — "Tiempo agotado": estados de cuenta con
+    // comisión pendiente cuyo plazo de 72h ya venció. Reemplaza la tarjeta
+    // de "prospectos sin registro" en el dashboard.
+    prisma.statement.count({
+      where: { commissionPaid: false, commissionDueAt: { lt: new Date() } },
+    }),
     prisma.appointment.count({ where: { status: 'PENDING' } }),
     prisma.paymentReport.count({ where: { status: { in: ['PENDING', 'EN_REVISION'] } } }),
     prisma.document.findMany({
@@ -58,7 +62,8 @@ const getSummary = asyncHandler(async (req, res) => {
         inactive: inactiveClients,
       },
       readyToActivate,
-      prospects: { new: newProspects, unregistered: unregisteredProspects },
+      prospects: { new: newProspects },
+      expiredStatements,
       appointments: { pending: pendingAppointments },
       payments: { pending: pendingPayments },
       apiConnections: {

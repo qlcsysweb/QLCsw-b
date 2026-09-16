@@ -162,6 +162,7 @@ model User {
 
   uploadedDocuments     Document[]           @relation("DocumentUploadedBy")
   reviewedPayments      PaymentReport[]      @relation("PaymentReviewedBy")
+  transferReceivedPayments PaymentReport[]   @relation("PaymentTransferReceivedBy")
   updatedContent        PublicContent[]      @relation("ContentUpdatedBy")
   approvedAppointments  Appointment[]        @relation("AppointmentApprovedBy")
   updatedApiSubaccounts ApiSubaccount[]      @relation("ApiSubaccountUpdatedBy")
@@ -220,6 +221,12 @@ model ClientProfile {
   id        String       @id @default(cuid())
   userId    String       @unique
   user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // CORRECCIÓN 2 (bloque de 20) — "usuario" es una nomenclatura libre que
+  // define QLC (ej. "QLC001") para identificar al cliente en el panel
+  // admin. Es INDEPENDIENTE del correo (que sigue siendo el dato real de
+  // inicio de sesión) y del nombre completo. Nullable porque los clientes
+  // ya existentes no tienen uno todavía hasta que un admin se lo asigne.
+  username  String?      @unique
   firstName String
   lastName  String
   // CORRECCIÓN 4: capturada en el registro, reutilizada automáticamente en
@@ -309,6 +316,13 @@ model ApiSubaccount {
   apiSecretEncrypted       String?
   apiPassphraseEncrypted   String?
   status                   ApiConnectionStatus @default(PENDIENTE)
+
+  // CORRECCIÓN 6/18 (bloque de 20) — restricción de IP configurada por el
+  // ADMIN para la conexión API de esta subcuenta. Es un dato puramente
+  // administrativo/informativo: el sistema web NUNCA valida ni conecta
+  // contra el exchange, solo registra si el cliente debe declarar una IP.
+  ipRequired Boolean @default(false)
+  ipAddress  String?
 
   // CORRECCIÓN 10: capital operativo requerido — configurable por ADMIN.
   // El cliente solo puede INFORMAR que ya lo tiene disponible; la
@@ -769,6 +783,15 @@ model PaymentReport {
   reviewedBy         User?               @relation("PaymentReviewedBy", fields: [reviewedByUserId], references: [id])
   reviewedAt         DateTime?
   reportedAt         DateTime            @default(now())
+
+  // CORRECCIÓN 10 (bloque de 20) — "Transferencia recibida" es una acción
+  // INDEPENDIENTE de aprobar el pago: el admin confirma que identificó la
+  // transferencia sin que eso apruebe el pago todavía. Solo la acción
+  // separada "Garantía reportada" mueve status a APROBADO y confirma la
+  // condición PAYMENT del proceso.
+  transferReceivedAt     DateTime?
+  transferReceivedByUserId String?
+  transferReceivedBy     User?    @relation("PaymentTransferReceivedBy", fields: [transferReceivedByUserId], references: [id])
 
   // CORRECCIÓN 25: si este pago corresponde a una comisión de un estado de
   // cuenta, referencia el estado de cuenta relacionado.

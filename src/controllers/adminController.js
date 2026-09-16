@@ -64,9 +64,14 @@ const createAdmin = asyncHandler(async (req, res) => {
   res.status(201).json({ ok: true, admin: { id: user.id, email: user.email, profile: user.adminProfile } });
 });
 
+// CORRECCIÓN 3 (bloque de 20) — un admin autorizado puede editar el
+// correo/contraseña de otro admin desde el mismo modal. La contraseña es
+// opcional: si se omite, se conserva la actual (nunca se exige cambiarla).
 const updateAdminSchema = z.object({
   firstName: z.string().min(1).optional(),
   lastName: z.string().min(1).optional(),
+  email: z.string().email('Email inválido').optional(),
+  password: z.string().min(8, 'La contraseña debe tener al menos 8 caracteres').optional(),
   isActive: z.boolean().optional(),
   permissions: z.record(z.boolean()).optional(),
 });
@@ -80,8 +85,20 @@ const updateAdmin = asyncHandler(async (req, res) => {
     throw ApiError.badRequest('No puedes desactivar tu propia cuenta.');
   }
 
-  if (typeof data.isActive === 'boolean') {
-    await prisma.user.update({ where: { id: admin.id }, data: { isActive: data.isActive } });
+  if (data.email && data.email !== admin.email) {
+    const clash = await prisma.user.findUnique({ where: { email: data.email } });
+    if (clash) throw ApiError.conflict('Ya existe un usuario con ese email');
+  }
+
+  if (typeof data.isActive === 'boolean' || data.email || data.password) {
+    await prisma.user.update({
+      where: { id: admin.id },
+      data: {
+        ...(typeof data.isActive === 'boolean' ? { isActive: data.isActive } : {}),
+        ...(data.email ? { email: data.email } : {}),
+        ...(data.password ? { passwordHash: await bcrypt.hash(data.password, 12) } : {}),
+      },
+    });
   }
   if (data.firstName || data.lastName || data.permissions) {
     await prisma.adminProfile.update({

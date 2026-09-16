@@ -118,6 +118,7 @@ router.post('/chat/:id/messages', chatController.sendMessage);
 
 // Citas
 router.get('/availability', appointmentController.listAvailability);
+router.get('/appointments/available-slots', appointmentController.listAvailableSlots);
 router.get('/appointments', appointmentController.listAppointments);
 router.post('/appointments', appointmentController.createAppointment);
 

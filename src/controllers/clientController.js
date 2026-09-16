@@ -36,9 +36,13 @@ function summarizeSubaccounts(apiSubaccounts) {
   return { total, activated, readyToActivate };
 }
 
-// CORRECCIÓN 6/17/18: sin teléfono, sin username. El correo es el único
-// identificador de acceso.
+// CORRECCIÓN 6/17/18: sin teléfono. El correo sigue siendo el identificador
+// real de acceso (login). CORRECCIÓN 2 (bloque de 20) — "username" es una
+// nomenclatura libre adicional que define QLC (ej. "QLC001") para
+// identificar al cliente en el panel; es independiente del correo y nunca
+// se usa para iniciar sesión.
 const createClientSchema = z.object({
+  username: z.string().min(1).optional(),
   firstName: z.string().min(1, 'El nombre es obligatorio'),
   lastName: z.string().min(1, 'El apellido es obligatorio'),
   email: z.string().email('Email inválido'),
@@ -61,6 +65,7 @@ const listClients = asyncHandler(async (req, res) => {
           OR: [
             { firstName: { contains: search, mode: 'insensitive' } },
             { lastName: { contains: search, mode: 'insensitive' } },
+            { username: { contains: search, mode: 'insensitive' } },
             { user: { email: { contains: search, mode: 'insensitive' } } },
             { apiSubaccounts: { some: { identifier: { contains: search, mode: 'insensitive' } } } },
           ],
@@ -145,6 +150,11 @@ const createClient = asyncHandler(async (req, res) => {
   const existingEmail = await prisma.user.findUnique({ where: { email: data.email } });
   if (existingEmail) throw ApiError.conflict('Ya existe un usuario con ese email');
 
+  if (data.username) {
+    const existingUsername = await prisma.clientProfile.findUnique({ where: { username: data.username } });
+    if (existingUsername) throw ApiError.conflict('Ese usuario ya está en uso por otro cliente');
+  }
+
   const passwordHash = await bcrypt.hash(data.password, 12);
 
   const user = await prisma.user.create({
@@ -154,6 +164,7 @@ const createClient = asyncHandler(async (req, res) => {
       role: 'CLIENT',
       clientProfile: {
         create: {
+          username: data.username || null,
           firstName: data.firstName,
           lastName: data.lastName,
           nationality: data.nationality || null,
@@ -172,9 +183,17 @@ const createClient = asyncHandler(async (req, res) => {
   res.status(201).json({ ok: true, client: user.clientProfile });
 });
 
+// CORRECCIÓN 2 (bloque de 20) — el admin edita usuario/nombre/correo/
+// contraseña desde un único modal. "username" es libre y opcional;
+// "email"/"password" siguen viviendo en User (login), nunca en
+// ClientProfile. Un password vacío/omitido conserva el actual — nunca se
+// exige cambiarlo.
 const updateClientSchema = z.object({
+  username: z.string().min(1).nullable().optional(),
   firstName: z.string().min(1).optional(),
   lastName: z.string().min(1).optional(),
+  email: z.string().email('Email inválido').optional(),
+  password: z.string().min(8, 'La contraseña debe tener al menos 8 caracteres').optional(),
   nationality: z.string().optional(),
   notes: z.string().optional(),
   status: z.enum(['PENDING', 'ACTIVE', 'INACTIVE', 'REVIEW']).optional(),
@@ -182,12 +201,34 @@ const updateClientSchema = z.object({
 
 const updateClient = asyncHandler(async (req, res) => {
   const data = updateClientSchema.parse(req.body);
-  const client = await prisma.clientProfile.findUnique({ where: { id: req.params.id } });
+  const client = await prisma.clientProfile.findUnique({ where: { id: req.params.id }, include: { user: true } });
   if (!client) throw ApiError.notFound('Cliente no encontrado');
 
+  if (data.username !== undefined && data.username !== null && data.username !== client.username) {
+    const clash = await prisma.clientProfile.findUnique({ where: { username: data.username } });
+    if (clash) throw ApiError.conflict('Ese usuario ya está en uso por otro cliente');
+  }
+
+  if (data.email && data.email !== client.user.email) {
+    const clash = await prisma.user.findUnique({ where: { email: data.email } });
+    if (clash) throw ApiError.conflict('Ya existe un usuario con ese email');
+  }
+
+  if (data.email || data.password) {
+    await prisma.user.update({
+      where: { id: client.userId },
+      data: {
+        ...(data.email ? { email: data.email } : {}),
+        ...(data.password ? { passwordHash: await bcrypt.hash(data.password, 12) } : {}),
+      },
+    });
+  }
+
+  const { email, password, ...profileData } = data;
   const updated = await prisma.clientProfile.update({
     where: { id: req.params.id },
-    data,
+    data: profileData,
+    include: { user: { select: { email: true, isActive: true, lastLoginAt: true } } },
   });
 
   res.json({ ok: true, client: updated });
