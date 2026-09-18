@@ -229,6 +229,10 @@ router.get('/email-config', emailConfigController.getConfig);
 router.put('/email-config', emailConfigController.updateConfig);
 router.post('/email-config/test', emailConfigController.testConnection);
 router.post('/email-config/disconnect', emailConfigController.disconnect);
+// Gmail API vía OAuth2 (evita el bloqueo de puertos SMTP de Render free
+// tier) — el callback de Google vive en publicRoutes.js, fuera de este
+// middleware de auth (ver ese archivo para la explicación).
+router.get('/email-config/oauth/start', emailConfigController.oauthStart);
 
 // Multimedia del sitio público (imágenes/video, incluye el logo)
 router.get('/media', mediaController.listMediaAdmin);

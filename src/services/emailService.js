@@ -1,10 +1,14 @@
 /*
- * Envío de correo vía Gmail (SMTP con contraseña de aplicación).
- * Las credenciales se resuelven vía config/emailConfig.js: primero lo
- * guardado desde el panel (Admin → Configuración → Correo), luego el
- * bootstrap por variables de entorno (GMAIL_USER / GMAIL_APP_PASSWORD). Si
- * ninguna existe, las funciones retornan { sent: false } sin lanzar error,
- * para no bloquear ningún flujo mientras no existan credenciales reales.
+ * Envío de correo real (notificaciones, bienvenida, estados de cuenta).
+ * Las credenciales y el mecanismo de transporte (SMTP con contraseña de
+ * aplicación, o Gmail API vía OAuth2) se resuelven en config/emailConfig.js
+ * — este archivo nunca decide cuál usar, solo arma el asunto/cuerpo y llama
+ * a `sendMailUnified`, el mismo punto de envío que usa "Enviar correo de
+ * prueba" del panel. Así ambos caminos nunca pueden divergir.
+ *
+ * Si no hay credenciales configuradas, las funciones retornan
+ * { sent: false } sin lanzar error, para no bloquear ningún flujo del
+ * sistema mientras el correo no esté configurado.
  *
  * AUDITORÍA QLC PARTE 12/13 — además de los correos específicos ya
  * existentes (bienvenida a prospecto, estado de cuenta generado), se agrega
@@ -13,25 +17,7 @@
  * sistema (admin o cliente) también llegue por correo sin tener que
  * redactar un texto nuevo para cada uno de los ~20 tipos de evento.
  */
-const { resolveCredentials, createGmailTransport } = require('../config/emailConfig');
-
-let cachedTransport = null;
-let cachedSignature = null;
-
-async function getTransport() {
-  const creds = await resolveCredentials();
-  if (!creds) return null;
-
-  const signature = `${creds.user}:${creds.appPassword}`;
-  if (cachedTransport && cachedSignature === signature) return { transport: cachedTransport, from: `"${creds.senderName}" <${creds.user}>` };
-
-  // Mismo constructor de transporte que usa "Enviar correo de prueba"
-  // (config/emailConfig.js) — Guardar/Probar y el envío real de
-  // notificaciones nunca pueden quedar con configuraciones SMTP distintas.
-  cachedTransport = createGmailTransport(creds);
-  cachedSignature = signature;
-  return { transport: cachedTransport, from: `"${creds.senderName}" <${creds.user}>` };
-}
+const { resolveCredentials, sendMailUnified } = require('../config/emailConfig');
 
 const COPY = {
   es: {
@@ -47,19 +33,13 @@ const COPY = {
 };
 
 async function sendProspectWelcomeEmail(prospect, language) {
-  const ready = await getTransport();
-  if (!ready) return { sent: false, reason: 'Credenciales de Gmail no configuradas' };
+  const creds = await resolveCredentials();
+  if (!creds) return { sent: false, reason: 'Credenciales de Gmail no configuradas' };
 
   const lang = language === 'en' ? 'en' : 'es';
   const copy = COPY[lang];
 
-  await ready.transport.sendMail({
-    from: ready.from,
-    to: prospect.email,
-    subject: copy.subject,
-    text: copy.body(prospect.firstName),
-  });
-
+  await sendMailUnified(creds, { to: prospect.email, subject: copy.subject, text: copy.body(prospect.firstName) });
   return { sent: true };
 }
 
@@ -69,13 +49,13 @@ async function sendProspectWelcomeEmail(prospect, language) {
 // datos bancarios: el correo solo informa, el pago sigue siendo el flujo de
 // USDT ya definido por QLC (reportar transferencia → admin confirma).
 async function sendStatementGeneratedEmail(user, { identifier, commissionDueHours }) {
-  const ready = await getTransport();
-  if (!ready) return { sent: false, reason: 'Credenciales de Gmail no configuradas' };
+  const creds = await resolveCredentials();
+  if (!creds) return { sent: false, reason: 'Credenciales de Gmail no configuradas' };
 
   const subject = 'Estado de cuenta QLC generado y pendiente de pago';
   const text = `Se generó un nuevo estado de cuenta${identifier ? ` para tu subcuenta/API ${identifier}` : ''} y quedó pendiente de pago. Dispones de ${commissionDueHours} horas para reportar el pago correspondiente desde tu panel de QLC (sección Pagos). Ingresa a tu panel para ver el detalle completo y reportar tu transferencia en USDT.`;
 
-  await ready.transport.sendMail({ from: ready.from, to: user.email, subject, text });
+  await sendMailUnified(creds, { to: user.email, subject, text });
   return { sent: true };
 }
 
@@ -86,11 +66,10 @@ async function sendStatementGeneratedEmail(user, { identifier, commissionDueHour
 // plataforma — nunca se inventa contenido adicional.
 async function sendNotificationEmail(user, { title, message }) {
   if (!user?.email) return { sent: false, reason: 'El usuario no tiene correo registrado' };
-  const ready = await getTransport();
-  if (!ready) return { sent: false, reason: 'Credenciales de Gmail no configuradas' };
+  const creds = await resolveCredentials();
+  if (!creds) return { sent: false, reason: 'Credenciales de Gmail no configuradas' };
 
-  await ready.transport.sendMail({
-    from: ready.from,
+  await sendMailUnified(creds, {
     to: user.email,
     subject: `QLC — ${title}`,
     text: `${message}\n\n— Quantum Liquidity Capital (QLC)\nEste es un aviso automático, generado también como notificación dentro de tu panel de QLC.`,

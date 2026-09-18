@@ -6,6 +6,7 @@ const faqController = require('../controllers/faqController');
 const trackRecordController = require('../controllers/trackRecordController');
 const prospectController = require('../controllers/prospectController');
 const appointmentController = require('../controllers/appointmentController');
+const emailConfigController = require('../controllers/emailConfigController');
 
 const router = Router();
 
@@ -29,5 +30,12 @@ router.post('/prospects', publicFormLimiter, prospectController.createProspect);
 // Disponibilidad y solicitud de citas para prospectos
 router.get('/availability', appointmentController.listAvailability);
 router.post('/appointments', publicFormLimiter, appointmentController.createAppointment);
+
+// Callback de Google OAuth2 para Gmail API (Admin → Configuración → Correo).
+// Fuera de requireAuth a propósito: Google llega aquí con una navegación
+// normal del navegador (redirect), no con un XHR autenticado de nuestra API.
+// La identidad del admin y la protección CSRF viajan en el "state" firmado
+// (ver emailConfigService.startOAuth/completeOAuth) — nunca en la sesión.
+router.get('/email-config/oauth/callback', emailConfigController.oauthCallback);
 
 module.exports = router;

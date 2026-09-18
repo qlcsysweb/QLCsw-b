@@ -770,6 +770,20 @@ model EmailConfiguration {
   gmailSenderName        String?
   gmailAppPasswordEncrypted String?
   isEnabled              Boolean   @default(true)
+  // AUDITORÍA QLC — Gmail API vía OAuth2 (CORRECCIÓN Render free tier
+  // bloqueando SMTP 25/465/587). "authMethod" decide qué credencial se usa
+  // para enviar: la app password por SMTP (legado, requiere un host que no
+  // bloquee esos puertos) o el refresh token de OAuth2 por HTTPS (Gmail API,
+  // puerto 443, nunca bloqueado). El refresh token queda cifrado igual que
+  // la contraseña de aplicación. "oauthConnectedEmail" es el correo que
+  // Google confirmó al autorizar — debe coincidir con "gmailUser" o la
+  // conexión se rechaza (nunca se envía "como" una cuenta distinta a la
+  // configurada).
+  authMethod                        String    @default("APP_PASSWORD") // "APP_PASSWORD" | "OAUTH2"
+  googleOAuthClientId                String?
+  googleOAuthClientSecretEncrypted   String?
+  googleOAuthRefreshTokenEncrypted   String?
+  oauthConnectedEmail                String?
   lastTestedAt           DateTime?
   lastTestStatus         String? // "OK" | "ERROR"
   lastTestMessage        String?
