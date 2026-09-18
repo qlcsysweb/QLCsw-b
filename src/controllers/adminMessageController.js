@@ -2,6 +2,7 @@ const { z } = require('zod');
 const prisma = require('../config/prisma');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
+const { notifyUser } = require('../utils/notify');
 
 /*
  * CORREGIR.xlsx ADMIN 14 — mensajería manual admin→cliente. Reutiliza
@@ -39,15 +40,12 @@ const sendMessage = asyncHandler(async (req, res) => {
   });
   if (!client) throw ApiError.notFound('Cliente no encontrado');
 
-  const notification = await prisma.notification.create({
-    data: {
-      userId: client.userId,
-      title,
-      message,
-      type: 'info',
-      kind: 'MANUAL',
-      senderUserId: req.user.id,
-    },
+  const notification = await notifyUser(client.userId, {
+    title,
+    message,
+    type: 'info',
+    kind: 'MANUAL',
+    senderUserId: req.user.id,
   });
 
   res.status(201).json({ ok: true, message: notification });

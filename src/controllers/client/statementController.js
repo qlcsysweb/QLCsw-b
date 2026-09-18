@@ -9,10 +9,14 @@ async function assertOwnsSubaccount(clientId, apiSubaccountId) {
   return subaccount;
 }
 
-// CORRECCIÓN 5: estado visible derivado — nunca una columna redundante que
-// pueda desincronizarse del dato real (commission/commissionPaid).
+// CORRECCIÓN 5 / AUDITORÍA QLC PARTE 10 — estado visible derivado — nunca
+// una columna redundante que pueda desincronizarse del dato real
+// (commission/commissionPaid). Debe coincidir EXACTAMENTE con el mismo
+// cálculo del lado admin (controllers/statementController.js): "GENERADO"
+// (nunca "ACTIVA") mientras está pendiente de pago, "PAGADO" en cuanto se
+// registra el pago, "DISPONIBLE" cuando no aplica ninguna comisión.
 function displayStatusOf(statement) {
-  if (Number(statement.commission) > 0 && !statement.commissionPaid) return 'PENDIENTE_DE_PAGO';
+  if (Number(statement.commission) > 0) return statement.commissionPaid ? 'PAGADO' : 'GENERADO';
   return 'DISPONIBLE';
 }
 

@@ -40,6 +40,10 @@ enum ConditionStatus {
 enum PaymentReportStatus {
   PENDING
   EN_REVISION
+  // AUDITORÍA QLC PARTE 4 — paso intermedio obligatorio: "Garantía
+  // reportada" ya NO es sinónimo de aprobar el pago. Solo tras marcar este
+  // estado el admin puede pasar a APROBADO.
+  GARANTIA_REPORTADA
   APROBADO
   RECHAZADO
 }
@@ -163,6 +167,7 @@ model User {
   uploadedDocuments     Document[]           @relation("DocumentUploadedBy")
   reviewedPayments      PaymentReport[]      @relation("PaymentReviewedBy")
   transferReceivedPayments PaymentReport[]   @relation("PaymentTransferReceivedBy")
+  guaranteeReportedPayments PaymentReport[]  @relation("PaymentGuaranteeReportedBy")
   updatedContent        PublicContent[]      @relation("ContentUpdatedBy")
   approvedAppointments  Appointment[]        @relation("AppointmentApprovedBy")
   updatedApiSubaccounts ApiSubaccount[]      @relation("ApiSubaccountUpdatedBy")
@@ -171,6 +176,8 @@ model User {
   notifications         Notification[]
   driveConfigsConfigured DriveConfiguration[] @relation("DriveConfigConfiguredBy")
   driveConfigsUpdated   DriveConfiguration[] @relation("DriveConfigUpdatedBy")
+  emailConfigsConfigured EmailConfiguration[] @relation("EmailConfigConfiguredBy")
+  emailConfigsUpdated   EmailConfiguration[] @relation("EmailConfigUpdatedBy")
   mediaAssetUpdates     MediaAsset[]         @relation("MediaAssetUpdatedBy")
   statementsCreated     Statement[]          @relation("StatementCreatedBy")
   documentUnlocksGranted Document[]          @relation("DocumentUnlockedBy")
@@ -180,6 +187,7 @@ model User {
   capitalDistributionReportsReviewed CapitalDistributionReport[] @relation("CapitalDistReportReviewedBy")
   securityConfigsUpdated    SecurityConfiguration[]     @relation("SecurityConfigUpdatedBy")
   processStepsUpdated       ProcessStep[]                @relation("ProcessStepUpdatedBy")
+  supportCaseMessagesSent   SupportCaseMessage[]         @relation("SupportCaseMessageSender")
 
   @@map("users")
 }
@@ -750,6 +758,31 @@ model DriveConfiguration {
   @@map("drive_configuration")
 }
 
+// AUDITORÍA QLC PARTE 13 — configuración de correo (Gmail), mismo patrón que
+// DriveConfiguration: fila única, credencial cifrada, configurable desde el
+// panel además del bootstrap por .env (GMAIL_USER/GMAIL_APP_PASSWORD seguyen
+// funcionando como respaldo mientras esta fila no tenga sus propias
+// credenciales). La contraseña de aplicación NUNCA se devuelve completa al
+// frontend ni se guarda en texto plano.
+model EmailConfiguration {
+  id                     String    @id @default(cuid())
+  gmailUser              String?
+  gmailSenderName        String?
+  gmailAppPasswordEncrypted String?
+  isEnabled              Boolean   @default(true)
+  lastTestedAt           DateTime?
+  lastTestStatus         String? // "OK" | "ERROR"
+  lastTestMessage        String?
+  configuredByUserId     String?
+  configuredBy           User?     @relation("EmailConfigConfiguredBy", fields: [configuredByUserId], references: [id])
+  updatedByUserId        String?
+  updatedBy              User?     @relation("EmailConfigUpdatedBy", fields: [updatedByUserId], references: [id])
+  updatedAt              DateTime  @updatedAt
+  createdAt              DateTime  @default(now())
+
+  @@map("email_configuration")
+}
+
 // Configuración global única (singleton):
 // (1) liga configurable hacia la plataforma externa donde ocurre la
 //     operación real (CORRECCIÓN 10 — nunca se desarrolla esa
@@ -807,6 +840,14 @@ model PaymentReport {
   transferReceivedAt     DateTime?
   transferReceivedByUserId String?
   transferReceivedBy     User?    @relation("PaymentTransferReceivedBy", fields: [transferReceivedByUserId], references: [id])
+
+  // AUDITORÍA QLC PARTE 4 — "Garantía reportada" es un paso independiente
+  // y posterior a "Transferencia recibida": solo después de marcarlo el
+  // admin puede aprobar el pago (status pasa a GARANTIA_REPORTADA aquí,
+  // nunca directo a APROBADO).
+  guaranteeReportedAt       DateTime?
+  guaranteeReportedByUserId String?
+  guaranteeReportedBy       User?    @relation("PaymentGuaranteeReportedBy", fields: [guaranteeReportedByUserId], references: [id])
 
   // CORRECCIÓN 25: si este pago corresponde a una comisión de un estado de
   // cuenta, referencia el estado de cuenta relacionado.
@@ -932,6 +973,7 @@ model SupportCase {
   closedAt   DateTime?
 
   appointments Appointment[]
+  messages     SupportCaseMessage[]
 
   @@map("support_cases")
 }
@@ -1131,7 +1173,31 @@ model Notification {
   senderUserId String?
   sender       User?            @relation("NotificationSentBy", fields: [senderUserId], references: [id])
 
+  // AUDITORÍA QLC PARTE 12/13 — correo automatizado por Gmail para cada
+  // notificación. "emailSent" permite saber si el correo ya se envió
+  // (evita duplicados); si falla, la notificación interna se conserva
+  // igual (nunca depende del correo) y "emailError" guarda el motivo.
+  emailSent    Boolean   @default(false)
+  emailSentAt  DateTime?
+  emailError   String?
+
   @@map("notifications")
+}
+
+// AUDITORÍA QLC PARTE 7 — mensajería interna de un caso de soporte, previa
+// e independiente de la cita/chat de 15 minutos. Bidireccional: tanto el
+// admin como el propio cliente pueden escribir aquí. Se conserva siempre
+// como historial completo del caso.
+model SupportCaseMessage {
+  id            String      @id @default(cuid())
+  supportCaseId String
+  supportCase   SupportCase @relation(fields: [supportCaseId], references: [id], onDelete: Cascade)
+  senderUserId  String
+  sender        User        @relation("SupportCaseMessageSender", fields: [senderUserId], references: [id])
+  content       String
+  createdAt     DateTime    @default(now())
+
+  @@map("support_case_messages")
 }
 
 // CORREGIR.xlsx CLIENTE 07 — "Tu proceso paso a paso" administrable desde

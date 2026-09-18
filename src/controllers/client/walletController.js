@@ -3,6 +3,7 @@ const QRCode = require('qrcode');
 const prisma = require('../../config/prisma');
 const asyncHandler = require('../../utils/asyncHandler');
 const imageStorage = require('../../services/imageStorage');
+const { notifyAdmins } = require('../../utils/notify');
 
 // CORRECCIÓN 28 — wallet personal del cliente: la cuenta externa a la que
 // QLC podría transferir fondos en el supuesto contractual establecido.
@@ -72,6 +73,19 @@ const updateWallet = asyncHandler(async (req, res) => {
         })
       )
     );
+  }
+
+  // AUDITORÍA QLC PARTE 12 — registrar/modificar la wallet requiere que un
+  // admin la revise (es la cuenta a la que QLC podría transferir fondos).
+  if (data.walletAddress !== undefined && data.walletAddress !== current.walletAddress) {
+    const client = await prisma.clientProfile.findUnique({ where: { id: req.clientProfile.id } });
+    await notifyAdmins({
+      title: 'Wallet actualizada por un cliente',
+      message: `${client.firstName} ${client.lastName} registró/modificó su wallet${updated.walletNetwork ? ` (${updated.walletNetwork})` : ''}.`,
+      type: 'info',
+      templateKey: 'client_wallet_updated',
+      templateParams: { clientName: `${client.firstName} ${client.lastName}` },
+    });
   }
 
   res.json({ ok: true, wallet: updated });

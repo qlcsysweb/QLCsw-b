@@ -106,6 +106,8 @@ router.get('/guides', guideController.listGuides);
 // Soporte
 router.get('/support-cases', supportController.listSupportCases);
 router.post('/support-cases', supportController.createSupportCase);
+router.get('/support-cases/:id/messages', supportController.listCaseMessages);
+router.post('/support-cases/:id/messages', supportController.sendCaseMessage);
 
 // Chat
 router.get('/chat-sessions', chatController.listChatSessions);

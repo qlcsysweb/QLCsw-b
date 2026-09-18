@@ -3,6 +3,7 @@ const prisma = require('../../config/prisma');
 const ApiError = require('../../utils/ApiError');
 const asyncHandler = require('../../utils/asyncHandler');
 const { getAvailableSlotsForDate, assertSlotIsAvailable } = require('../../utils/appointmentSlots');
+const { notifyAdmins } = require('../../utils/notify');
 
 const listAvailability = asyncHandler(async (req, res) => {
   const slots = await prisma.availabilitySlot.findMany({
@@ -87,6 +88,18 @@ const createAppointment = asyncHandler(async (req, res) => {
       status: 'PENDING',
     },
   });
+
+  // AUDITORÍA QLC PARTE 8/12 — el admin debe enterarse en cuanto se crea
+  // una solicitud de cita, no solo cuando la revisa manualmente.
+  const client = await prisma.clientProfile.findUnique({ where: { id: req.clientProfile.id } });
+  await notifyAdmins({
+    title: 'Nueva solicitud de cita',
+    message: `${client.firstName} ${client.lastName} solicitó una cita para el ${data.requestedDate} a las ${data.requestedTime} (caso #${data.caseNumber}).`,
+    type: 'info',
+    templateKey: 'appointment_requested',
+    templateParams: { clientName: `${client.firstName} ${client.lastName}`, date: data.requestedDate, time: data.requestedTime },
+  });
+
   res.status(201).json({ ok: true, appointment });
 });
 

@@ -17,8 +17,11 @@ const { sendStatementGeneratedEmail } = require('../services/emailService');
 // Estado visible derivado — nunca se guarda como columna redundante, se
 // calcula siempre a partir de commission/commissionPaid para que jamás
 // pueda desincronizarse del dato real.
+// AUDITORÍA QLC PARTE 10 — "GENERADO" (nunca "ACTIVA") mientras la comisión
+// esté pendiente de pago; "PAGADO" en cuanto el admin marca el pago; sin
+// comisión aplicable el estado es simplemente "DISPONIBLE".
 function displayStatusOf(statement) {
-  if (Number(statement.commission) > 0 && !statement.commissionPaid) return 'PENDIENTE_DE_PAGO';
+  if (Number(statement.commission) > 0) return statement.commissionPaid ? 'PAGADO' : 'GENERADO';
   return 'DISPONIBLE';
 }
 
@@ -194,6 +197,9 @@ const createStatement = asyncHandler(async (req, res) => {
       commission: String(data.commission),
       commissionDueHours: String(data.commissionDueHours),
     },
+    // Ya se envía un correo específico y más detallado más abajo
+    // (sendStatementGeneratedEmail) cuando aplica comisión — evita duplicar.
+    skipEmail: data.commission > 0,
   });
 
   if (data.commission > 0 && subaccount.client?.user?.email) {

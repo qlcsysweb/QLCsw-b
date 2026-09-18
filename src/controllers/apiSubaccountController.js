@@ -293,6 +293,59 @@ const reviewCapitalDistributionReport = asyncHandler(async (req, res) => {
   res.json({ ok: true, report: updated });
 });
 
+// AUDITORÍA QLC PARTE 9 — cola de solicitudes de subcuenta/API pendientes
+// (ClientProfile.subaccountRequestedAt), para que el admin las vea en un
+// solo lugar sin tener que recorrer cliente por cliente. Muestra también
+// cuántas subcuentas ocultas tiene disponibles para revelar.
+const listPendingSubaccountRequests = asyncHandler(async (req, res) => {
+  const clients = await prisma.clientProfile.findMany({
+    where: { subaccountRequestedAt: { not: null } },
+    orderBy: { subaccountRequestedAt: 'asc' },
+    include: {
+      user: { select: { email: true } },
+      apiSubaccounts: {
+        where: { isPrincipal: false, visibleToClient: false },
+        orderBy: { slotIndex: 'asc' },
+        select: { id: true, slotIndex: true, identifier: true },
+      },
+    },
+  });
+  res.json({
+    ok: true,
+    requests: clients.map((c) => ({
+      clientId: c.id,
+      username: c.username,
+      firstName: c.firstName,
+      lastName: c.lastName,
+      email: c.user?.email,
+      requestedAt: c.subaccountRequestedAt,
+      nextHiddenSubaccount: c.apiSubaccounts[0] || null,
+      hiddenCount: c.apiSubaccounts.length,
+    })),
+  });
+});
+
+// El admin puede rechazar la solicitud sin revelar ninguna subcuenta —
+// nunca cambia visibleToClient, solo limpia la marca de "pendiente" y avisa
+// al cliente.
+const rejectSubaccountRequest = asyncHandler(async (req, res) => {
+  const client = await prisma.clientProfile.findUnique({ where: { id: req.params.clientId } });
+  if (!client) throw ApiError.notFound('Cliente no encontrado');
+  if (!client.subaccountRequestedAt) {
+    throw ApiError.conflict('Este cliente no tiene una solicitud de subcuenta pendiente.');
+  }
+
+  await prisma.clientProfile.update({ where: { id: client.id }, data: { subaccountRequestedAt: null } });
+  await notifyClient(client.id, {
+    title: 'Solicitud de subcuenta rechazada',
+    message: 'QLC revisó tu solicitud de subcuenta adicional y, por ahora, no fue posible habilitarla. Contacta a soporte si necesitas más información.',
+    type: 'warning',
+    templateKey: 'subaccount_request_rejected',
+  });
+
+  res.json({ ok: true });
+});
+
 module.exports = {
   createSubaccount,
   updateSubaccount,
@@ -300,5 +353,7 @@ module.exports = {
   ensureSubaccounts,
   listCapitalDistributionReports,
   reviewCapitalDistributionReport,
+  listPendingSubaccountRequests,
+  rejectSubaccountRequest,
   MAX_SUBACCOUNTS_PER_CLIENT,
 };

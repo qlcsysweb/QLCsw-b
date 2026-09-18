@@ -19,6 +19,7 @@ const supportController = require('../controllers/supportController');
 const chatController = require('../controllers/chatController');
 const prospectController = require('../controllers/prospectController');
 const driveConfigController = require('../controllers/driveConfigController');
+const emailConfigController = require('../controllers/emailConfigController');
 const mediaController = require('../controllers/mediaController');
 const platformSettingsController = require('../controllers/platformSettingsController');
 const capitalIncreaseController = require('../controllers/capitalIncreaseController');
@@ -77,6 +78,9 @@ router.post('/clients/:clientId/api-subaccounts', apiSubaccountController.create
 router.post('/clients/:clientId/api-subaccounts/ensure-all', apiSubaccountController.ensureSubaccounts);
 router.patch('/api-subaccounts/:id', apiSubaccountController.updateSubaccount);
 router.get('/api-subaccounts/:id/secrets', apiSubaccountController.getSubaccountSecrets);
+// AUDITORÍA QLC PARTE 9 — cola de solicitudes de subcuenta/API pendientes.
+router.get('/subaccount-requests', apiSubaccountController.listPendingSubaccountRequests);
+router.post('/clients/:clientId/subaccount-request/reject', apiSubaccountController.rejectSubaccountRequest);
 
 // CORREGIR.xlsx CLIENTE 13 — revisión de reportes de distribución de capital
 router.get('/capital-distribution-reports', apiSubaccountController.listCapitalDistributionReports);
@@ -159,6 +163,7 @@ router.post(
 );
 router.get('/payment-reports/:id/proof', paymentController.downloadPaymentProof);
 router.patch('/payment-reports/:id/transfer-received', paymentController.markTransferReceived);
+router.patch('/payment-reports/:id/guarantee-reported', paymentController.markGuaranteeReported);
 router.patch('/payment-reports/:id', paymentController.reviewPaymentReport);
 
 // Appointments
@@ -170,6 +175,8 @@ router.patch('/appointments/:id/status', appointmentController.updateAppointment
 // Support / Chat
 router.get('/support-cases', supportController.listSupportCases);
 router.patch('/support-cases/:id', supportController.updateSupportCase);
+router.get('/support-cases/:id/messages', supportController.listCaseMessages);
+router.post('/support-cases/:id/messages', supportController.sendCaseMessage);
 router.get('/chat-sessions', chatController.listSessions);
 // CORREGIR(2).xlsx ADMIN 28 — permite ver/entrar directamente al chat de una
 // cita ya autorizada desde la propia vista de la cita.
@@ -216,6 +223,12 @@ router.get('/drive-config', driveConfigController.getConfig);
 router.put('/drive-config', driveConfigController.updateConfig);
 router.post('/drive-config/test', driveConfigController.testConnection);
 router.post('/drive-config/disconnect', driveConfigController.disconnect);
+
+// AUDITORÍA QLC PARTE 13 — configuración de correo (Gmail) desde el panel.
+router.get('/email-config', emailConfigController.getConfig);
+router.put('/email-config', emailConfigController.updateConfig);
+router.post('/email-config/test', emailConfigController.testConnection);
+router.post('/email-config/disconnect', emailConfigController.disconnect);
 
 // Multimedia del sitio público (imágenes/video, incluye el logo)
 router.get('/media', mediaController.listMediaAdmin);

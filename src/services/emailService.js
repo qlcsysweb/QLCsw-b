@@ -1,27 +1,37 @@
 /*
  * Envío de correo vía Gmail (SMTP con contraseña de aplicación).
- * Si GMAIL_USER / GMAIL_APP_PASSWORD no están configurados en .env,
- * la función retorna { sent: false } sin lanzar error, para no bloquear
- * el registro de prospectos mientras no existan credenciales reales.
+ * Las credenciales se resuelven vía config/emailConfig.js: primero lo
+ * guardado desde el panel (Admin → Configuración → Correo), luego el
+ * bootstrap por variables de entorno (GMAIL_USER / GMAIL_APP_PASSWORD). Si
+ * ninguna existe, las funciones retornan { sent: false } sin lanzar error,
+ * para no bloquear ningún flujo mientras no existan credenciales reales.
  *
- * El correo de bienvenida es texto simple, en el idioma que el prospecto
- * tenía seleccionado al enviar el formulario (cookie de idioma, nunca un
- * idioma inventado por el backend). NO adjunta ningún PDF — el "PDF
- * informativo" automático fue retirado del alcance del sistema.
+ * AUDITORÍA QLC PARTE 12/13 — además de los correos específicos ya
+ * existentes (bienvenida a prospecto, estado de cuenta generado), se agrega
+ * `sendNotificationEmail`: un envío genérico que reutiliza el título/mensaje
+ * ya redactado de cada Notification interna, para que TODA notificación del
+ * sistema (admin o cliente) también llegue por correo sin tener que
+ * redactar un texto nuevo para cada uno de los ~20 tipos de evento.
  */
+const { resolveCredentials } = require('../config/emailConfig');
 
-let nodemailerTransport = null;
+let cachedTransport = null;
+let cachedSignature = null;
 
-function getTransport() {
-  if (!process.env.GMAIL_USER || !process.env.GMAIL_APP_PASSWORD) return null;
-  if (nodemailerTransport) return nodemailerTransport;
+async function getTransport() {
+  const creds = await resolveCredentials();
+  if (!creds) return null;
+
+  const signature = `${creds.user}:${creds.appPassword}`;
+  if (cachedTransport && cachedSignature === signature) return cachedTransport;
 
   const nodemailer = require('nodemailer');
-  nodemailerTransport = nodemailer.createTransport({
+  cachedTransport = nodemailer.createTransport({
     service: 'gmail',
-    auth: { user: process.env.GMAIL_USER, pass: process.env.GMAIL_APP_PASSWORD },
+    auth: { user: creds.user, pass: creds.appPassword },
   });
-  return nodemailerTransport;
+  cachedSignature = signature;
+  return { transport: cachedTransport, from: `"${creds.senderName}" <${creds.user}>` };
 }
 
 const COPY = {
@@ -38,16 +48,14 @@ const COPY = {
 };
 
 async function sendProspectWelcomeEmail(prospect, language) {
-  const transport = getTransport();
-  if (!transport) {
-    return { sent: false, reason: 'Credenciales de Gmail no configuradas en .env' };
-  }
+  const ready = await getTransport();
+  if (!ready) return { sent: false, reason: 'Credenciales de Gmail no configuradas' };
 
   const lang = language === 'en' ? 'en' : 'es';
   const copy = COPY[lang];
 
-  await transport.sendMail({
-    from: process.env.GMAIL_USER,
+  await ready.transport.sendMail({
+    from: ready.from,
     to: prospect.email,
     subject: copy.subject,
     text: copy.body(prospect.firstName),
@@ -62,22 +70,33 @@ async function sendProspectWelcomeEmail(prospect, language) {
 // datos bancarios: el correo solo informa, el pago sigue siendo el flujo de
 // USDT ya definido por QLC (reportar transferencia → admin confirma).
 async function sendStatementGeneratedEmail(user, { identifier, commissionDueHours }) {
-  const transport = getTransport();
-  if (!transport) {
-    return { sent: false, reason: 'Credenciales de Gmail no configuradas en .env' };
-  }
+  const ready = await getTransport();
+  if (!ready) return { sent: false, reason: 'Credenciales de Gmail no configuradas' };
 
   const subject = 'Estado de cuenta QLC generado y pendiente de pago';
   const text = `Se generó un nuevo estado de cuenta${identifier ? ` para tu subcuenta/API ${identifier}` : ''} y quedó pendiente de pago. Dispones de ${commissionDueHours} horas para reportar el pago correspondiente desde tu panel de QLC (sección Pagos). Ingresa a tu panel para ver el detalle completo y reportar tu transferencia en USDT.`;
 
-  await transport.sendMail({
-    from: process.env.GMAIL_USER,
-    to: user.email,
-    subject,
-    text,
-  });
-
+  await ready.transport.sendMail({ from: ready.from, to: user.email, subject, text });
   return { sent: true };
 }
 
-module.exports = { sendProspectWelcomeEmail, sendStatementGeneratedEmail };
+// AUDITORÍA QLC PARTE 12 — correo genérico para cualquier Notification
+// interna (SYSTEM o MANUAL), enviada individualmente a un solo destinatario
+// (nunca en copia/CC a otros administradores o clientes). El asunto y
+// cuerpo son el título/mensaje que YA se le muestra al usuario dentro de la
+// plataforma — nunca se inventa contenido adicional.
+async function sendNotificationEmail(user, { title, message }) {
+  if (!user?.email) return { sent: false, reason: 'El usuario no tiene correo registrado' };
+  const ready = await getTransport();
+  if (!ready) return { sent: false, reason: 'Credenciales de Gmail no configuradas' };
+
+  await ready.transport.sendMail({
+    from: ready.from,
+    to: user.email,
+    subject: `QLC — ${title}`,
+    text: `${message}\n\n— Quantum Liquidity Capital (QLC)\nEste es un aviso automático, generado también como notificación dentro de tu panel de QLC.`,
+  });
+  return { sent: true };
+}
+
+module.exports = { sendProspectWelcomeEmail, sendStatementGeneratedEmail, sendNotificationEmail };

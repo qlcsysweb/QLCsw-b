@@ -171,6 +171,40 @@ const markTransferReceived = asyncHandler(async (req, res) => {
   res.json({ ok: true, report: updated });
 });
 
+// AUDITORÍA QLC PARTE 4 — "Garantía reportada" es un paso independiente y
+// POSTERIOR a "Transferencia recibida": solo confirma que el admin ya
+// reportó/validó la garantía. Todavía NO aprueba el pago — eso requiere la
+// acción separada reviewPaymentReport(APROBADO), que ahora exige que este
+// paso ya se haya completado.
+const markGuaranteeReported = asyncHandler(async (req, res) => {
+  const report = await prisma.paymentReport.findUnique({ where: { id: req.params.id } });
+  if (!report) throw ApiError.notFound('Reporte de pago no encontrado');
+  if (!report.transferReceivedAt) {
+    throw ApiError.badRequest('Primero debes marcar "Transferencia recibida" antes de reportar la garantía.');
+  }
+  if (report.guaranteeReportedAt) throw ApiError.conflict('La garantía de este pago ya fue reportada.');
+
+  const updated = await prisma.paymentReport.update({
+    where: { id: report.id },
+    data: {
+      guaranteeReportedAt: new Date(),
+      guaranteeReportedByUserId: req.user.id,
+      status: 'GARANTIA_REPORTADA',
+    },
+  });
+
+  const subaccount = await prisma.apiSubaccount.findUnique({ where: { id: report.apiSubaccountId } });
+  await notifyClient(subaccount.clientId, {
+    title: 'Actualización de tu pago reportado',
+    message: `La garantía de tu pago de ${report.amount} ${report.currency} fue reportada por QLC. Está en camino de aprobación final.`,
+    type: 'info',
+    templateKey: 'payment_status_updated',
+    templateParams: { amount: String(report.amount), currency: report.currency, status: 'GARANTIA_REPORTADA' },
+  });
+
+  res.json({ ok: true, report: updated });
+});
+
 const reviewPaymentReportSchema = z.object({
   status: z.enum(['APROBADO', 'RECHAZADO', 'EN_REVISION']),
   reviewNote: z.string().optional(),
@@ -180,6 +214,9 @@ const reviewPaymentReport = asyncHandler(async (req, res) => {
   const { status, reviewNote } = reviewPaymentReportSchema.parse(req.body);
   const report = await prisma.paymentReport.findUnique({ where: { id: req.params.id } });
   if (!report) throw ApiError.notFound('Reporte de pago no encontrado');
+  if (status === 'APROBADO' && !report.guaranteeReportedAt) {
+    throw ApiError.badRequest('Primero debes marcar "Garantía reportada" antes de aprobar este pago.');
+  }
 
   const updated = await prisma.paymentReport.update({
     where: { id: report.id },
@@ -242,5 +279,6 @@ module.exports = {
   createPaymentReport,
   downloadPaymentProof,
   markTransferReceived,
+  markGuaranteeReported,
   reviewPaymentReport,
 };

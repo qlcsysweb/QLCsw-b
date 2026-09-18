@@ -196,6 +196,15 @@ const reportCapitalDistribution = asyncHandler(async (req, res) => {
     },
   });
 
+  const client = await prisma.clientProfile.findUnique({ where: { id: req.clientProfile.id } });
+  await notifyAdmins({
+    title: 'Distribución de capital reportada',
+    message: `${client.firstName} ${client.lastName} reportó que ya distribuyó ${report.amount} USDT${subaccount.identifier ? ` en la subcuenta/API ${subaccount.identifier}` : ''}.`,
+    type: 'info',
+    templateKey: 'capital_distribution_reported',
+    templateParams: { clientName: `${client.firstName} ${client.lastName}`, amount: String(report.amount) },
+  });
+
   res.status(201).json({ ok: true, report });
 });
 

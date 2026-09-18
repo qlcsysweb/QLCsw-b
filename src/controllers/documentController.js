@@ -1,4 +1,3 @@
-const path = require('path');
 const documentStorage = require('../services/documentStorage');
 const prisma = require('../config/prisma');
 const ApiError = require('../utils/ApiError');
@@ -21,44 +20,10 @@ const listDocumentsByClient = asyncHandler(async (req, res) => {
   res.json({ ok: true, documents });
 });
 
-const uploadDocument = asyncHandler(async (req, res) => {
-  await assertDriveReady();
-  if (!req.file) throw ApiError.badRequest('Debes adjuntar un archivo');
-  const { category, description, year, month, periodLabel } = req.body;
-  if (!category) throw ApiError.badRequest('La categoría es obligatoria');
-
-  const client = await prisma.clientProfile.findUnique({ where: { id: req.params.clientId } });
-  if (!client) throw ApiError.notFound('Cliente no encontrado');
-
-  const { documentsFolderId } = await documentStorage.ensureClientFolders(client);
-
-  const uploaded = await documentStorage.uploadDocument(req.file.buffer, {
-    folderId: documentsFolderId,
-    fileName: req.file.originalname,
-    mimeType: req.file.mimetype,
-  });
-
-  const document = await prisma.document.create({
-    data: {
-      clientId: client.id,
-      category,
-      description: description || null,
-      driveFileId: uploaded.id,
-      driveFolderId: documentsFolderId,
-      fileName: req.file.originalname,
-      extension: path.extname(req.file.originalname).replace('.', '') || null,
-      mimeType: req.file.mimetype,
-      sizeBytes: req.file.size,
-      uploadedByUserId: req.user.id,
-      // CORREGIR.xlsx ADMIN 07 — organización opcional Año/Periodo/Mes
-      year: year ? Number(year) : null,
-      month: month ? Number(month) : null,
-      periodLabel: periodLabel || null,
-    },
-  });
-
-  res.status(201).json({ ok: true, document });
-});
+// AUDITORÍA QLC PARTE 1 — el admin NUNCA sube documentos del cliente (solo
+// visualiza/descarga/imprime). Se retiró aquí también la función interna de
+// subida que ya no estaba conectada a ninguna ruta, para que no quede una
+// puerta de subida administrativa lista para reconectarse por error.
 
 // CORREGIR.xlsx ADMIN 07 — el admin puede clasificar/reclasificar un
 // documento ya subido dentro del árbol Año → Periodo → Mes (metadata
@@ -144,7 +109,6 @@ const setDocumentUnlock = asyncHandler(async (req, res) => {
 
 module.exports = {
   listDocumentsByClient,
-  uploadDocument,
   downloadDocument,
   deleteDocument,
   setDocumentUnlock,
