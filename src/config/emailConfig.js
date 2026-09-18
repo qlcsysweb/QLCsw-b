@@ -33,10 +33,21 @@ function sanitizeAppPassword(value) {
 async function resolveCredentials() {
   const row = await getEmailConfigRow();
   if (row.gmailUser && row.gmailAppPasswordEncrypted && row.isEnabled) {
+    let decrypted;
+    try {
+      decrypted = decrypt(row.gmailAppPasswordEncrypted);
+    } catch (err) {
+      // ENCRYPTION_KEY distinta a la usada al guardar, dato corrupto, etc.
+      // Nunca se deja caer como 500 genérico: se marca con un código propio
+      // para que testConnection() lo traduzca en un mensaje específico.
+      const decryptError = new Error('No se pudo descifrar la contraseña de aplicación guardada.');
+      decryptError.code = 'EDECRYPT';
+      throw decryptError;
+    }
     return {
       user: row.gmailUser.trim(),
       senderName: row.gmailSenderName || 'Quantum Liquidity Capital (QLC)',
-      appPassword: sanitizeAppPassword(decrypt(row.gmailAppPasswordEncrypted)),
+      appPassword: sanitizeAppPassword(decrypted),
       source: 'db',
     };
   }
@@ -51,8 +62,15 @@ async function resolveCredentials() {
   return null;
 }
 
+// Solo comprueba PRESENCIA de credenciales (fila con datos, o variables de
+// entorno definidas) — nunca intenta descifrar, para que un problema de
+// descifrado no tumbe el estado general del panel con un 500. El descifrado
+// real solo ocurre en resolveCredentials(), dentro de testConnection()/envío,
+// donde un fallo sí se reporta con su causa exacta.
 async function hasCredentials() {
-  return Boolean(await resolveCredentials());
+  const row = await getEmailConfigRow();
+  if (row.gmailUser && row.gmailAppPasswordEncrypted && row.isEnabled) return true;
+  return Boolean(process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD);
 }
 
 // Único punto donde se arma el transporte SMTP de Gmail, para que "Guardar"
