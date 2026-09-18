@@ -4,10 +4,9 @@
  * aplicación NUNCA se lee ni se escribe aquí en texto completo — solo se
  * referencia su presencia (enmascarada).
  */
-const { getEmailConfigRow, hasCredentials } = require('../config/emailConfig');
+const { getEmailConfigRow, hasCredentials, sanitizeAppPassword, createGmailTransport } = require('../config/emailConfig');
 const prisma = require('../config/prisma');
 const { encrypt } = require('../utils/crypto');
-const nodemailer = require('nodemailer');
 
 function maskEmail(email) {
   if (!email) return null;
@@ -61,10 +60,13 @@ async function updateConfig({ gmailUser, gmailSenderName, gmailAppPassword, isEn
   return prisma.emailConfiguration.update({
     where: { id: row.id },
     data: {
-      ...(gmailUser ? { gmailUser } : {}),
+      ...(gmailUser ? { gmailUser: gmailUser.trim() } : {}),
       ...(gmailSenderName !== undefined ? { gmailSenderName: gmailSenderName || null } : {}),
       ...(isEnabled !== undefined ? { isEnabled } : {}),
-      ...(gmailAppPassword ? { gmailAppPasswordEncrypted: encrypt(gmailAppPassword) } : {}),
+      // Google muestra la contraseña de aplicación con espacios ("xxxx xxxx
+      // xxxx xxxx") — se limpian antes de cifrar para que quede guardada tal
+      // como Gmail la espera en el login SMTP.
+      ...(gmailAppPassword ? { gmailAppPasswordEncrypted: encrypt(sanitizeAppPassword(gmailAppPassword)) } : {}),
       configuredByUserId: row.configuredByUserId || userId,
       updatedByUserId: userId,
     },
@@ -100,10 +102,7 @@ async function testConnection() {
   }
 
   try {
-    const transport = nodemailer.createTransport({
-      service: 'gmail',
-      auth: { user: creds.user, pass: creds.appPassword },
-    });
+    const transport = createGmailTransport(creds);
     await transport.sendMail({
       from: creds.user,
       to: creds.user,
@@ -112,6 +111,13 @@ async function testConnection() {
     });
     return recordTestResult(row.id, 'OK', 'Conexión correcta. Se envió un correo de prueba a la propia cuenta configurada.');
   } catch (err) {
+    // Log seguro: solo código/comando/respuesta SMTP (nunca credenciales,
+    // que ni siquiera forman parte de este objeto de error).
+    console.error('[email-test] Falló el envío de prueba', {
+      code: err?.code,
+      responseCode: err?.responseCode,
+      command: err?.command,
+    });
     const message = humanizeError(err);
     return recordTestResult(row.id, 'ERROR', message);
   }
@@ -126,9 +132,12 @@ async function recordTestResult(configId, status, message) {
 }
 
 function humanizeError(err) {
-  const code = err?.responseCode;
-  if (code === 535) {
-    return 'Gmail rechazó las credenciales. Verifica que sea una contraseña de aplicación (no la contraseña normal de la cuenta) y que la verificación en dos pasos esté activa.';
+  const responseCode = err?.responseCode;
+  if (responseCode === 535 || err?.code === 'EAUTH') {
+    return 'Gmail rechazó las credenciales. Verifica que sea una contraseña de aplicación de 16 caracteres (no la contraseña normal de la cuenta), que la verificación en dos pasos esté activa, y que el correo configurado sea el dueño de esa contraseña de aplicación.';
+  }
+  if (['ECONNECTION', 'ESOCKET', 'ETIMEDOUT', 'ENOTFOUND', 'EDNS'].includes(err?.code)) {
+    return 'No pudimos conectar con los servidores de Gmail (smtp.gmail.com:465). Verifica la conexión a internet del servidor e intenta nuevamente.';
   }
   return 'No pudimos enviar el correo de prueba. Revisa la configuración e intenta nuevamente.';
 }

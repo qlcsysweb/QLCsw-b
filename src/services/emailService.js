@@ -13,7 +13,7 @@
  * sistema (admin o cliente) también llegue por correo sin tener que
  * redactar un texto nuevo para cada uno de los ~20 tipos de evento.
  */
-const { resolveCredentials } = require('../config/emailConfig');
+const { resolveCredentials, createGmailTransport } = require('../config/emailConfig');
 
 let cachedTransport = null;
 let cachedSignature = null;
@@ -23,13 +23,12 @@ async function getTransport() {
   if (!creds) return null;
 
   const signature = `${creds.user}:${creds.appPassword}`;
-  if (cachedTransport && cachedSignature === signature) return cachedTransport;
+  if (cachedTransport && cachedSignature === signature) return { transport: cachedTransport, from: `"${creds.senderName}" <${creds.user}>` };
 
-  const nodemailer = require('nodemailer');
-  cachedTransport = nodemailer.createTransport({
-    service: 'gmail',
-    auth: { user: creds.user, pass: creds.appPassword },
-  });
+  // Mismo constructor de transporte que usa "Enviar correo de prueba"
+  // (config/emailConfig.js) — Guardar/Probar y el envío real de
+  // notificaciones nunca pueden quedar con configuraciones SMTP distintas.
+  cachedTransport = createGmailTransport(creds);
   cachedSignature = signature;
   return { transport: cachedTransport, from: `"${creds.senderName}" <${creds.user}>` };
 }
