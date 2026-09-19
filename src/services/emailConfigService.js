@@ -75,14 +75,13 @@ async function getStatus() {
     lastTestStatus: row.lastTestStatus,
     lastTestMessage: row.lastTestMessage,
     updatedAt: row.updatedAt,
-    // Misma regla que Google Drive (CORRECCIÓN 24): solo quien configuró
-    // puede editar o desconectar — el controlador recalcula con req.user.id.
+    // Cualquier admin puede editar o desconectar — solo se deja registro
+    // informativo de quién configuró/actualizó por última vez.
     configuredByUserId: row.configuredByUserId,
     isLockedByAnother: false,
   };
 }
 
-class EmailConfigLockedError extends Error {}
 class OAuthConfigError extends Error {}
 
 async function updateConfig(
@@ -90,11 +89,6 @@ async function updateConfig(
   userId
 ) {
   const row = await getEmailConfigRow();
-  if (row.configuredByUserId && row.configuredByUserId !== userId) {
-    throw new EmailConfigLockedError(
-      'Esta configuración ya fue guardada por otro administrador. Solo esa cuenta puede editarla o desconectarla.'
-    );
-  }
 
   // Cambiar el Client ID/Secret de Google invalida cualquier refresh token
   // guardado (fue emitido para el par cliente ANTERIOR) — obliga a reconectar.
@@ -128,9 +122,6 @@ async function updateConfig(
 
 async function disconnect(userId) {
   const row = await getEmailConfigRow();
-  if (row.configuredByUserId && row.configuredByUserId !== userId) {
-    throw new EmailConfigLockedError('Solo el administrador que configuró el correo puede desconectarlo.');
-  }
   return prisma.emailConfiguration.update({
     where: { id: row.id },
     data: {
@@ -157,9 +148,6 @@ async function disconnect(userId) {
 // contra qué comparar el correo que Google realmente autorice.
 async function startOAuth(userId) {
   const row = await getEmailConfigRow();
-  if (row.configuredByUserId && row.configuredByUserId !== userId) {
-    throw new EmailConfigLockedError('Solo el administrador que configuró el correo puede conectarlo con Google.');
-  }
   if (!row.gmailUser) {
     throw new OAuthConfigError(
       'Primero guarda el correo Gmail (Correo remitente) que va a autorizar el envío, antes de pulsar "Conectar con Google".'
@@ -399,6 +387,5 @@ module.exports = {
   testConnection,
   startOAuth,
   completeOAuth,
-  EmailConfigLockedError,
   OAuthConfigError,
 };

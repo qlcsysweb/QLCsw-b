@@ -3,10 +3,12 @@ const emailConfigService = require('../services/emailConfigService');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 
+// Cualquier admin puede editar, conectar o desconectar la configuración —
+// el único dato relevante es informativo: quién la guardó por última vez.
 function shapeStatus(status, userId) {
   return {
     ...status,
-    isLockedByAnother: Boolean(status.configuredByUserId && status.configuredByUserId !== userId),
+    isLockedByAnother: false,
     isConfiguredByMe: Boolean(status.configuredByUserId && status.configuredByUserId === userId),
   };
 }
@@ -28,12 +30,7 @@ const updateSchema = z.object({
 
 const updateConfig = asyncHandler(async (req, res) => {
   const data = updateSchema.parse(req.body);
-  try {
-    await emailConfigService.updateConfig(data, req.user.id);
-  } catch (err) {
-    if (err instanceof emailConfigService.EmailConfigLockedError) throw ApiError.forbidden(err.message);
-    throw err;
-  }
+  await emailConfigService.updateConfig(data, req.user.id);
   const status = await emailConfigService.getStatus();
   res.json({ ok: true, config: shapeStatus(status, req.user.id), message: 'Configuración de correo guardada correctamente.' });
 });
@@ -47,7 +44,6 @@ const oauthStart = asyncHandler(async (req, res) => {
     const { url } = await emailConfigService.startOAuth(req.user.id);
     res.json({ ok: true, url });
   } catch (err) {
-    if (err instanceof emailConfigService.EmailConfigLockedError) throw ApiError.forbidden(err.message);
     if (err instanceof emailConfigService.OAuthConfigError) throw ApiError.badRequest(err.message);
     throw err;
   }
@@ -80,12 +76,7 @@ const oauthCallback = async (req, res) => {
 };
 
 const disconnect = asyncHandler(async (req, res) => {
-  try {
-    await emailConfigService.disconnect(req.user.id);
-  } catch (err) {
-    if (err instanceof emailConfigService.EmailConfigLockedError) throw ApiError.forbidden(err.message);
-    throw err;
-  }
+  await emailConfigService.disconnect(req.user.id);
   const status = await emailConfigService.getStatus();
   res.json({ ok: true, config: shapeStatus(status, req.user.id), message: 'La configuración de correo fue desconectada.' });
 });

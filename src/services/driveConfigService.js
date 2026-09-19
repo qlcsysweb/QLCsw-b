@@ -39,26 +39,18 @@ async function getStatus() {
     lastTestStatus: row.lastTestStatus,
     lastTestMessage: row.lastTestMessage,
     updatedAt: row.updatedAt,
-    // CORRECCIÓN 24: una vez configurada, la conexión queda bloqueada para
-    // el resto de administradores — solo quien la configuró puede
-    // editarla o desconectarla.
+    // Cualquier admin puede editar o desconectar — solo se deja registro
+    // informativo de quién configuró/actualizó por última vez.
     configuredByUserId: row.configuredByUserId,
-    isLockedByAnother: false, // el controlador la recalcula con req.user.id
+    isLockedByAnother: false,
   };
 }
-
-class DriveConfigLockedError extends Error {}
 
 async function updateConfig(
   { rootFolderId, rootFolderName, isEnabled, serviceAccountEmail: newEmail, serviceAccountPrivateKey },
   userId
 ) {
   const row = await getDriveConfigRow();
-  if (row.configuredByUserId && row.configuredByUserId !== userId) {
-    throw new DriveConfigLockedError(
-      'Esta configuración ya fue guardada por otro administrador. Solo esa cuenta puede editarla o desconectarla.'
-    );
-  }
 
   const updated = await prisma.driveConfiguration.update({
     where: { id: row.id },
@@ -80,11 +72,6 @@ async function updateConfig(
 
 async function disconnect(userId) {
   const row = await getDriveConfigRow();
-  if (row.configuredByUserId && row.configuredByUserId !== userId) {
-    throw new DriveConfigLockedError(
-      'Solo el administrador que configuró Google Drive puede desconectarlo.'
-    );
-  }
   // CORRECCIÓN 7: "eliminar configuración" — libera por completo la fila
   // (incluida la credencial guardada en BD) para que otro administrador
   // autorizado pueda configurar una nueva. El bootstrap de .env, si
@@ -166,4 +153,4 @@ function humanizeDriveError(err) {
   return 'No pudimos conectar con Google Drive. Revisa la configuración o intenta nuevamente.';
 }
 
-module.exports = { getStatus, updateConfig, disconnect, testConnection, DriveConfigLockedError };
+module.exports = { getStatus, updateConfig, disconnect, testConnection };

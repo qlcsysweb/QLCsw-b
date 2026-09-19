@@ -1,12 +1,13 @@
 const { z } = require('zod');
 const driveConfigService = require('../services/driveConfigService');
-const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 
+// Cualquier admin puede editar o desconectar la configuración — el único
+// dato relevante es informativo: quién la guardó por última vez.
 function shapeStatus(status, userId) {
   return {
     ...status,
-    isLockedByAnother: Boolean(status.configuredByUserId && status.configuredByUserId !== userId),
+    isLockedByAnother: false,
     isConfiguredByMe: Boolean(status.configuredByUserId && status.configuredByUserId === userId),
   };
 }
@@ -28,23 +29,13 @@ const updateSchema = z.object({
 
 const updateConfig = asyncHandler(async (req, res) => {
   const data = updateSchema.parse(req.body);
-  try {
-    await driveConfigService.updateConfig(data, req.user.id);
-  } catch (err) {
-    if (err instanceof driveConfigService.DriveConfigLockedError) throw ApiError.forbidden(err.message);
-    throw err;
-  }
+  await driveConfigService.updateConfig(data, req.user.id);
   const status = await driveConfigService.getStatus();
   res.json({ ok: true, config: shapeStatus(status, req.user.id), message: 'Configuración de Google Drive guardada correctamente.' });
 });
 
 const disconnect = asyncHandler(async (req, res) => {
-  try {
-    await driveConfigService.disconnect(req.user.id);
-  } catch (err) {
-    if (err instanceof driveConfigService.DriveConfigLockedError) throw ApiError.forbidden(err.message);
-    throw err;
-  }
+  await driveConfigService.disconnect(req.user.id);
   const status = await driveConfigService.getStatus();
   res.json({ ok: true, config: shapeStatus(status, req.user.id), message: 'Google Drive fue desconectado.' });
 });
