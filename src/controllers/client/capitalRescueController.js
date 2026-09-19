@@ -3,7 +3,7 @@ const prisma = require('../../config/prisma');
 const ApiError = require('../../utils/ApiError');
 const asyncHandler = require('../../utils/asyncHandler');
 const documentStorage = require('../../services/documentStorage');
-const { notifyClient } = require('../../utils/notify');
+const { notifyClient, notifyAdmins } = require('../../utils/notify');
 const { computeRescueState, CAPITAL_RESCUE_INCLUDE } = require('../../utils/capitalRescueState');
 
 // CORRECCIÓN 4 — el cliente solo puede aceptar/rechazar la invitación y
@@ -46,6 +46,15 @@ const rejectInvitation = asyncHandler(async (req, res) => {
     templateParams: {},
   });
 
+  const client = await prisma.clientProfile.findUnique({ where: { id: req.clientProfile.id } });
+  await notifyAdmins({
+    title: 'Cliente rechazó invitación de capital temporal',
+    message: `${client.firstName} ${client.lastName} rechazó la invitación de capital temporal para rescate.`,
+    type: 'info',
+    templateKey: 'rescue_invitation_rejected_admin',
+    templateParams: { clientName: `${client.firstName} ${client.lastName}` },
+  });
+
   res.json({ ok: true, invitation: updated });
 });
 
@@ -80,6 +89,15 @@ const confirmParticipation = asyncHandler(async (req, res) => {
     type: 'info',
     templateKey: 'rescue_participation_confirmed',
     templateParams: { amount: String(amount) },
+  });
+
+  const client = await prisma.clientProfile.findUnique({ where: { id: req.clientProfile.id } });
+  await notifyAdmins({
+    title: 'Cliente confirmó participación en capital temporal',
+    message: `${client.firstName} ${client.lastName} confirmó su participación con ${amount} USDT de capital temporal para rescate.`,
+    type: 'info',
+    templateKey: 'rescue_participation_confirmed_admin',
+    templateParams: { clientName: `${client.firstName} ${client.lastName}`, amount: String(amount) },
   });
 
   res.status(201).json({ ok: true, participation });

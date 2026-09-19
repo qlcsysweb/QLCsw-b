@@ -118,6 +118,7 @@ router.get('/appointments/:appointmentId/chat-session', chatController.getSessio
 router.get('/chat/:id', chatController.getSession);
 router.post('/chat/:id/start', chatController.startSession);
 router.post('/chat/:id/messages', chatController.sendMessage);
+router.get('/chat/:id/pdf', chatController.downloadSessionPdf);
 
 // Citas
 router.get('/availability', appointmentController.listAvailability);

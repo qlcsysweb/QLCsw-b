@@ -2,7 +2,7 @@ const { z } = require('zod');
 const prisma = require('../../config/prisma');
 const ApiError = require('../../utils/ApiError');
 const asyncHandler = require('../../utils/asyncHandler');
-const { notifyClient } = require('../../utils/notify');
+const { notifyClient, notifyAdmins } = require('../../utils/notify');
 const { computeCapitalState, CAPITAL_INCREASE_INCLUDE } = require('../../utils/capitalIncreaseState');
 
 // CORRECCIÓN 7/8 — el cliente NUNCA puede crear/modificar invitaciones,
@@ -64,6 +64,15 @@ const acceptInvitation = asyncHandler(async (req, res) => {
     templateParams: { amount: String(amount) },
   });
 
+  const client = await prisma.clientProfile.findUnique({ where: { id: req.clientProfile.id } });
+  await notifyAdmins({
+    title: 'Cliente aceptó invitación de aumento de saldo',
+    message: `${client.firstName} ${client.lastName} aceptó la invitación y solicitó ${amount} USDT de aumento de saldo operativo.`,
+    type: 'info',
+    templateKey: 'capital_invitation_accepted_admin',
+    templateParams: { clientName: `${client.firstName} ${client.lastName}`, amount: String(amount) },
+  });
+
   res.status(201).json({ ok: true, request });
 });
 
@@ -85,6 +94,15 @@ const rejectInvitation = asyncHandler(async (req, res) => {
     type: 'info',
     templateKey: 'capital_invitation_rejected',
     templateParams: {},
+  });
+
+  const client = await prisma.clientProfile.findUnique({ where: { id: req.clientProfile.id } });
+  await notifyAdmins({
+    title: 'Cliente rechazó invitación de aumento de saldo',
+    message: `${client.firstName} ${client.lastName} rechazó la invitación de aumento de saldo operativo.`,
+    type: 'info',
+    templateKey: 'capital_invitation_rejected_admin',
+    templateParams: { clientName: `${client.firstName} ${client.lastName}` },
   });
 
   res.json({ ok: true, invitation: updated });
@@ -184,6 +202,15 @@ const confirmDistribution = asyncHandler(async (req, res) => {
     type: 'success',
     templateKey: 'capital_distribution_confirmed',
     templateParams: { amount: String(distributedTotal) },
+  });
+
+  const client = await prisma.clientProfile.findUnique({ where: { id: req.clientProfile.id } });
+  await notifyAdmins({
+    title: 'Cliente confirmó distribución de saldo',
+    message: `${client.firstName} ${client.lastName} distribuyó ${distributedTotal} USDT entre sus subcuentas/API.`,
+    type: 'info',
+    templateKey: 'capital_distribution_confirmed_admin',
+    templateParams: { clientName: `${client.firstName} ${client.lastName}`, amount: String(distributedTotal) },
   });
 
   res.json({ ok: true });

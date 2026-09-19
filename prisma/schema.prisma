@@ -157,54 +157,54 @@ model User {
   updatedAt    DateTime  @updatedAt
 
   // 2FA (Google Authenticator / TOTP) — preparado, no activo por defecto.
-  twoFactorEnabled        Boolean @default(false)
-  twoFactorSecretEncrypted String?
+  twoFactorEnabled                Boolean @default(false)
+  twoFactorSecretEncrypted        String?
   twoFactorPendingSecretEncrypted String?
 
   adminProfile  AdminProfile?
   clientProfile ClientProfile?
 
-  uploadedDocuments     Document[]           @relation("DocumentUploadedBy")
-  reviewedPayments      PaymentReport[]      @relation("PaymentReviewedBy")
-  transferReceivedPayments PaymentReport[]   @relation("PaymentTransferReceivedBy")
-  guaranteeReportedPayments PaymentReport[]  @relation("PaymentGuaranteeReportedBy")
-  updatedContent        PublicContent[]      @relation("ContentUpdatedBy")
-  approvedAppointments  Appointment[]        @relation("AppointmentApprovedBy")
-  updatedApiSubaccounts ApiSubaccount[]      @relation("ApiSubaccountUpdatedBy")
-  chatMessagesSent      ChatMessage[]        @relation("ChatMessageSender")
-  adminChatSessions     ChatSession[]        @relation("ChatSessionAdmin")
-  notifications         Notification[]
-  driveConfigsConfigured DriveConfiguration[] @relation("DriveConfigConfiguredBy")
-  driveConfigsUpdated   DriveConfiguration[] @relation("DriveConfigUpdatedBy")
-  emailConfigsConfigured EmailConfiguration[] @relation("EmailConfigConfiguredBy")
-  emailConfigsUpdated   EmailConfiguration[] @relation("EmailConfigUpdatedBy")
-  mediaAssetUpdates     MediaAsset[]         @relation("MediaAssetUpdatedBy")
-  statementsCreated     Statement[]          @relation("StatementCreatedBy")
-  documentUnlocksGranted Document[]          @relation("DocumentUnlockedBy")
-  capitalInvitationsCreated CapitalIncreaseInvitation[] @relation("CapitalInvitationCreatedBy")
-  rescueInvitationsCreated  CapitalRescueInvitation[]   @relation("RescueInvitationCreatedBy")
-  notificationsSent         Notification[]              @relation("NotificationSentBy")
+  uploadedDocuments                  Document[]                  @relation("DocumentUploadedBy")
+  reviewedPayments                   PaymentReport[]             @relation("PaymentReviewedBy")
+  transferReceivedPayments           PaymentReport[]             @relation("PaymentTransferReceivedBy")
+  guaranteeReportedPayments          PaymentReport[]             @relation("PaymentGuaranteeReportedBy")
+  updatedContent                     PublicContent[]             @relation("ContentUpdatedBy")
+  approvedAppointments               Appointment[]               @relation("AppointmentApprovedBy")
+  updatedApiSubaccounts              ApiSubaccount[]             @relation("ApiSubaccountUpdatedBy")
+  chatMessagesSent                   ChatMessage[]               @relation("ChatMessageSender")
+  adminChatSessions                  ChatSession[]               @relation("ChatSessionAdmin")
+  notifications                      Notification[]
+  driveConfigsConfigured             DriveConfiguration[]        @relation("DriveConfigConfiguredBy")
+  driveConfigsUpdated                DriveConfiguration[]        @relation("DriveConfigUpdatedBy")
+  emailConfigsConfigured             EmailConfiguration[]        @relation("EmailConfigConfiguredBy")
+  emailConfigsUpdated                EmailConfiguration[]        @relation("EmailConfigUpdatedBy")
+  mediaAssetUpdates                  MediaAsset[]                @relation("MediaAssetUpdatedBy")
+  statementsCreated                  Statement[]                 @relation("StatementCreatedBy")
+  documentUnlocksGranted             Document[]                  @relation("DocumentUnlockedBy")
+  capitalInvitationsCreated          CapitalIncreaseInvitation[] @relation("CapitalInvitationCreatedBy")
+  rescueInvitationsCreated           CapitalRescueInvitation[]   @relation("RescueInvitationCreatedBy")
+  notificationsSent                  Notification[]              @relation("NotificationSentBy")
   capitalDistributionReportsReviewed CapitalDistributionReport[] @relation("CapitalDistReportReviewedBy")
-  securityConfigsUpdated    SecurityConfiguration[]     @relation("SecurityConfigUpdatedBy")
-  processStepsUpdated       ProcessStep[]                @relation("ProcessStepUpdatedBy")
-  supportCaseMessagesSent   SupportCaseMessage[]         @relation("SupportCaseMessageSender")
+  securityConfigsUpdated             SecurityConfiguration[]     @relation("SecurityConfigUpdatedBy")
+  processStepsUpdated                ProcessStep[]               @relation("ProcessStepUpdatedBy")
+  supportCaseMessagesSent            SupportCaseMessage[]        @relation("SupportCaseMessageSender")
 
   @@map("users")
 }
 
 model AdminProfile {
-  id          String   @id @default(cuid())
-  userId      String   @unique
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  firstName   String
-  lastName    String
-  permissions Json     @default("{}")
+  id             String   @id @default(cuid())
+  userId         String   @unique
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  firstName      String
+  lastName       String
+  permissions    Json     @default("{}")
   // CORRECGIR.xlsx ADMIN 06 — solo el "administrador general" puede
   // eliminar clientes; el resto de admins nunca ve/usa la contraseña de
   // seguridad (SecurityConfiguration.clientDeletionPasswordHash).
-  isGeneralAdmin Boolean @default(false)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  isGeneralAdmin Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   @@map("admin_profiles")
 }
@@ -215,36 +215,36 @@ model AdminProfile {
 // frontend. Reutiliza bcrypt (igual que User.passwordHash), nunca texto
 // plano.
 model SecurityConfiguration {
-  id                         String    @id @default(cuid())
+  id                         String   @id @default(cuid())
   clientDeletionPasswordHash String?
   updatedByUserId            String?
-  updatedBy                  User?     @relation("SecurityConfigUpdatedBy", fields: [updatedByUserId], references: [id])
-  updatedAt                  DateTime  @updatedAt
-  createdAt                  DateTime  @default(now())
+  updatedBy                  User?    @relation("SecurityConfigUpdatedBy", fields: [updatedByUserId], references: [id])
+  updatedAt                  DateTime @updatedAt
+  createdAt                  DateTime @default(now())
 
   @@map("security_configuration")
 }
 
 model ClientProfile {
-  id        String       @id @default(cuid())
-  userId    String       @unique
-  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id          String       @id @default(cuid())
+  userId      String       @unique
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   // CORRECCIÓN 2 (bloque de 20) — "usuario" es una nomenclatura libre que
   // define QLC (ej. "QLC001") para identificar al cliente en el panel
   // admin. Es INDEPENDIENTE del correo (que sigue siendo el dato real de
   // inicio de sesión) y del nombre completo. Nullable porque los clientes
   // ya existentes no tienen uno todavía hasta que un admin se lo asigne.
-  username  String?      @unique
-  firstName String
-  lastName  String
+  username    String?      @unique
+  firstName   String
+  lastName    String
   // CORRECCIÓN 4: capturada en el registro, reutilizada automáticamente en
   // la generación del contrato — nunca se vuelve a pedir.
   nationality String?
-  status    ClientStatus @default(PENDING)
-  notes     String?
-  isDemo    Boolean      @default(false)
-  createdAt DateTime     @default(now())
-  updatedAt DateTime     @updatedAt
+  status      ClientStatus @default(PENDING)
+  notes       String?
+  isDemo      Boolean      @default(false)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
 
   // Cache de IDs de carpetas de Google Drive (evita crear/buscar carpetas en cada subida)
   driveClientFolderId    String?
@@ -254,20 +254,20 @@ model ClientProfile {
   // CORRECCIÓN 28: wallet personal del cliente — cuenta externa a la cual
   // QLC podría transferir fondos en el supuesto contractual establecido.
   // Nunca se ejecutan transferencias automáticas; solo se almacena el dato.
-  walletAddress String?
-  walletNetwork String?
-  walletQrUrl   String?
+  walletAddress    String?
+  walletNetwork    String?
+  walletQrUrl      String?
   walletQrPublicId String?
 
   // El contrato ya NO forma parte del registro (sustituido por Aviso de
   // Privacidad + Términos y Condiciones). Se conserva evidencia de qué
   // versión aceptó el cliente y cuándo, no solo un booleano.
-  privacyNoticeAcceptedAt     DateTime?
-  privacyNoticeVersion        String?
-  termsAcceptedAt             DateTime?
-  termsVersion                String?
-  apiAuthorizationAccepted    Boolean   @default(false)
-  apiAuthorizationAcceptedAt  DateTime?
+  privacyNoticeAcceptedAt    DateTime?
+  privacyNoticeVersion       String?
+  termsAcceptedAt            DateTime?
+  termsVersion               String?
+  apiAuthorizationAccepted   Boolean   @default(false)
+  apiAuthorizationAcceptedAt DateTime?
 
   // CORRECCIÓN (subcuentas ocultas) — el cliente tiene sus 20 subcuentas
   // pre-creadas desde el registro, pero solo ve la PRINCIPAL y las que ya
@@ -276,10 +276,10 @@ model ClientProfile {
   // se limpia en cuanto un admin revela una subcuenta oculta para él.
   subaccountRequestedAt DateTime?
 
-  documents    Document[]      @relation("ClientDocuments")
+  documents    Document[]    @relation("ClientDocuments")
   appointments Appointment[]
   supportCases SupportCase[]
-  chatSessions ChatSession[]   @relation("ChatSessionClient")
+  chatSessions ChatSession[] @relation("ChatSessionClient")
 
   // CORRECCIÓN 11/16: hasta 20 subcuentas/API por cliente.
   apiSubaccounts ApiSubaccount[]
@@ -326,11 +326,11 @@ model ApiSubaccount {
   // Null mientras el administrador no lo haya asignado todavía.
   identifier String? @unique
 
-  exchangeName             String  @default("Bitget")
-  apiKeyEncrypted          String?
-  apiSecretEncrypted       String?
-  apiPassphraseEncrypted   String?
-  status                   ApiConnectionStatus @default(PENDIENTE)
+  exchangeName           String              @default("Bitget")
+  apiKeyEncrypted        String?
+  apiSecretEncrypted     String?
+  apiPassphraseEncrypted String?
+  status                 ApiConnectionStatus @default(PENDIENTE)
 
   // CORRECCIÓN 6/18 (bloque de 20) — restricción de IP configurada por el
   // ADMIN para la conexión API de esta subcuenta. Es un dato puramente
@@ -350,9 +350,9 @@ model ApiSubaccount {
   // CORRECCIÓN 10: capital operativo requerido — configurable por ADMIN.
   // El cliente solo puede INFORMAR que ya lo tiene disponible; la
   // validación real siempre es manual, vía la plataforma externa de QLC.
-  requiredCapital          Decimal? @db.Decimal(12, 2)
-  clientReportedCapitalReady Boolean @default(false)
-  clientReportedCapitalAt  DateTime?
+  requiredCapital            Decimal?  @db.Decimal(12, 2)
+  clientReportedCapitalReady Boolean   @default(false)
+  clientReportedCapitalAt    DateTime?
 
   // CORRECCIÓN 25: última desconexión/reconexión (resumen rápido; el
   // historial detallado vive en ApiConnectionEvent).
@@ -365,15 +365,15 @@ model ApiSubaccount {
   updatedAt       DateTime @updatedAt
   createdAt       DateTime @default(now())
 
-  clientModel      ClientModel?
-  process          Process?
-  paymentReports   PaymentReport[]
-  statements       Statement[]
-  connectionEvents ApiConnectionEvent[]
-  capitalDistributionItems CapitalDistributionItem[]
-  capitalRescueInvitations CapitalRescueInvitation[]
-  rescueDistributionItems  CapitalRescueDistributionItem[] @relation("RescueDistributionItems")
-  appointments             Appointment[]
+  clientModel                ClientModel?
+  process                    Process?
+  paymentReports             PaymentReport[]
+  statements                 Statement[]
+  connectionEvents           ApiConnectionEvent[]
+  capitalDistributionItems   CapitalDistributionItem[]
+  capitalRescueInvitations   CapitalRescueInvitation[]
+  rescueDistributionItems    CapitalRescueDistributionItem[] @relation("RescueDistributionItems")
+  appointments               Appointment[]
   capitalDistributionReports CapitalDistributionReport[]
 
   @@unique([clientId, slotIndex])
@@ -404,21 +404,21 @@ model ApiConnectionEvent {
 // CLIENTE quien distribuye el monto autorizado entre sus subcuentas/API
 // reales, en bloques de 20 USDT, hasta agotar exactamente el monto.
 model CapitalIncreaseInvitation {
-  id              String   @id @default(cuid())
-  clientId        String
-  client          ClientProfile @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  id       String        @id @default(cuid())
+  clientId String
+  client   ClientProfile @relation(fields: [clientId], references: [id], onDelete: Cascade)
 
   // Dato informativo capturado manualmente por el admin — el sistema NUNCA
   // consulta saldo real en el exchange.
-  currentBalance  Decimal  @db.Decimal(14, 2)
-  maxAmount       Decimal  @db.Decimal(14, 2)
-  validityDays    Int      @default(10)
-  expiresAt       DateTime
+  currentBalance Decimal  @db.Decimal(14, 2)
+  maxAmount      Decimal  @db.Decimal(14, 2)
+  validityDays   Int      @default(10)
+  expiresAt      DateTime
   // Mensaje opcional del admin al emitir la invitación (motivo, contexto).
-  message         String?
+  message        String?
 
-  status          CapitalInvitationStatus @default(DESBLOQUEADA)
-  respondedAt     DateTime?
+  status      CapitalInvitationStatus @default(DESBLOQUEADA)
+  respondedAt DateTime?
 
   createdByUserId String
   createdBy       User     @relation("CapitalInvitationCreatedBy", fields: [createdByUserId], references: [id])
@@ -430,13 +430,13 @@ model CapitalIncreaseInvitation {
 }
 
 model CapitalIncreaseRequest {
-  id              String   @id @default(cuid())
-  invitationId    String   @unique
-  invitation      CapitalIncreaseInvitation @relation(fields: [invitationId], references: [id], onDelete: Cascade)
+  id           String                    @id @default(cuid())
+  invitationId String                    @unique
+  invitation   CapitalIncreaseInvitation @relation(fields: [invitationId], references: [id], onDelete: Cascade)
 
-  requestedAmount Decimal  @db.Decimal(14, 2)
+  requestedAmount Decimal              @db.Decimal(14, 2)
   status          CapitalRequestStatus @default(EN_PROCESO)
-  requestedAt     DateTime @default(now())
+  requestedAt     DateTime             @default(now())
   // CORRECCIÓN 7: 72 horas para que QLC procese y emita instrucciones.
   deadlineAt      DateTime
   readAt          DateTime?
@@ -447,11 +447,11 @@ model CapitalIncreaseRequest {
 }
 
 model CapitalDistribution {
-  id          String   @id @default(cuid())
-  requestId   String   @unique
+  id          String                 @id @default(cuid())
+  requestId   String                 @unique
   request     CapitalIncreaseRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
   publishedAt DateTime?
-  createdAt   DateTime @default(now())
+  createdAt   DateTime               @default(now())
 
   items CapitalDistributionItem[]
 
@@ -459,16 +459,16 @@ model CapitalDistribution {
 }
 
 model CapitalDistributionItem {
-  id              String   @id @default(cuid())
+  id              String              @id @default(cuid())
   distributionId  String
   distribution    CapitalDistribution @relation(fields: [distributionId], references: [id], onDelete: Cascade)
   // Siempre una subcuenta/API REAL del cliente — nunca un nombre ficticio.
   // onDelete: Cascade para no bloquear la eliminación real de un cliente
   // (deleteClient) cuando cascada a través de sus subcuentas/API.
   apiSubaccountId String
-  apiSubaccount   ApiSubaccount @relation(fields: [apiSubaccountId], references: [id], onDelete: Cascade)
-  amount          Decimal  @db.Decimal(14, 2)
-  order           Int      @default(0)
+  apiSubaccount   ApiSubaccount       @relation(fields: [apiSubaccountId], references: [id], onDelete: Cascade)
+  amount          Decimal             @db.Decimal(14, 2)
+  order           Int                 @default(0)
 
   @@map("capital_distribution_items")
 }
@@ -492,10 +492,10 @@ model CapitalRescueInvitation {
   apiSubaccountId String?
   apiSubaccount   ApiSubaccount? @relation(fields: [apiSubaccountId], references: [id], onDelete: SetNull)
 
-  requestedAmount Decimal @db.Decimal(14, 2)
+  requestedAmount Decimal  @db.Decimal(14, 2)
   // Remuneración diaria (%) mientras el capital esté en utilización.
-  dailyRate       Decimal @db.Decimal(6, 3)
-  validityDays    Int     @default(10)
+  dailyRate       Decimal  @db.Decimal(6, 3)
+  validityDays    Int      @default(10)
   expiresAt       DateTime
   message         String?
 
@@ -512,14 +512,14 @@ model CapitalRescueInvitation {
 }
 
 model CapitalRescueParticipation {
-  id           String                    @id @default(cuid())
-  invitationId String                    @unique
-  invitation   CapitalRescueInvitation   @relation(fields: [invitationId], references: [id], onDelete: Cascade)
+  id           String                  @id @default(cuid())
+  invitationId String                  @unique
+  invitation   CapitalRescueInvitation @relation(fields: [invitationId], references: [id], onDelete: Cascade)
 
   // Monto que el cliente confirmó (puede ser menor o igual al solicitado).
-  participationAmount Decimal @db.Decimal(14, 2)
+  participationAmount Decimal                   @db.Decimal(14, 2)
   status              RescueParticipationStatus @default(EN_PROCESO)
-  confirmedAt         DateTime @default(now())
+  confirmedAt         DateTime                  @default(now())
 
   // CAPITAL EN UTILIZACIÓN — inicia cuando el admin confirma el depósito.
   depositConfirmedAt DateTime?
@@ -527,10 +527,10 @@ model CapitalRescueParticipation {
   usageEndedAt       DateTime?
 
   // Remuneración — SIEMPRE independiente/separada del capital principal.
-  remunerationAmount   Decimal?  @db.Decimal(14, 2)
-  remunerationWallet   String?
-  remunerationTxHash   String?
-  remunerationPaidAt   DateTime?
+  remunerationAmount Decimal?  @db.Decimal(14, 2)
+  remunerationWallet String?
+  remunerationTxHash String?
+  remunerationPaidAt DateTime?
 
   finalizedAt DateTime?
 
@@ -549,11 +549,11 @@ model CapitalRescueParticipation {
 // cuentas/montos por diseño (el capital principal se retira exactamente de
 // donde se depositó), por eso un solo set de items sirve para ambas.
 model CapitalRescueDistribution {
-  id              String    @id @default(cuid())
-  participationId String    @unique
+  id              String                     @id @default(cuid())
+  participationId String                     @unique
   participation   CapitalRescueParticipation @relation(fields: [participationId], references: [id], onDelete: Cascade)
   publishedAt     DateTime?
-  createdAt       DateTime  @default(now())
+  createdAt       DateTime                   @default(now())
 
   items CapitalRescueDistributionItem[]
 
@@ -561,14 +561,14 @@ model CapitalRescueDistribution {
 }
 
 model CapitalRescueDistributionItem {
-  id             String    @id @default(cuid())
-  distributionId String
-  distribution   CapitalRescueDistribution @relation(fields: [distributionId], references: [id], onDelete: Cascade)
+  id              String                    @id @default(cuid())
+  distributionId  String
+  distribution    CapitalRescueDistribution @relation(fields: [distributionId], references: [id], onDelete: Cascade)
   // Siempre una subcuenta/API REAL del cliente — nunca un nombre ficticio.
   apiSubaccountId String
-  apiSubaccount   ApiSubaccount @relation("RescueDistributionItems", fields: [apiSubaccountId], references: [id], onDelete: Cascade)
-  amount          Decimal @db.Decimal(14, 2)
-  order           Int     @default(0)
+  apiSubaccount   ApiSubaccount             @relation("RescueDistributionItems", fields: [apiSubaccountId], references: [id], onDelete: Cascade)
+  amount          Decimal                   @db.Decimal(14, 2)
+  order           Int                       @default(0)
 
   @@map("capital_rescue_distribution_items")
 }
@@ -581,27 +581,27 @@ model CapitalRescueDistributionItem {
 // texto libre (se conservan FLEXIBLE/PERFORMANCE/COMPOUND como slugs de los
 // tres modelos existentes, sin perder los datos ya cargados).
 model Model {
-  id            String   @id @default(cuid())
-  key           String   @unique
-  name          String
-  nameEn        String?
-  tagline       String?
-  taglineEn     String?
-  description   String
-  descriptionEn String?
-  conditions    String?
-  conditionsEn  String?
-  period        String?
-  periodEn      String?
-  percentage    String?
-  objective     String?
+  id               String   @id @default(cuid())
+  key              String   @unique
+  name             String
+  nameEn           String?
+  tagline          String?
+  taglineEn        String?
+  description      String
+  descriptionEn    String?
+  conditions       String?
+  conditionsEn     String?
+  period           String?
+  periodEn         String?
+  percentage       String?
+  objective        String?
   // CORRECCIÓN 29/30: contenido del modal "Detalles" (bilingüe, editable).
   detailsContent   String?
   detailsContentEn String?
-  isActive      Boolean  @default(true)
-  displayOrder  Int      @default(0)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  isActive         Boolean  @default(true)
+  displayOrder     Int      @default(0)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
   clientModels ClientModel[]
 
@@ -662,7 +662,7 @@ model ProcessCondition {
 // puntual; la próxima vez que suba uno nuevo en esa categoría, el
 // documento nuevo vuelve a nacer bloqueado.
 model Document {
-  id               String   @id @default(cuid())
+  id               String        @id @default(cuid())
   clientId         String
   client           ClientProfile @relation("ClientDocuments", fields: [clientId], references: [id], onDelete: Cascade)
   category         String
@@ -673,14 +673,14 @@ model Document {
   extension        String?
   mimeType         String
   sizeBytes        Int
-  status           String   @default("ACTIVE")
+  status           String        @default("ACTIVE")
   uploadedByUserId String
-  uploadedBy       User     @relation("DocumentUploadedBy", fields: [uploadedByUserId], references: [id])
+  uploadedBy       User          @relation("DocumentUploadedBy", fields: [uploadedByUserId], references: [id])
 
-  clientEditUnlocked   Boolean   @default(false)
-  unlockedByUserId     String?
-  unlockedBy           User?     @relation("DocumentUnlockedBy", fields: [unlockedByUserId], references: [id])
-  unlockedAt           DateTime?
+  clientEditUnlocked Boolean   @default(false)
+  unlockedByUserId   String?
+  unlockedBy         User?     @relation("DocumentUnlockedBy", fields: [unlockedByUserId], references: [id])
+  unlockedAt         DateTime?
 
   // CORREGIR.xlsx ADMIN 07 — organización tipo Google Drive (Año → Periodo
   // → Mes) dentro de la ficha del cliente. Metadata puramente organizativa
@@ -733,7 +733,7 @@ model PaymentConfiguration {
 // "bloqueada" para el resto — solo `configuredByUserId` puede editarla o
 // desconectarla. Al desconectar, vuelve a estar disponible para cualquiera.
 model DriveConfiguration {
-  id                String    @id @default(cuid())
+  id                                String    @id @default(cuid())
   // CORRECCIÓN 7 — la credencial técnica ahora puede configurarse desde el
   // panel (además del bootstrap por .env, que sigue funcionando como
   // respaldo mientras esta fila no tenga sus propias credenciales). El
@@ -742,18 +742,18 @@ model DriveConfiguration {
   // — nunca en texto plano, nunca se devuelve completa al frontend.
   serviceAccountEmail               String?
   serviceAccountPrivateKeyEncrypted String?
-  rootFolderId      String?
-  rootFolderName    String    @default("QLC")
-  isEnabled         Boolean   @default(true)
-  lastTestedAt      DateTime?
-  lastTestStatus    String? // "OK" | "ERROR"
-  lastTestMessage   String?
-  configuredByUserId String?
-  configuredBy      User?     @relation("DriveConfigConfiguredBy", fields: [configuredByUserId], references: [id])
-  updatedByUserId   String?
-  updatedBy         User?     @relation("DriveConfigUpdatedBy", fields: [updatedByUserId], references: [id])
-  updatedAt         DateTime  @updatedAt
-  createdAt         DateTime  @default(now())
+  rootFolderId                      String?
+  rootFolderName                    String    @default("QLC")
+  isEnabled                         Boolean   @default(true)
+  lastTestedAt                      DateTime?
+  lastTestStatus                    String? // "OK" | "ERROR"
+  lastTestMessage                   String?
+  configuredByUserId                String?
+  configuredBy                      User?     @relation("DriveConfigConfiguredBy", fields: [configuredByUserId], references: [id])
+  updatedByUserId                   String?
+  updatedBy                         User?     @relation("DriveConfigUpdatedBy", fields: [updatedByUserId], references: [id])
+  updatedAt                         DateTime  @updatedAt
+  createdAt                         DateTime  @default(now())
 
   @@map("drive_configuration")
 }
@@ -765,11 +765,11 @@ model DriveConfiguration {
 // credenciales). La contraseña de aplicación NUNCA se devuelve completa al
 // frontend ni se guarda en texto plano.
 model EmailConfiguration {
-  id                     String    @id @default(cuid())
-  gmailUser              String?
-  gmailSenderName        String?
-  gmailAppPasswordEncrypted String?
-  isEnabled              Boolean   @default(true)
+  id                               String    @id @default(cuid())
+  gmailUser                        String?
+  gmailSenderName                  String?
+  gmailAppPasswordEncrypted        String?
+  isEnabled                        Boolean   @default(true)
   // AUDITORÍA QLC — Gmail API vía OAuth2 (CORRECCIÓN Render free tier
   // bloqueando SMTP 25/465/587). "authMethod" decide qué credencial se usa
   // para enviar: la app password por SMTP (legado, requiere un host que no
@@ -779,20 +779,20 @@ model EmailConfiguration {
   // Google confirmó al autorizar — debe coincidir con "gmailUser" o la
   // conexión se rechaza (nunca se envía "como" una cuenta distinta a la
   // configurada).
-  authMethod                        String    @default("APP_PASSWORD") // "APP_PASSWORD" | "OAUTH2"
-  googleOAuthClientId                String?
-  googleOAuthClientSecretEncrypted   String?
-  googleOAuthRefreshTokenEncrypted   String?
-  oauthConnectedEmail                String?
-  lastTestedAt           DateTime?
-  lastTestStatus         String? // "OK" | "ERROR"
-  lastTestMessage        String?
-  configuredByUserId     String?
-  configuredBy           User?     @relation("EmailConfigConfiguredBy", fields: [configuredByUserId], references: [id])
-  updatedByUserId        String?
-  updatedBy              User?     @relation("EmailConfigUpdatedBy", fields: [updatedByUserId], references: [id])
-  updatedAt              DateTime  @updatedAt
-  createdAt              DateTime  @default(now())
+  authMethod                       String    @default("APP_PASSWORD") // "APP_PASSWORD" | "OAUTH2"
+  googleOAuthClientId              String?
+  googleOAuthClientSecretEncrypted String?
+  googleOAuthRefreshTokenEncrypted String?
+  oauthConnectedEmail              String?
+  lastTestedAt                     DateTime?
+  lastTestStatus                   String? // "OK" | "ERROR"
+  lastTestMessage                  String?
+  configuredByUserId               String?
+  configuredBy                     User?     @relation("EmailConfigConfiguredBy", fields: [configuredByUserId], references: [id])
+  updatedByUserId                  String?
+  updatedBy                        User?     @relation("EmailConfigUpdatedBy", fields: [updatedByUserId], references: [id])
+  updatedAt                        DateTime  @updatedAt
+  createdAt                        DateTime  @default(now())
 
   @@map("email_configuration")
 }
@@ -808,12 +808,12 @@ model EmailConfiguration {
 // El antiguo "PDF informativo" (adjunto automático al correo de bienvenida
 // de un prospecto) fue ELIMINADO — no debe reintroducirse.
 model PlatformSettings {
-  id                  String   @id @default(cuid())
+  id                  String  @id @default(cuid())
   externalPlatformUrl String?
 
-  adminGuidePdfUrl      String?
-  adminGuidePdfPublicId String?
-  adminGuideFileName    String?
+  adminGuidePdfUrl       String?
+  adminGuidePdfPublicId  String?
+  adminGuideFileName     String?
   clientGuidePdfUrl      String?
   clientGuidePdfPublicId String?
   clientGuideFileName    String?
@@ -824,11 +824,11 @@ model PlatformSettings {
 }
 
 model PaymentReport {
-  id              String        @id @default(cuid())
-  apiSubaccountId String
-  apiSubaccount   ApiSubaccount @relation(fields: [apiSubaccountId], references: [id], onDelete: Cascade)
-  amount          Decimal       @db.Decimal(12, 2)
-  currency        String        @default("USDT")
+  id                 String              @id @default(cuid())
+  apiSubaccountId    String
+  apiSubaccount      ApiSubaccount       @relation(fields: [apiSubaccountId], references: [id], onDelete: Cascade)
+  amount             Decimal             @db.Decimal(12, 2)
+  currency           String              @default("USDT")
   // Dato libre que el cliente reporta junto al pago (referencia/hash de
   // transacción, últimos dígitos, etc.) — nunca se valida contra el
   // exchange, es solo el dato que el cliente declara para agilizar la
@@ -851,9 +851,9 @@ model PaymentReport {
   // transferencia sin que eso apruebe el pago todavía. Solo la acción
   // separada "Garantía reportada" mueve status a APROBADO y confirma la
   // condición PAYMENT del proceso.
-  transferReceivedAt     DateTime?
+  transferReceivedAt       DateTime?
   transferReceivedByUserId String?
-  transferReceivedBy     User?    @relation("PaymentTransferReceivedBy", fields: [transferReceivedByUserId], references: [id])
+  transferReceivedBy       User?     @relation("PaymentTransferReceivedBy", fields: [transferReceivedByUserId], references: [id])
 
   // AUDITORÍA QLC PARTE 4 — "Garantía reportada" es un paso independiente
   // y posterior a "Transferencia recibida": solo después de marcarlo el
@@ -861,7 +861,7 @@ model PaymentReport {
   // nunca directo a APROBADO).
   guaranteeReportedAt       DateTime?
   guaranteeReportedByUserId String?
-  guaranteeReportedBy       User?    @relation("PaymentGuaranteeReportedBy", fields: [guaranteeReportedByUserId], references: [id])
+  guaranteeReportedBy       User?     @relation("PaymentGuaranteeReportedBy", fields: [guaranteeReportedByUserId], references: [id])
 
   // CORRECCIÓN 25: si este pago corresponde a una comisión de un estado de
   // cuenta, referencia el estado de cuenta relacionado.
@@ -883,15 +883,15 @@ model Statement {
   periodStart DateTime
   periodEnd   DateTime
 
-  startingBalance  Decimal @db.Decimal(14, 2)
-  endingBalance    Decimal @db.Decimal(14, 2)
-  resultAmount     Decimal @db.Decimal(14, 2)
-  resultPercentage Decimal @db.Decimal(7, 2)
+  startingBalance  Decimal  @db.Decimal(14, 2)
+  endingBalance    Decimal  @db.Decimal(14, 2)
+  resultAmount     Decimal  @db.Decimal(14, 2)
+  resultPercentage Decimal  @db.Decimal(7, 2)
   // CORRECCIÓN 5: volatilidad y resultado neto del periodo (dato libre
   // capturado por el administrador, igual que el resto del resumen).
-  volatility  String?
-  netResult   Decimal? @db.Decimal(14, 2)
-  commission       Decimal @db.Decimal(14, 2) @default(0)
+  volatility       String?
+  netResult        Decimal? @db.Decimal(14, 2)
+  commission       Decimal  @default(0) @db.Decimal(14, 2)
 
   activityNotes String?
   adminNotes    String?
@@ -902,9 +902,13 @@ model Statement {
 
   // CORRECCIÓN 25: ventana de 72h para pagar la comisión antes de
   // desactivar la conexión API de la subcuenta.
-  commissionDueAt   DateTime?
-  commissionPaid    Boolean   @default(false)
-  commissionPaidAt  DateTime?
+  commissionDueAt         DateTime?
+  commissionPaid          Boolean   @default(false)
+  commissionPaidAt        DateTime?
+  // Aviso de "quedan pocas horas" antes del vencimiento — se dispara una
+  // sola vez (chequeo perezoso, ver utils/connectionDeadlines.js) para no
+  // repetir la notificación en cada lectura.
+  commissionWarningSentAt DateTime?
 
   createdByUserId String
   createdBy       User     @relation("StatementCreatedBy", fields: [createdByUserId], references: [id])
@@ -993,18 +997,21 @@ model SupportCase {
 }
 
 model ChatSession {
-  id              String            @id @default(cuid())
-  appointmentId   String?           @unique
-  appointment     Appointment?      @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
-  clientId        String
-  client          ClientProfile     @relation("ChatSessionClient", fields: [clientId], references: [id], onDelete: Cascade)
-  adminId         String?
-  admin           User?             @relation("ChatSessionAdmin", fields: [adminId], references: [id])
-  status          ChatSessionStatus @default(SCHEDULED)
-  durationMinutes Int               @default(15)
-  startedAt       DateTime?
-  endsAt          DateTime?
-  createdAt       DateTime          @default(now())
+  id               String            @id @default(cuid())
+  appointmentId    String?           @unique
+  appointment      Appointment?      @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  clientId         String
+  client           ClientProfile     @relation("ChatSessionClient", fields: [clientId], references: [id], onDelete: Cascade)
+  adminId          String?
+  admin            User?             @relation("ChatSessionAdmin", fields: [adminId], references: [id])
+  status           ChatSessionStatus @default(SCHEDULED)
+  durationMinutes  Int               @default(15)
+  startedAt        DateTime?
+  endsAt           DateTime?
+  createdAt        DateTime          @default(now())
+  // Evita notificar dos veces a los admins cuando la sesión vence
+  // (chequeo perezoso, ver utils/chatSessionExpiry.js).
+  expiryNotifiedAt DateTime?
 
   messages ChatMessage[]
 
@@ -1158,13 +1165,13 @@ model Guide {
 }
 
 model Notification {
-  id     String @id @default(cuid())
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id             String   @id @default(cuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   // "title"/"message" son el texto en español, generado en el momento y
   // conservado tal cual para notificaciones históricas (nunca se borran).
-  title   String
-  message String
+  title          String
+  message        String
   // Para notificaciones NUEVAS generadas por el sistema (no texto libre de
   // un admin): templateKey identifica la plantilla bilingüe (ver
   // frontend/src/i18n/translations.js → notificationTemplates) y
@@ -1191,9 +1198,9 @@ model Notification {
   // notificación. "emailSent" permite saber si el correo ya se envió
   // (evita duplicados); si falla, la notificación interna se conserva
   // igual (nunca depende del correo) y "emailError" guarda el motivo.
-  emailSent    Boolean   @default(false)
-  emailSentAt  DateTime?
-  emailError   String?
+  emailSent   Boolean   @default(false)
+  emailSentAt DateTime?
+  emailError  String?
 
   @@map("notifications")
 }
@@ -1218,18 +1225,18 @@ model SupportCaseMessage {
 // el panel (CMS), el cliente solo lo consulta. Reemplaza el listado
 // hardcodeado en i18n (clientDashboard.flow*).
 model ProcessStep {
-  id            String   @id @default(cuid())
-  stepNumber    Int
-  titleEs       String
-  titleEn       String?
-  descriptionEs String?
-  descriptionEn String?
-  displayOrder  Int      @default(0)
-  isActive      Boolean  @default(true)
+  id              String   @id @default(cuid())
+  stepNumber      Int
+  titleEs         String
+  titleEn         String?
+  descriptionEs   String?
+  descriptionEn   String?
+  displayOrder    Int      @default(0)
+  isActive        Boolean  @default(true)
   updatedByUserId String?
-  updatedBy     User?    @relation("ProcessStepUpdatedBy", fields: [updatedByUserId], references: [id])
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  updatedBy       User?    @relation("ProcessStepUpdatedBy", fields: [updatedByUserId], references: [id])
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   @@map("process_steps")
 }
@@ -1240,17 +1247,17 @@ model ProcessStep {
 // el saldo: solo administra el reporte/revisión — la validación real la
 // hace QLC externamente.
 model CapitalDistributionReport {
-  id              String        @id @default(cuid())
-  apiSubaccountId String
-  apiSubaccount   ApiSubaccount @relation(fields: [apiSubaccountId], references: [id], onDelete: Cascade)
-  amount          Decimal       @db.Decimal(14, 2)
-  note            String?
-  status          PaymentReportStatus @default(PENDING)
-  reviewNote      String?
+  id               String              @id @default(cuid())
+  apiSubaccountId  String
+  apiSubaccount    ApiSubaccount       @relation(fields: [apiSubaccountId], references: [id], onDelete: Cascade)
+  amount           Decimal             @db.Decimal(14, 2)
+  note             String?
+  status           PaymentReportStatus @default(PENDING)
+  reviewNote       String?
   reviewedByUserId String?
-  reviewedBy      User?         @relation("CapitalDistReportReviewedBy", fields: [reviewedByUserId], references: [id])
-  reviewedAt      DateTime?
-  reportedAt      DateTime      @default(now())
+  reviewedBy       User?               @relation("CapitalDistReportReviewedBy", fields: [reviewedByUserId], references: [id])
+  reviewedAt       DateTime?
+  reportedAt       DateTime            @default(now())
 
   @@map("capital_distribution_reports")
 }

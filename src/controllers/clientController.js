@@ -282,7 +282,7 @@ const deleteClient = asyncHandler(async (req, res) => {
   const client = await prisma.clientProfile.findUnique({
     where: { id: req.params.id },
     include: {
-      user: { select: { id: true, role: true } },
+      user: { select: { id: true, role: true, isActive: true } },
       documents: true,
       apiSubaccounts: { include: { paymentReports: true, statements: true } },
     },
@@ -291,6 +291,9 @@ const deleteClient = asyncHandler(async (req, res) => {
   if (client.user.role !== 'CLIENT') {
     // Defensa adicional: nunca debería ocurrir dado el modelo de datos.
     throw ApiError.badRequest('Esta acción solo puede eliminar cuentas de cliente.');
+  }
+  if (client.user.isActive) {
+    throw ApiError.badRequest('Primero debes desactivar a este cliente antes de poder eliminarlo.');
   }
 
   // Borra los archivos reales en Google Drive ANTES de borrar las filas

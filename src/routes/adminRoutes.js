@@ -112,7 +112,7 @@ router.delete('/faq/:id', faqController.deleteFaq);
 router.get('/track-record', trackRecordController.getTrackRecordAdmin);
 router.patch('/track-record/:id', trackRecordController.updateTrackRecord);
 
-// Administrators (max 3)
+// Administrators
 router.get('/admins', adminController.listAdmins);
 router.post('/admins', adminController.createAdmin);
 router.patch('/admins/:id', adminController.updateAdmin);
@@ -122,6 +122,9 @@ router.patch('/admins/:id', adminController.updateAdmin);
 // otro; si todavía no existe ninguno, se permite el auto-nombramiento una
 // sola vez (arranque del sistema).
 router.patch('/admins/:id/general', adminController.setGeneralAdmin);
+// Eliminación real (no desactivación) — exige que el administrador ya esté
+// desactivado y sin actividad histórica registrada (ver adminController).
+router.delete('/admins/:id', adminController.deleteAdmin);
 
 // Documents (identidad del cliente → Google Drive)
 // CORRECCIÓN 7 (bloque de 20) — el admin ya NO puede subir documentos desde
@@ -185,6 +188,7 @@ router.get('/chat/:id', chatController.getSession);
 router.post('/chat/:id/start', chatController.startSession);
 router.post('/chat/:id/messages', chatController.sendMessage);
 router.post('/chat/:id/close', chatController.closeSession);
+router.get('/chat/:id/pdf', chatController.downloadSessionPdf);
 
 // Prospects
 router.get('/prospects', prospectController.listProspects);

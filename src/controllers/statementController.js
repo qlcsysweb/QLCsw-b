@@ -5,8 +5,14 @@ const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const documentStorage = require('../services/documentStorage');
 const { generateStatementPdf } = require('../utils/pdf/statementPdf');
-const { notifyClient } = require('../utils/notify');
+const { notifyClient, notifyAdmins } = require('../utils/notify');
 const { sendStatementGeneratedEmail } = require('../services/emailService');
+
+function monthLabel(date) {
+  return new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City', month: 'long', year: 'numeric' }).format(
+    date instanceof Date ? date : new Date(date)
+  );
+}
 
 // CORRECCIÓN 14 — Estados de cuenta, uno por SUBCUENTA/API, nunca mezclados
 // entre subcuentas de un mismo cliente.
@@ -184,16 +190,18 @@ const createStatement = asyncHandler(async (req, res) => {
     }
   }
 
+  const month = monthLabel(data.periodEnd);
   await notifyClient(subaccount.clientId, {
     title: 'Estado de cuenta generado',
     message:
       data.commission > 0
-        ? `Su estado de cuenta ha sido generado correctamente. El pago de la comisión correspondiente se encuentra pendiente. Dispone de ${data.commissionDueHours} horas para realizar el pago. Una vez finalizado este plazo sin recibir el pago, la conexión mediante API será desactivada. La conexión será reactivada una vez que el pago haya sido reportado y validado.`
-        : 'Su estado de cuenta ha sido generado correctamente.',
+        ? `Su estado de cuenta de ${month} ha sido generado correctamente. El pago de la comisión correspondiente se encuentra pendiente. Dispone de ${data.commissionDueHours} horas para realizar el pago. Una vez finalizado este plazo sin recibir el pago, la conexión mediante API será desactivada. La conexión será reactivada una vez que el pago haya sido reportado y validado.`
+        : `Su estado de cuenta de ${month} ha sido generado correctamente.`,
     type: 'info',
     templateKey: 'statement_generated',
     templateParams: {
       identifier: subaccount.identifier || (subaccount.isPrincipal ? 'PRINCIPAL' : ''),
+      month,
       commission: String(data.commission),
       commissionDueHours: String(data.commissionDueHours),
     },
@@ -233,7 +241,7 @@ const downloadStatementFile = asyncHandler(async (req, res) => {
 const sendStatementToClient = asyncHandler(async (req, res) => {
   const statement = await prisma.statement.findUnique({
     where: { id: req.params.id },
-    include: { apiSubaccount: true },
+    include: { apiSubaccount: { include: { client: true } } },
   });
   if (!statement) throw ApiError.notFound('Estado de cuenta no encontrado');
 
@@ -247,6 +255,15 @@ const sendStatementToClient = asyncHandler(async (req, res) => {
     type: 'info',
     templateKey: 'statement_resent',
     templateParams: { identifier: resentIdentifier },
+  });
+
+  const client = statement.apiSubaccount.client;
+  await notifyAdmins({
+    title: 'Estado de cuenta enviado',
+    message: `El estado de cuenta${resentIdentifier ? ` de ${resentIdentifier}` : ''} fue enviado con éxito a ${client.firstName} ${client.lastName}.`,
+    type: 'info',
+    templateKey: 'statement_sent_admin',
+    templateParams: { identifier: resentIdentifier, clientName: `${client.firstName} ${client.lastName}` },
   });
 
   res.json({ ok: true });

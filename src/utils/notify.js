@@ -59,8 +59,19 @@ async function notifyClient(
  * reporta una acción que requiere atención administrativa. Cada admin
  * recibe su propio correo individual (nunca ve las direcciones de los demás).
  */
-async function notifyAdmins({ title, message, type = 'info', templateKey = null, templateParams = null, skipEmail = false }) {
-  const admins = await prisma.user.findMany({ where: { role: 'ADMIN', isActive: true }, select: { id: true, email: true } });
+async function notifyAdmins({
+  title,
+  message,
+  type = 'info',
+  templateKey = null,
+  templateParams = null,
+  skipEmail = false,
+  excludeUserId = null,
+}) {
+  const admins = await prisma.user.findMany({
+    where: { role: 'ADMIN', isActive: true, ...(excludeUserId ? { id: { not: excludeUserId } } : {}) },
+    select: { id: true, email: true },
+  });
   const notifications = await Promise.all(
     admins.map((admin) =>
       prisma.notification.create({ data: { userId: admin.id, title, message, type, templateKey, templateParams } })

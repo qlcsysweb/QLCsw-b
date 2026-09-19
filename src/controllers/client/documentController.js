@@ -3,6 +3,7 @@ const documentStorage = require('../../services/documentStorage');
 const prisma = require('../../config/prisma');
 const ApiError = require('../../utils/ApiError');
 const asyncHandler = require('../../utils/asyncHandler');
+const { notifyClient, notifyAdmins } = require('../../utils/notify');
 
 async function assertDriveReady() {
   if (!(await documentStorage.isConfigured())) {
@@ -60,6 +61,22 @@ const uploadDocument = asyncHandler(async (req, res) => {
       sizeBytes: req.file.size,
       uploadedByUserId: req.user.id,
     },
+  });
+
+  const client = await prisma.clientProfile.findUnique({ where: { id: req.clientProfile.id } });
+  await notifyClient(req.clientProfile.id, {
+    title: 'Documento entregado',
+    message: `Recibimos tu documento de la categoría "${category}".`,
+    type: 'success',
+    templateKey: 'document_submitted',
+    templateParams: { category },
+  });
+  await notifyAdmins({
+    title: 'Documento subido por un cliente',
+    message: `${client.firstName} ${client.lastName} subió un documento de la categoría "${category}".`,
+    type: 'info',
+    templateKey: 'document_submitted_admin',
+    templateParams: { clientName: `${client.firstName} ${client.lastName}`, category },
   });
 
   res.status(201).json({ ok: true, document });

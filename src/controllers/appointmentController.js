@@ -4,6 +4,12 @@ const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const { notifyClient } = require('../utils/notify');
 
+function dateLabel(date) {
+  return new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City', year: 'numeric', month: '2-digit', day: '2-digit' }).format(
+    date instanceof Date ? date : new Date(date)
+  );
+}
+
 const listAvailability = asyncHandler(async (req, res) => {
   const slots = await prisma.availabilitySlot.findMany({
     where: { isActive: true },
@@ -107,13 +113,34 @@ const updateAppointmentStatus = asyncHandler(async (req, res) => {
   }
 
   if (appointment.clientId && ['AUTORIZADA', 'RECHAZADA', 'COMPLETADA', 'CANCELADA'].includes(status)) {
-    await notifyClient(appointment.clientId, {
-      title: 'Actualización de tu cita',
-      message: `Tu solicitud de cita fue: ${status}`,
-      type: status === 'AUTORIZADA' ? 'success' : status === 'RECHAZADA' ? 'warning' : 'info',
-      templateKey: 'appointment_status_updated',
-      templateParams: { status },
-    });
+    const date = dateLabel(appointment.requestedDate);
+    const time = appointment.requestedTime;
+
+    if (status === 'AUTORIZADA') {
+      await notifyClient(appointment.clientId, {
+        title: 'Tu cita fue confirmada',
+        message: `Tu cita fue confirmada para el ${date} a las ${time}. ¡No lo olvides!`,
+        type: 'success',
+        templateKey: 'appointment_confirmed',
+        templateParams: { date, time },
+      });
+    } else if (status === 'RECHAZADA') {
+      await notifyClient(appointment.clientId, {
+        title: 'Tu cita fue rechazada',
+        message: 'Tu solicitud de cita fue rechazada.',
+        type: 'warning',
+        templateKey: 'appointment_rejected',
+        templateParams: { date, time },
+      });
+    } else {
+      await notifyClient(appointment.clientId, {
+        title: 'Actualización de tu cita',
+        message: `Tu solicitud de cita fue: ${status}`,
+        type: 'info',
+        templateKey: 'appointment_status_updated',
+        templateParams: { status },
+      });
+    }
   }
 
   res.json({ ok: true, appointment: updated });

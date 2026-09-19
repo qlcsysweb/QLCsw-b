@@ -5,6 +5,7 @@ const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const { signToken, cookieOptions } = require('../utils/token');
 const { ensureAllSubaccounts } = require('../utils/subaccountProvisioning');
+const { notifyAdmins } = require('../utils/notify');
 const {
   isTwoFactorGloballyEnabled,
   verifyToken,
@@ -193,6 +194,14 @@ const register = asyncHandler(async (req, res) => {
   await ensureAllSubaccounts(user.clientProfile.id);
 
   await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
+
+  await notifyAdmins({
+    title: 'Nuevo cliente registrado',
+    message: `${data.firstName} ${data.lastName} (${data.email}) se registró en QLC.`,
+    type: 'info',
+    templateKey: 'new_client_registered_admin',
+    templateParams: { clientName: `${data.firstName} ${data.lastName}`, email: data.email },
+  });
 
   const token = signToken(user);
   res.cookie(process.env.COOKIE_NAME, token, cookieOptions());

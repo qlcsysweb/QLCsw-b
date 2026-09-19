@@ -3,6 +3,7 @@ const prisma = require('../config/prisma');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const { sendProspectWelcomeEmail } = require('../services/emailService');
+const { notifyAdmins } = require('../utils/notify');
 
 function normalizeEmail(email) {
   return (email || '').trim().toLowerCase();
@@ -96,6 +97,14 @@ const createProspect = asyncHandler(async (req, res) => {
   const updated = await prisma.prospect.update({
     where: { id: prospect.id },
     data: emailResult.sent ? { emailSentAt: new Date() } : {},
+  });
+
+  await notifyAdmins({
+    title: 'Nuevo prospecto',
+    message: `${prospect.firstName}${prospect.lastName ? ` ${prospect.lastName}` : ''} (${prospect.email}) solicitó información sobre QLC.`,
+    type: 'info',
+    templateKey: 'new_prospect_admin',
+    templateParams: { prospectName: `${prospect.firstName}${prospect.lastName ? ` ${prospect.lastName}` : ''}`, email: prospect.email },
   });
 
   res.status(201).json({ ok: true, prospect: updated, email: emailResult });

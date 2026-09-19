@@ -91,7 +91,7 @@ const activateSubaccount = asyncHandler(async (req, res) => {
 const deactivateSubaccount = asyncHandler(async (req, res) => {
   const process = await prisma.process.findUnique({
     where: { apiSubaccountId: req.params.apiSubaccountId },
-    include: { apiSubaccount: { select: { clientId: true } } },
+    include: { apiSubaccount: { select: { clientId: true, identifier: true, isPrincipal: true } } },
   });
   if (!process) throw ApiError.notFound('Proceso no encontrado');
 
@@ -103,6 +103,16 @@ const deactivateSubaccount = asyncHandler(async (req, res) => {
   await prisma.clientProfile.update({
     where: { id: process.apiSubaccount.clientId },
     data: { status: 'REVIEW' },
+  });
+
+  const identifier =
+    process.apiSubaccount.identifier || (process.apiSubaccount.isPrincipal ? 'PRINCIPAL' : '');
+  await notifyClient(process.apiSubaccount.clientId, {
+    title: 'Cuenta desactivada',
+    message: `Tu cuenta QLC${identifier ? ` (${identifier})` : ''} fue desactivada y vuelve a estar en revisión.`,
+    type: 'warning',
+    templateKey: 'subaccount_deactivated',
+    templateParams: { identifier },
   });
 
   res.json({ ok: true, process: updatedProcess });

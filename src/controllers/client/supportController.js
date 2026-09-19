@@ -2,7 +2,7 @@ const { z } = require('zod');
 const prisma = require('../../config/prisma');
 const ApiError = require('../../utils/ApiError');
 const asyncHandler = require('../../utils/asyncHandler');
-const { notifyAdmins } = require('../../utils/notify');
+const { notifyAdmins, notifyClient } = require('../../utils/notify');
 
 const listSupportCases = asyncHandler(async (req, res) => {
   const cases = await prisma.supportCase.findMany({
@@ -32,6 +32,14 @@ const createSupportCase = asyncHandler(async (req, res) => {
     type: 'info',
     templateKey: 'support_case_created',
     templateParams: { caseNumber: String(supportCase.caseNumber), clientName: `${client.firstName} ${client.lastName}` },
+  });
+
+  await notifyClient(req.clientProfile.id, {
+    title: 'Tu caso ha sido creado con éxito',
+    message: `Tu caso #${supportCase.caseNumber}: "${data.subject}" fue registrado. QLC lo revisará pronto.`,
+    type: 'success',
+    templateKey: 'case_created_self',
+    templateParams: { caseNumber: String(supportCase.caseNumber) },
   });
 
   res.status(201).json({ ok: true, case: supportCase });

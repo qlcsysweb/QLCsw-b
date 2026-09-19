@@ -3,7 +3,7 @@ const prisma = require('../../config/prisma');
 const ApiError = require('../../utils/ApiError');
 const asyncHandler = require('../../utils/asyncHandler');
 const { getAvailableSlotsForDate, assertSlotIsAvailable } = require('../../utils/appointmentSlots');
-const { notifyAdmins } = require('../../utils/notify');
+const { notifyAdmins, notifyClient } = require('../../utils/notify');
 
 const listAvailability = asyncHandler(async (req, res) => {
   const slots = await prisma.availabilitySlot.findMany({
@@ -98,6 +98,14 @@ const createAppointment = asyncHandler(async (req, res) => {
     type: 'info',
     templateKey: 'appointment_requested',
     templateParams: { clientName: `${client.firstName} ${client.lastName}`, date: data.requestedDate, time: data.requestedTime },
+  });
+
+  await notifyClient(req.clientProfile.id, {
+    title: 'Tu cita ha sido creada con éxito',
+    message: `Tu solicitud de cita para el ${data.requestedDate} a las ${data.requestedTime} fue enviada y espera la respuesta de QLC.`,
+    type: 'info',
+    templateKey: 'appointment_requested_self',
+    templateParams: { date: data.requestedDate, time: data.requestedTime },
   });
 
   res.status(201).json({ ok: true, appointment });

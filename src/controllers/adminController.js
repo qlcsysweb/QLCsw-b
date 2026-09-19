@@ -3,6 +3,7 @@ const { z } = require('zod');
 const prisma = require('../config/prisma');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
+const { notifyAdmins } = require('../utils/notify');
 
 const listAdmins = asyncHandler(async (req, res) => {
   const admins = await prisma.user.findMany({
@@ -51,6 +52,15 @@ const createAdmin = asyncHandler(async (req, res) => {
       },
     },
     include: { adminProfile: true },
+  });
+
+  await notifyAdmins({
+    title: 'Nuevo administrador registrado',
+    message: `${data.firstName} ${data.lastName} (${data.email}) fue dado de alta como administrador.`,
+    type: 'info',
+    templateKey: 'new_admin_registered_admin',
+    templateParams: { adminName: `${data.firstName} ${data.lastName}`, email: data.email },
+    excludeUserId: user.id,
   });
 
   res.status(201).json({ ok: true, admin: { id: user.id, email: user.email, profile: user.adminProfile } });
@@ -149,4 +159,52 @@ const setGeneralAdmin = asyncHandler(async (req, res) => {
   res.json({ ok: true, admin: { id: target.id, email: target.email, profile: updated } });
 });
 
-module.exports = { listAdmins, createAdmin, updateAdmin, setGeneralAdmin };
+// Eliminación real y permanente de un administrador. A diferencia de
+// clientController.deleteClient, aquí NO se puede simplemente cascadear:
+// el modelo User acumula relaciones "quién hizo esto" (documentos subidos,
+// estados de cuenta generados, invitaciones de capital, mensajes de chat y
+// soporte) definidas como OBLIGATORIAS — borrar el usuario sin revisar esas
+// relaciones fallaría por restricción de clave foránea, o peor, dejaría
+// huérfano un registro de auditoría financiera. Por eso: exige que ya esté
+// desactivado (nunca se elimina una cuenta todavía activa), nunca permite
+// autoeliminarse ni eliminar a un administrador general (debe quitársele
+// primero ese rango, lo que ya lo obliga a pasar por la regla de arriba), y
+// antes de borrar comprueba que no tenga actividad histórica real.
+const deleteAdmin = asyncHandler(async (req, res) => {
+  const admin = await prisma.user.findUnique({ where: { id: req.params.id }, include: { adminProfile: true } });
+  if (!admin || admin.role !== 'ADMIN') throw ApiError.notFound('Administrador no encontrado');
+
+  if (admin.id === req.user.id) {
+    throw ApiError.badRequest('No puedes eliminar tu propia cuenta.');
+  }
+  if (admin.adminProfile?.isGeneralAdmin) {
+    throw ApiError.badRequest(
+      'No puedes eliminar a un administrador general. Quítale primero el rango de administrador general.'
+    );
+  }
+  if (admin.isActive) {
+    throw ApiError.badRequest('Primero debes desactivar a este administrador antes de poder eliminarlo.');
+  }
+
+  const [documents, capitalIncreaseInvitations, capitalRescueInvitations, statements, chatMessages, supportMessages] =
+    await Promise.all([
+      prisma.document.count({ where: { uploadedByUserId: admin.id } }),
+      prisma.capitalIncreaseInvitation.count({ where: { createdByUserId: admin.id } }),
+      prisma.capitalRescueInvitation.count({ where: { createdByUserId: admin.id } }),
+      prisma.statement.count({ where: { createdByUserId: admin.id } }),
+      prisma.chatMessage.count({ where: { senderUserId: admin.id } }),
+      prisma.supportCaseMessage.count({ where: { senderUserId: admin.id } }),
+    ]);
+  const hasActivity =
+    documents + capitalIncreaseInvitations + capitalRescueInvitations + statements + chatMessages + supportMessages > 0;
+  if (hasActivity) {
+    throw ApiError.badRequest(
+      'Este administrador tiene actividad registrada en el sistema (documentos subidos, estados de cuenta generados, invitaciones de capital o mensajes de chat/soporte) y no puede eliminarse sin perder ese historial. Déjalo desactivado en su lugar.'
+    );
+  }
+
+  await prisma.user.delete({ where: { id: admin.id } });
+  res.json({ ok: true });
+});
+
+module.exports = { listAdmins, createAdmin, updateAdmin, setGeneralAdmin, deleteAdmin };

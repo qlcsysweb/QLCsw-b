@@ -3,7 +3,7 @@ const QRCode = require('qrcode');
 const prisma = require('../../config/prisma');
 const asyncHandler = require('../../utils/asyncHandler');
 const imageStorage = require('../../services/imageStorage');
-const { notifyAdmins } = require('../../utils/notify');
+const { notifyAdmins, notifyClient } = require('../../utils/notify');
 
 // CORRECCIÓN 28 — wallet personal del cliente: la cuenta externa a la que
 // QLC podría transferir fondos en el supuesto contractual establecido.
@@ -79,6 +79,7 @@ const updateWallet = asyncHandler(async (req, res) => {
   // admin la revise (es la cuenta a la que QLC podría transferir fondos).
   if (data.walletAddress !== undefined && data.walletAddress !== current.walletAddress) {
     const client = await prisma.clientProfile.findUnique({ where: { id: req.clientProfile.id } });
+    const wasCreated = !current.walletAddress;
     await notifyAdmins({
       title: 'Wallet actualizada por un cliente',
       message: `${client.firstName} ${client.lastName} registró/modificó su wallet${updated.walletNetwork ? ` (${updated.walletNetwork})` : ''}.`,
@@ -86,6 +87,17 @@ const updateWallet = asyncHandler(async (req, res) => {
       templateKey: 'client_wallet_updated',
       templateParams: { clientName: `${client.firstName} ${client.lastName}` },
     });
+    if (updated.walletAddress) {
+      await notifyClient(req.clientProfile.id, {
+        title: wasCreated ? 'Wallet creada con éxito' : 'Wallet actualizada',
+        message: wasCreated
+          ? 'Tu wallet personal fue creada con éxito.'
+          : 'Tu wallet personal fue actualizada correctamente.',
+        type: 'success',
+        templateKey: 'wallet_saved',
+        templateParams: { status: wasCreated ? 'creada' : 'actualizada' },
+      });
+    }
   }
 
   res.json({ ok: true, wallet: updated });
