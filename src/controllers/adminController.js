@@ -77,6 +77,12 @@ const updateAdmin = asyncHandler(async (req, res) => {
     throw ApiError.badRequest('No puedes desactivar tu propia cuenta.');
   }
 
+  if (data.isActive === false && admin.adminProfile?.isGeneralAdmin) {
+    throw ApiError.badRequest(
+      'No puedes desactivar a un administrador general. Quítale primero el rango de administrador general.'
+    );
+  }
+
   if (data.email && data.email !== admin.email) {
     const clash = await prisma.user.findUnique({ where: { email: data.email } });
     if (clash) throw ApiError.conflict('Ya existe un usuario con ese email');
