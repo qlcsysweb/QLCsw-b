@@ -4,8 +4,6 @@ const prisma = require('../config/prisma');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 
-const MAX_ADMINS = 3;
-
 const listAdmins = asyncHandler(async (req, res) => {
   const admins = await prisma.user.findMany({
     where: { role: 'ADMIN' },
@@ -21,7 +19,6 @@ const listAdmins = asyncHandler(async (req, res) => {
       lastLoginAt: a.lastLoginAt,
       profile: a.adminProfile,
     })),
-    limit: MAX_ADMINS,
   });
 });
 
@@ -34,11 +31,6 @@ const createAdminSchema = z.object({
 });
 
 const createAdmin = asyncHandler(async (req, res) => {
-  const currentCount = await prisma.user.count({ where: { role: 'ADMIN' } });
-  if (currentCount >= MAX_ADMINS) {
-    throw ApiError.forbidden(`El plan contempla un máximo de ${MAX_ADMINS} administradores.`);
-  }
-
   const data = createAdminSchema.parse(req.body);
   const existingEmail = await prisma.user.findUnique({ where: { email: data.email } });
   if (existingEmail) throw ApiError.conflict('Ya existe un usuario con ese email');
@@ -151,4 +143,4 @@ const setGeneralAdmin = asyncHandler(async (req, res) => {
   res.json({ ok: true, admin: { id: target.id, email: target.email, profile: updated } });
 });
 
-module.exports = { listAdmins, createAdmin, updateAdmin, setGeneralAdmin, MAX_ADMINS };
+module.exports = { listAdmins, createAdmin, updateAdmin, setGeneralAdmin };
