@@ -30,7 +30,7 @@ async function closeExpiredChatSession(session) {
     message: `La sesión de chat con ${clientName} finalizó. Ya puedes descargar la conversación en PDF desde Soporte.`,
     type: 'info',
     templateKey: 'chat_session_ended',
-    templateParams: { clientName },
+    templateParams: { clientName, chatSessionId: session.id },
   });
 
   return updated;

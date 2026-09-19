@@ -52,7 +52,7 @@ const rejectInvitation = asyncHandler(async (req, res) => {
     message: `${client.firstName} ${client.lastName} rechazó la invitación de capital temporal para rescate.`,
     type: 'info',
     templateKey: 'rescue_invitation_rejected_admin',
-    templateParams: { clientName: `${client.firstName} ${client.lastName}` },
+    templateParams: { clientName: `${client.firstName} ${client.lastName}`, clientId: req.clientProfile.id },
   });
 
   res.json({ ok: true, invitation: updated });
@@ -97,7 +97,7 @@ const confirmParticipation = asyncHandler(async (req, res) => {
     message: `${client.firstName} ${client.lastName} confirmó su participación con ${amount} USDT de capital temporal para rescate.`,
     type: 'info',
     templateKey: 'rescue_participation_confirmed_admin',
-    templateParams: { clientName: `${client.firstName} ${client.lastName}`, amount: String(amount) },
+    templateParams: { clientName: `${client.firstName} ${client.lastName}`, amount: String(amount), clientId: req.clientProfile.id },
   });
 
   res.status(201).json({ ok: true, participation });

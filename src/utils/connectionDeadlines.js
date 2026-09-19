@@ -48,7 +48,7 @@ async function warnCommissionDeadlineApproaching(apiSubaccountId) {
     message: `Quedan aproximadamente ${hoursLeft} horas para reportar el pago de la comisión de tu conexión API ${identifier}. Si el plazo vence sin pago, la conexión se desactivará automáticamente.`,
     type: 'warning',
     templateKey: 'statement_deadline_warning',
-    templateParams: { identifier, hoursLeft: String(hoursLeft) },
+    templateParams: { identifier, hoursLeft: String(hoursLeft), apiSubaccountId },
   });
 
   const clientName = `${subaccount.client?.firstName || ''} ${subaccount.client?.lastName || ''}`.trim();
@@ -57,7 +57,7 @@ async function warnCommissionDeadlineApproaching(apiSubaccountId) {
     message: `Quedan aproximadamente ${hoursLeft} horas para que ${clientName || 'un cliente'} (${identifier}) reporte el pago de su comisión, antes de que la conexión API se desactive automáticamente.`,
     type: 'warning',
     templateKey: 'statement_deadline_warning_admin',
-    templateParams: { identifier, clientName, hoursLeft: String(hoursLeft) },
+    templateParams: { identifier, clientName, hoursLeft: String(hoursLeft), apiSubaccountId, clientId: subaccount.clientId },
   });
 }
 
@@ -94,7 +94,7 @@ async function enforceCommissionDeadline(apiSubaccountId) {
       'El plazo de 72 horas para el pago de la comisión venció sin recibir el pago. La conexión API fue desactivada. Se reactivará una vez que el pago haya sido reportado y validado.',
     type: 'warning',
     templateKey: 'api_connection_auto_disconnected',
-    templateParams: { identifier },
+    templateParams: { identifier, apiSubaccountId },
   });
 
   // CORREGIR(2).xlsx CLIENTE 10/16 — el admin también debe enterarse cuando
@@ -105,7 +105,7 @@ async function enforceCommissionDeadline(apiSubaccountId) {
     message: `El plazo de 72 horas para el pago de la comisión de ${clientName || 'un cliente'} (${identifier}) venció sin recibir el pago. Su conexión API fue desactivada automáticamente.`,
     type: 'warning',
     templateKey: 'api_connection_auto_disconnected_admin',
-    templateParams: { identifier, clientName },
+    templateParams: { identifier, clientName, apiSubaccountId, clientId: subaccount.clientId },
   });
 }
 

@@ -48,7 +48,7 @@ const updateCondition = asyncHandler(async (req, res) => {
     message: `${process.apiSubaccount.identifier ? `[${process.apiSubaccount.identifier}] ` : ''}${CONDITION_LABELS[type] || type}: ${status}`,
     type: status === 'REJECTED' ? 'warning' : 'info',
     templateKey: 'process_condition_updated',
-    templateParams: { conditionType: type, status, identifier: process.apiSubaccount.identifier },
+    templateParams: { conditionType: type, status, identifier: process.apiSubaccount.identifier, apiSubaccountId: req.params.apiSubaccountId },
   });
 
   res.json({ ok: true, condition });
@@ -83,6 +83,7 @@ const activateSubaccount = asyncHandler(async (req, res) => {
     message: 'Tu cuenta QLC ha sido activada.',
     type: 'success',
     templateKey: 'process_activated',
+    templateParams: { apiSubaccountId: req.params.apiSubaccountId },
   });
 
   res.json({ ok: true, process: updatedProcess });
@@ -112,7 +113,7 @@ const deactivateSubaccount = asyncHandler(async (req, res) => {
     message: `Tu cuenta QLC${identifier ? ` (${identifier})` : ''} fue desactivada y vuelve a estar en revisión.`,
     type: 'warning',
     templateKey: 'subaccount_deactivated',
-    templateParams: { identifier },
+    templateParams: { identifier, apiSubaccountId: req.params.apiSubaccountId },
   });
 
   res.json({ ok: true, process: updatedProcess });

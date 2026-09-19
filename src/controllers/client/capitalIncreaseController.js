@@ -70,7 +70,7 @@ const acceptInvitation = asyncHandler(async (req, res) => {
     message: `${client.firstName} ${client.lastName} aceptó la invitación y solicitó ${amount} USDT de aumento de saldo operativo.`,
     type: 'info',
     templateKey: 'capital_invitation_accepted_admin',
-    templateParams: { clientName: `${client.firstName} ${client.lastName}`, amount: String(amount) },
+    templateParams: { clientName: `${client.firstName} ${client.lastName}`, amount: String(amount), clientId: req.clientProfile.id },
   });
 
   res.status(201).json({ ok: true, request });
@@ -102,7 +102,7 @@ const rejectInvitation = asyncHandler(async (req, res) => {
     message: `${client.firstName} ${client.lastName} rechazó la invitación de aumento de saldo operativo.`,
     type: 'info',
     templateKey: 'capital_invitation_rejected_admin',
-    templateParams: { clientName: `${client.firstName} ${client.lastName}` },
+    templateParams: { clientName: `${client.firstName} ${client.lastName}`, clientId: req.clientProfile.id },
   });
 
   res.json({ ok: true, invitation: updated });
@@ -210,7 +210,7 @@ const confirmDistribution = asyncHandler(async (req, res) => {
     message: `${client.firstName} ${client.lastName} distribuyó ${distributedTotal} USDT entre sus subcuentas/API.`,
     type: 'info',
     templateKey: 'capital_distribution_confirmed_admin',
-    templateParams: { clientName: `${client.firstName} ${client.lastName}`, amount: String(distributedTotal) },
+    templateParams: { clientName: `${client.firstName} ${client.lastName}`, amount: String(distributedTotal), clientId: req.clientProfile.id },
   });
 
   res.json({ ok: true });

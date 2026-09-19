@@ -76,7 +76,7 @@ const uploadDocument = asyncHandler(async (req, res) => {
     message: `${client.firstName} ${client.lastName} subió un documento de la categoría "${category}".`,
     type: 'info',
     templateKey: 'document_submitted_admin',
-    templateParams: { clientName: `${client.firstName} ${client.lastName}`, category },
+    templateParams: { clientName: `${client.firstName} ${client.lastName}`, category, clientId: req.clientProfile.id },
   });
 
   res.status(201).json({ ok: true, document });

@@ -199,7 +199,7 @@ const markGuaranteeReported = asyncHandler(async (req, res) => {
     message: `La garantía de tu pago de ${report.amount} ${report.currency} fue reportada por QLC. Está en camino de aprobación final.`,
     type: 'info',
     templateKey: 'payment_status_updated',
-    templateParams: { amount: String(report.amount), currency: report.currency, status: 'GARANTIA_REPORTADA' },
+    templateParams: { amount: String(report.amount), currency: report.currency, status: 'GARANTIA_REPORTADA', apiSubaccountId: subaccount.id },
   });
 
   res.json({ ok: true, report: updated });
@@ -265,7 +265,7 @@ const reviewPaymentReport = asyncHandler(async (req, res) => {
     message: `Tu pago de ${report.amount} ${report.currency} fue marcado como: ${status}`,
     type: status === 'APROBADO' ? 'success' : status === 'RECHAZADO' ? 'warning' : 'info',
     templateKey: 'payment_status_updated',
-    templateParams: { amount: String(report.amount), currency: report.currency, status },
+    templateParams: { amount: String(report.amount), currency: report.currency, status, apiSubaccountId: subaccount.id },
   });
 
   res.json({ ok: true, report: updated });

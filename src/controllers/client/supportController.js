@@ -31,7 +31,7 @@ const createSupportCase = asyncHandler(async (req, res) => {
     message: `${client.firstName} ${client.lastName} registró el caso #${supportCase.caseNumber}: "${data.subject}"`,
     type: 'info',
     templateKey: 'support_case_created',
-    templateParams: { caseNumber: String(supportCase.caseNumber), clientName: `${client.firstName} ${client.lastName}` },
+    templateParams: { caseNumber: String(supportCase.caseNumber), clientName: `${client.firstName} ${client.lastName}`, caseId: supportCase.id },
   });
 
   await notifyClient(req.clientProfile.id, {
@@ -80,7 +80,7 @@ const sendCaseMessage = asyncHandler(async (req, res) => {
     message: `${client.firstName} ${client.lastName}: ${content}`,
     type: 'info',
     templateKey: 'support_case_message_admin',
-    templateParams: { caseNumber: String(supportCase.caseNumber), clientName: `${client.firstName} ${client.lastName}` },
+    templateParams: { caseNumber: String(supportCase.caseNumber), clientName: `${client.firstName} ${client.lastName}`, caseId: supportCase.id },
   });
 
   res.status(201).json({ ok: true, message });

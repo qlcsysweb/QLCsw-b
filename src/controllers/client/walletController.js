@@ -85,7 +85,7 @@ const updateWallet = asyncHandler(async (req, res) => {
       message: `${client.firstName} ${client.lastName} registró/modificó su wallet${updated.walletNetwork ? ` (${updated.walletNetwork})` : ''}.`,
       type: 'info',
       templateKey: 'client_wallet_updated',
-      templateParams: { clientName: `${client.firstName} ${client.lastName}` },
+      templateParams: { clientName: `${client.firstName} ${client.lastName}`, clientId: req.clientProfile.id },
     });
     if (updated.walletAddress) {
       await notifyClient(req.clientProfile.id, {

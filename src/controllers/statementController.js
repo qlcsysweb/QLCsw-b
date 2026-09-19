@@ -204,6 +204,7 @@ const createStatement = asyncHandler(async (req, res) => {
       month,
       commission: String(data.commission),
       commissionDueHours: String(data.commissionDueHours),
+      apiSubaccountId: subaccount.id,
     },
     // Ya se envía un correo específico y más detallado más abajo
     // (sendStatementGeneratedEmail) cuando aplica comisión — evita duplicar.
@@ -254,7 +255,7 @@ const sendStatementToClient = asyncHandler(async (req, res) => {
     }.`,
     type: 'info',
     templateKey: 'statement_resent',
-    templateParams: { identifier: resentIdentifier },
+    templateParams: { identifier: resentIdentifier, apiSubaccountId: statement.apiSubaccount.id },
   });
 
   const client = statement.apiSubaccount.client;
@@ -263,7 +264,12 @@ const sendStatementToClient = asyncHandler(async (req, res) => {
     message: `El estado de cuenta${resentIdentifier ? ` de ${resentIdentifier}` : ''} fue enviado con éxito a ${client.firstName} ${client.lastName}.`,
     type: 'info',
     templateKey: 'statement_sent_admin',
-    templateParams: { identifier: resentIdentifier, clientName: `${client.firstName} ${client.lastName}` },
+    templateParams: {
+      identifier: resentIdentifier,
+      clientName: `${client.firstName} ${client.lastName}`,
+      apiSubaccountId: statement.apiSubaccount.id,
+      clientId: client.id,
+    },
   });
 
   res.json({ ok: true });

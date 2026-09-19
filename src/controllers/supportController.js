@@ -85,7 +85,7 @@ const sendCaseMessage = asyncHandler(async (req, res) => {
     message: content,
     type: 'info',
     templateKey: 'support_case_message',
-    templateParams: { caseNumber: String(supportCase.caseNumber) },
+    templateParams: { caseNumber: String(supportCase.caseNumber), caseId: supportCase.id },
   });
 
   res.status(201).json({ ok: true, message });

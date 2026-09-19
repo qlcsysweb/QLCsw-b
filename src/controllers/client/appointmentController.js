@@ -97,7 +97,12 @@ const createAppointment = asyncHandler(async (req, res) => {
     message: `${client.firstName} ${client.lastName} solicitó una cita para el ${data.requestedDate} a las ${data.requestedTime} (caso #${data.caseNumber}).`,
     type: 'info',
     templateKey: 'appointment_requested',
-    templateParams: { clientName: `${client.firstName} ${client.lastName}`, date: data.requestedDate, time: data.requestedTime },
+    templateParams: {
+      clientName: `${client.firstName} ${client.lastName}`,
+      date: data.requestedDate,
+      time: data.requestedTime,
+      appointmentId: appointment.id,
+    },
   });
 
   await notifyClient(req.clientProfile.id, {

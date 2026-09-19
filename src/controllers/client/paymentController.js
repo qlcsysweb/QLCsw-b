@@ -103,6 +103,8 @@ const createPaymentReport = asyncHandler(async (req, res) => {
       clientName: `${req.clientProfile.firstName} ${req.clientProfile.lastName}`,
       amount: String(amount),
       currency: currency || 'USDT',
+      apiSubaccountId: subaccount.id,
+      clientId: req.clientProfile.id,
     },
   });
 

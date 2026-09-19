@@ -70,6 +70,8 @@ const requestAdditionalSubaccount = asyncHandler(async (req, res) => {
     title: 'Solicitud de nueva subcuenta',
     message: `${client.firstName} ${client.lastName} solicitó que se le habilite una subcuenta adicional.`,
     type: 'info',
+    templateKey: 'subaccount_request_admin',
+    templateParams: { clientName: `${client.firstName} ${client.lastName}`, clientId },
   });
 
   res.json({ ok: true });
@@ -202,7 +204,12 @@ const reportCapitalDistribution = asyncHandler(async (req, res) => {
     message: `${client.firstName} ${client.lastName} reportó que ya distribuyó ${report.amount} USDT${subaccount.identifier ? ` en la subcuenta/API ${subaccount.identifier}` : ''}.`,
     type: 'info',
     templateKey: 'capital_distribution_reported',
-    templateParams: { clientName: `${client.firstName} ${client.lastName}`, amount: String(report.amount) },
+    templateParams: {
+      clientName: `${client.firstName} ${client.lastName}`,
+      amount: String(report.amount),
+      apiSubaccountId: subaccount.id,
+      clientId: req.clientProfile.id,
+    },
   });
 
   res.status(201).json({ ok: true, report });

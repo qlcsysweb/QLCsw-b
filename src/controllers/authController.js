@@ -200,7 +200,7 @@ const register = asyncHandler(async (req, res) => {
     message: `${data.firstName} ${data.lastName} (${data.email}) se registró en QLC.`,
     type: 'info',
     templateKey: 'new_client_registered_admin',
-    templateParams: { clientName: `${data.firstName} ${data.lastName}`, email: data.email },
+    templateParams: { clientName: `${data.firstName} ${data.lastName}`, email: data.email, clientId: user.clientProfile.id },
   });
 
   const token = signToken(user);

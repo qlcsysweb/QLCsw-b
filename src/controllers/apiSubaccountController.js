@@ -149,6 +149,8 @@ const updateSubaccount = asyncHandler(async (req, res) => {
         updated.requiredCapital != null ? ` — capital operativo requerido: ${updated.requiredCapital} USDT` : ''
       }.`,
       type: 'success',
+      templateKey: 'subaccount_revealed',
+      templateParams: { apiSubaccountId: updated.id },
     });
   }
 
@@ -187,7 +189,7 @@ const updateSubaccount = asyncHandler(async (req, res) => {
       message: `Estado de tu conexión API${updated.identifier ? ` (${updated.identifier})` : ''}: ${updated.status}`,
       type: updated.status === 'CONECTADA' ? 'success' : 'info',
       templateKey: 'api_connection_status_updated',
-      templateParams: { status: updated.status, identifier: updated.identifier },
+      templateParams: { status: updated.status, identifier: updated.identifier, apiSubaccountId: updated.id },
     });
   }
 
@@ -287,7 +289,7 @@ const reviewCapitalDistributionReport = asyncHandler(async (req, res) => {
     message: `Tu reporte de distribución de capital (${report.amount} USDT) fue marcado como: ${status}`,
     type: status === 'APROBADO' ? 'success' : status === 'RECHAZADO' ? 'warning' : 'info',
     templateKey: 'capital_distribution_report_updated',
-    templateParams: { amount: String(report.amount), status },
+    templateParams: { amount: String(report.amount), status, apiSubaccountId: report.apiSubaccountId },
   });
 
   res.json({ ok: true, report: updated });
