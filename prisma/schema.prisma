@@ -250,17 +250,32 @@ model ClientProfile {
   updatedAt   DateTime     @updatedAt
 
   // Cache de IDs de carpetas de Google Drive (evita crear/buscar carpetas en cada subida)
-  driveClientFolderId    String?
-  driveDocumentsFolderId String?
-  drivePaymentsFolderId  String?
+  driveClientFolderId     String?
+  driveDocumentsFolderId  String?
+  drivePaymentsFolderId   String?
+  driveStatementsFolderId String?
+  driveQrFolderId         String?
+  // IMPLEMENTACIÓN DEFINITIVA DE GOOGLE DRIVE — la carpeta del cliente se
+  // intenta preparar apenas se registra (ver subaccountProvisioning/registro),
+  // pero eso solo puede completarse si Drive ya está conectado. "PENDING"
+  // significa que falta sincronizar (Drive no estaba configurado en ese
+  // momento, o falló); "SYNCED" que sus carpetas ya existen en Drive.
+  driveSyncStatus         String  @default("PENDING") // "PENDING" | "SYNCED" | "ERROR"
+  driveSyncError          String?
 
   // CORRECCIÓN 28: wallet personal del cliente — cuenta externa a la cual
   // QLC podría transferir fondos en el supuesto contractual establecido.
   // Nunca se ejecutan transferencias automáticas; solo se almacena el dato.
   walletAddress    String?
   walletNetwork    String?
-  walletQrUrl      String?
-  walletQrPublicId String?
+  // LEGADO — QR de wallet ya subido a Cloudinary antes de esta corrección.
+  // Se conserva sin tocar (no se migra ni se borra automáticamente); un QR
+  // nuevo se sube siempre a Drive (walletQrDrive*) y el endpoint de
+  // descarga prefiere Drive cuando existe, cayendo a esta URL si no.
+  walletQrUrl           String?
+  walletQrPublicId      String?
+  walletQrDriveFileId   String?
+  walletQrDriveFolderId String?
 
   // El contrato ya NO forma parte del registro (sustituido por Aviso de
   // Privacidad + Términos y Condiciones). Se conserva evidencia de qué
@@ -319,7 +334,7 @@ model ApiSubaccount {
   slotIndex Int
 
   // CORREGIR.xlsx CLIENTE 06 — true únicamente para la fila PRINCIPAL que
-  // ensureAllSubaccounts crea automáticamente (slotIndex 0). Comparte
+  // ensurePrincipalSubaccount crea automáticamente (slotIndex 0). Comparte
   // exactamente el mismo modelo/panel que las subcuentas 1..20 (contrato,
   // modelo, estados de cuenta, pagos) — nunca una arquitectura paralela.
   isPrincipal Boolean @default(false)
@@ -774,8 +789,12 @@ model PaymentConfiguration {
   currency      String   @default("USDT")
   // Red de la wallet (ej. TRC20, ERC20, BEP20) — configurable por el admin.
   network       String?
+  // LEGADO — QR ya subido a Cloudinary antes de esta corrección. Se
+  // conserva sin tocar; un QR nuevo se sube siempre a Drive (qrDrive*).
   qrUrl         String?
   qrPublicId    String?
+  qrDriveFileId   String?
+  qrDriveFolderId String?
   walletAddress String?
   paymentLink   String?
   instructions  String?
@@ -785,23 +804,29 @@ model PaymentConfiguration {
 }
 
 // Configuración administrable de Google Drive (carpeta raíz + estado).
-// La credencial técnica de la cuenta de servicio NUNCA vive aquí — permanece
-// en variables de entorno del backend. Esta tabla solo guarda datos no
-// sensibles que el administrador puede cambiar desde el panel.
+//
+// IMPLEMENTACIÓN DEFINITIVA DE GOOGLE DRIVE — QLC usa la cuenta PERSONAL de
+// Google (sistemaweb.qlc@gmail.com, sin Google Workspace), así que el
+// backend NUNCA puede tener una cuenta de servicio con acceso directo a ese
+// Drive personal (las cuentas de servicio no pueden actuar "como" un Drive
+// personal sin compartir carpetas manualmente, y aun así consumen la cuota
+// de la cuenta de servicio, no la del usuario). Por eso esta tabla usa el
+// mismo patrón OAuth2 ya probado en EmailConfiguration: el admin autoriza
+// una vez desde el panel ("Conectar con Google"), y el refresh token queda
+// cifrado aquí — nunca en texto plano, nunca se devuelve completo al
+// frontend, nunca se imprime en logs.
 //
 // CORRECCIÓN 24: una vez que un ADMIN guarda la configuración, queda
 // "bloqueada" para el resto — solo `configuredByUserId` puede editarla o
 // desconectarla. Al desconectar, vuelve a estar disponible para cualquiera.
 model DriveConfiguration {
   id                                String    @id @default(cuid())
-  // CORRECCIÓN 7 — la credencial técnica ahora puede configurarse desde el
-  // panel (además del bootstrap por .env, que sigue funcionando como
-  // respaldo mientras esta fila no tenga sus propias credenciales). El
-  // email NO es secreto; la private key SIEMPRE se guarda cifrada con el
-  // mismo mecanismo (utils/crypto.js) usado para las API Keys de exchange
-  // — nunca en texto plano, nunca se devuelve completa al frontend.
-  serviceAccountEmail               String?
-  serviceAccountPrivateKeyEncrypted String?
+  googleOAuthClientId               String?
+  googleOAuthClientSecretEncrypted  String?
+  googleOAuthRefreshTokenEncrypted  String?
+  // Correo que Google confirmó al autorizar — debe ser exactamente
+  // sistemaweb.qlc@gmail.com; nunca se guarda un token de una cuenta distinta.
+  oauthConnectedEmail               String?
   rootFolderId                      String?
   rootFolderName                    String    @default("QLC")
   isEnabled                         Boolean   @default(true)

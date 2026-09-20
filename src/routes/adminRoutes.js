@@ -49,6 +49,7 @@ router.get('/clients/:id', clientController.getClient);
 router.patch('/clients/:id', clientController.updateClient);
 router.patch('/clients/:id/active', clientController.setClientActive);
 router.get('/clients/:id/wallet', clientController.getWallet);
+router.get('/clients/:id/wallet-qr', clientController.downloadWalletQr);
 router.delete('/clients/:id', clientController.deleteClient);
 
 // CORRECCIÓN 7/8 — Invitación para aumento de saldo operativo (solo ADMIN
@@ -163,6 +164,7 @@ router.post(
 router.get('/payment-config', paymentController.getPaymentConfig);
 router.put('/payment-config', paymentController.updatePaymentConfig);
 router.post('/payment-config/qr', uploadImage.single('file'), paymentController.uploadPaymentQr);
+router.get('/payment-config/qr', paymentController.downloadPaymentQr);
 router.get('/payment-reports', paymentController.listPaymentReports);
 router.post(
   '/api-subaccounts/:apiSubaccountId/payment-reports',
@@ -230,6 +232,7 @@ router.delete('/process-steps/:id', processStepController.deleteStep);
 // configuró puede editarla o desconectarla.
 router.get('/drive-config', driveConfigController.getConfig);
 router.put('/drive-config', driveConfigController.updateConfig);
+router.get('/drive-config/oauth/start', driveConfigController.oauthStart);
 router.post('/drive-config/test', driveConfigController.testConnection);
 router.post('/drive-config/disconnect', driveConfigController.disconnect);
 

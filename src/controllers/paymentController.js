@@ -1,13 +1,12 @@
 const { z } = require('zod');
-const imageStorage = require('../services/imageStorage');
-const documentStorage = require('../services/documentStorage');
+const driveStorage = require('../services/driveStorageService');
 const prisma = require('../config/prisma');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const { notifyClient } = require('../utils/notify');
 
 async function assertDriveReady() {
-  if (!(await documentStorage.isConfigured())) {
+  if (!(await driveStorage.isConfigured())) {
     throw ApiError.serviceUnavailable(
       'No pudimos conectar con Google Drive. Ve a Configuración → Google Drive en el panel administrativo.'
     );
@@ -49,27 +48,50 @@ const updatePaymentConfig = asyncHandler(async (req, res) => {
   res.json({ ok: true, config: updated });
 });
 
-// El QR de pago es una IMAGEN → Cloudinary
+// IMPLEMENTACIÓN DEFINITIVA DE GOOGLE DRIVE — el QR de pago es un archivo
+// OPERATIVO (usado para que los clientes transfieran USDT), no un recurso
+// visual del sitio: se sube a Drive, nunca a Cloudinary. Los campos legado
+// qrUrl/qrPublicId (Cloudinary) se CONSERVAN sin tocar si ya existían de
+// antes — no se borran ni se migran automáticamente.
 const uploadPaymentQr = asyncHandler(async (req, res) => {
   if (!req.file) throw ApiError.badRequest('Debes adjuntar una imagen');
+  await assertDriveReady();
 
   let config = await prisma.paymentConfiguration.findFirst();
   if (!config) config = await prisma.paymentConfiguration.create({ data: {} });
 
-  if (config.qrPublicId) {
-    await imageStorage.deleteImage(config.qrPublicId).catch(() => {});
+  if (config.qrDriveFileId) {
+    await driveStorage.deleteDriveFileOnlyWhenAuthorized(config.qrDriveFileId, { authorized: true }).catch(() => {});
   }
 
-  const image = await imageStorage.uploadImage(req.file.buffer, {
-    folder: imageStorage.FOLDERS.PAYMENTS_QR,
+  const qrFolderId = await driveStorage.ensurePlatformQrFolder();
+  const uploaded = await driveStorage.uploadFileToDrive(req.file.buffer, {
+    folderId: qrFolderId,
+    fileName: req.file.originalname || 'qr-pago.png',
+    mimeType: req.file.mimetype,
   });
 
   const updated = await prisma.paymentConfiguration.update({
     where: { id: config.id },
-    data: { qrUrl: image.url, qrPublicId: image.publicId },
+    data: { qrDriveFileId: uploaded.id, qrDriveFolderId: qrFolderId },
   });
 
   res.json({ ok: true, config: updated });
+});
+
+// Sirve el QR de pago desde Drive vía un endpoint protegido (autenticado,
+// tanto en /admin como en /client) en vez de depender de un enlace público
+// de Drive. Si todavía no hay un QR en Drive (solo el legado de Cloudinary),
+// devuelve 404 — el frontend cae a `config.qrUrl` en ese caso.
+const downloadPaymentQr = asyncHandler(async (req, res) => {
+  const config = await prisma.paymentConfiguration.findFirst();
+  if (!config?.qrDriveFileId) throw ApiError.notFound('No hay un QR de pago almacenado en Drive.');
+
+  const { stream, fileName, mimeType } = await driveStorage.downloadFileFromDrive(config.qrDriveFileId);
+  res.setHeader('Content-Type', mimeType || 'image/png');
+  res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(fileName || 'qr-pago.png')}"`);
+  stream.on('error', () => res.status(500).end());
+  stream.pipe(res);
 });
 
 const listPaymentReports = asyncHandler(async (req, res) => {
@@ -103,8 +125,8 @@ const createPaymentReport = asyncHandler(async (req, res) => {
   let proofData = {};
   if (req.file) {
     await assertDriveReady();
-    const { paymentsFolderId } = await documentStorage.ensureClientFolders(subaccount.client);
-    const uploaded = await documentStorage.uploadDocument(req.file.buffer, {
+    const { paymentsFolderId } = await driveStorage.ensureClientFolders(subaccount.client);
+    const uploaded = await driveStorage.uploadFileToDrive(req.file.buffer, {
       folderId: paymentsFolderId,
       fileName: req.file.originalname,
       mimeType: req.file.mimetype,
@@ -137,7 +159,7 @@ const downloadPaymentProof = asyncHandler(async (req, res) => {
   if (!report) throw ApiError.notFound('Reporte de pago no encontrado');
   if (!report.proofDriveFileId) throw ApiError.notFound('Este reporte no tiene comprobante adjunto');
 
-  const { stream, fileName, mimeType } = await documentStorage.downloadDocument(report.proofDriveFileId);
+  const { stream, fileName, mimeType } = await driveStorage.downloadFileFromDrive(report.proofDriveFileId);
   res.setHeader('Content-Type', mimeType || report.proofMimeType);
   res.setHeader(
     'Content-Disposition',
@@ -275,6 +297,7 @@ module.exports = {
   getPaymentConfig,
   updatePaymentConfig,
   uploadPaymentQr,
+  downloadPaymentQr,
   listPaymentReports,
   createPaymentReport,
   downloadPaymentProof,

@@ -2,7 +2,7 @@ const { z } = require('zod');
 const prisma = require('../config/prisma');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
-const documentStorage = require('../services/documentStorage');
+const driveStorage = require('../services/driveStorageService');
 const { notifyClient } = require('../utils/notify');
 const { generateCapitalRescuePdf } = require('../utils/pdf/capitalRescuePdf');
 const {
@@ -286,19 +286,19 @@ const registerRemuneration = asyncHandler(async (req, res) => {
     include: { distribution: { include: { items: { include: { apiSubaccount: true } } } } },
   });
 
-  if (await documentStorage.isConfigured()) {
+  if (await driveStorage.isConfigured()) {
     try {
       const pdfBuffer = await generateCapitalRescuePdf({
         client: participation.invitation.client,
         invitation: participation.invitation,
         participation: updated,
       });
-      const { documentsFolderId } = await documentStorage.ensureClientFolders(participation.invitation.client);
+      const { documentsFolderId } = await driveStorage.ensureClientFolders(participation.invitation.client);
       const fileName = `Comprobante_Capital_Rescate_${participation.invitation.client.firstName}_${participation.invitation.client.lastName}_${Date.now()}.pdf`.replace(
         /\s+/g,
         '_'
       );
-      const uploaded = await documentStorage.uploadDocument(pdfBuffer, {
+      const uploaded = await driveStorage.uploadFileToDrive(pdfBuffer, {
         folderId: documentsFolderId,
         fileName,
         mimeType: 'application/pdf',
@@ -333,7 +333,7 @@ const downloadComprobante = asyncHandler(async (req, res) => {
   if (!participation) throw ApiError.notFound('Participación no encontrada');
   if (!participation.comprobantePdfDriveFileId) throw ApiError.notFound('El comprobante todavía no está disponible');
 
-  const { stream, fileName, mimeType } = await documentStorage.downloadDocument(participation.comprobantePdfDriveFileId);
+  const { stream, fileName, mimeType } = await driveStorage.downloadFileFromDrive(participation.comprobantePdfDriveFileId);
   res.setHeader('Content-Type', mimeType || 'application/pdf');
   res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(fileName || participation.comprobantePdfFileName)}"`);
   stream.on('error', () => res.status(500).end());

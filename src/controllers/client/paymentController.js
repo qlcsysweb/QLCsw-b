@@ -1,12 +1,12 @@
 const { z } = require('zod');
-const documentStorage = require('../../services/documentStorage');
+const driveStorage = require('../../services/driveStorageService');
 const prisma = require('../../config/prisma');
 const ApiError = require('../../utils/ApiError');
 const asyncHandler = require('../../utils/asyncHandler');
 const { notifyAdmins } = require('../../utils/notify');
 
 async function assertDriveReady() {
-  if (!(await documentStorage.isConfigured())) {
+  if (!(await driveStorage.isConfigured())) {
     throw ApiError.serviceUnavailable(
       'No pudimos conectar con el almacenamiento de documentos. Contacta al equipo de QLC.'
     );
@@ -22,6 +22,20 @@ async function assertOwnsSubaccount(clientId, apiSubaccountId) {
 const getPaymentConfig = asyncHandler(async (req, res) => {
   const config = await prisma.paymentConfiguration.findFirst();
   res.json({ ok: true, config });
+});
+
+// Sirve el QR de pago desde Drive por un endpoint protegido — nunca un
+// enlace público de Drive. Si solo existe el QR legado de Cloudinary
+// (qrUrl), devuelve 404 y el frontend cae a esa URL.
+const downloadPaymentQr = asyncHandler(async (req, res) => {
+  const config = await prisma.paymentConfiguration.findFirst();
+  if (!config?.qrDriveFileId) throw ApiError.notFound('No hay un QR de pago almacenado en Drive.');
+
+  const { stream, fileName, mimeType } = await driveStorage.downloadFileFromDrive(config.qrDriveFileId);
+  res.setHeader('Content-Type', mimeType || 'image/png');
+  res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(fileName || 'qr-pago.png')}"`);
+  stream.on('error', () => res.status(500).end());
+  stream.pipe(res);
 });
 
 // Pagos — por SUBCUENTA/API (CORRECCIÓN 11/28): nunca se mezclan entre
@@ -64,8 +78,8 @@ const createPaymentReport = asyncHandler(async (req, res) => {
   let proofData = {};
   if (req.file) {
     await assertDriveReady();
-    const { paymentsFolderId } = await documentStorage.ensureClientFolders(req.clientProfile);
-    const uploaded = await documentStorage.uploadDocument(req.file.buffer, {
+    const { paymentsFolderId } = await driveStorage.ensureClientFolders(req.clientProfile);
+    const uploaded = await driveStorage.uploadFileToDrive(req.file.buffer, {
       folderId: paymentsFolderId,
       fileName: req.file.originalname,
       mimeType: req.file.mimetype,
@@ -118,7 +132,7 @@ const downloadPaymentProof = asyncHandler(async (req, res) => {
   await assertOwnsSubaccount(req.clientProfile.id, report.apiSubaccountId);
   if (!report.proofDriveFileId) throw ApiError.notFound('Este reporte no tiene comprobante adjunto');
 
-  const { stream, fileName, mimeType } = await documentStorage.downloadDocument(report.proofDriveFileId);
+  const { stream, fileName, mimeType } = await driveStorage.downloadFileFromDrive(report.proofDriveFileId);
   res.setHeader('Content-Type', mimeType || report.proofMimeType);
   res.setHeader(
     'Content-Disposition',
@@ -128,4 +142,4 @@ const downloadPaymentProof = asyncHandler(async (req, res) => {
   stream.pipe(res);
 });
 
-module.exports = { getPaymentConfig, listPaymentReports, createPaymentReport, downloadPaymentProof };
+module.exports = { getPaymentConfig, downloadPaymentQr, listPaymentReports, createPaymentReport, downloadPaymentProof };

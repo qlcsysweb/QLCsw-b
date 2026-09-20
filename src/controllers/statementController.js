@@ -3,7 +3,7 @@ const { z } = require('zod');
 const prisma = require('../config/prisma');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
-const documentStorage = require('../services/documentStorage');
+const driveStorage = require('../services/driveStorageService');
 const { generateStatementPdf } = require('../utils/pdf/statementPdf');
 const { notifyClient, notifyAdmins } = require('../utils/notify');
 const { sendStatementGeneratedEmail } = require('../services/emailService');
@@ -163,7 +163,7 @@ const createStatement = asyncHandler(async (req, res) => {
   }
 
   let updatedStatement = statement;
-  if (await documentStorage.isConfigured()) {
+  if (await driveStorage.isConfigured()) {
     try {
       const pdfBuffer = await generateStatementPdf({
         client: subaccount.client,
@@ -171,18 +171,18 @@ const createStatement = asyncHandler(async (req, res) => {
         model: subaccount.clientModel?.model,
         statement,
       });
-      const { documentsFolderId } = await documentStorage.ensureClientFolders(subaccount.client);
+      const statementsFolderId = await driveStorage.getOrCreateSubfolder(subaccount.client, 'statements');
       const fileName = `Estado_de_cuenta_${subaccount.identifier || subaccount.id}_${periodStart
         .toISOString()
         .slice(0, 7)}.pdf`;
-      const uploaded = await documentStorage.uploadDocument(pdfBuffer, {
-        folderId: documentsFolderId,
+      const uploaded = await driveStorage.uploadFileToDrive(pdfBuffer, {
+        folderId: statementsFolderId,
         fileName,
         mimeType: 'application/pdf',
       });
       updatedStatement = await prisma.statement.update({
         where: { id: statement.id },
-        data: { pdfDriveFileId: uploaded.id, pdfDriveFolderId: documentsFolderId, pdfFileName: fileName },
+        data: { pdfDriveFileId: uploaded.id, pdfDriveFolderId: statementsFolderId, pdfFileName: fileName },
       });
     } catch {
       // El estado de cuenta queda guardado igual aunque el PDF falle — el
@@ -229,7 +229,7 @@ const downloadStatementFile = asyncHandler(async (req, res) => {
   if (!statement) throw ApiError.notFound('Estado de cuenta no encontrado');
   if (!statement.pdfDriveFileId) throw ApiError.notFound('El PDF de este estado de cuenta no está disponible');
 
-  const { stream, fileName, mimeType } = await documentStorage.downloadDocument(statement.pdfDriveFileId);
+  const { stream, fileName, mimeType } = await driveStorage.downloadFileFromDrive(statement.pdfDriveFileId);
   res.setHeader('Content-Type', mimeType || 'application/pdf');
   res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(fileName || statement.pdfFileName)}"`);
   stream.on('error', () => res.status(500).end());
@@ -279,7 +279,7 @@ const sendStatementToClient = asyncHandler(async (req, res) => {
 // EXACTAMENTE el mismo almacenamiento (Google Drive/Document) que el resto
 // de documentos del cliente, nunca una arquitectura paralela.
 const uploadStatementEvidence = asyncHandler(async (req, res) => {
-  if (!(await documentStorage.isConfigured())) {
+  if (!(await driveStorage.isConfigured())) {
     throw ApiError.serviceUnavailable(
       'No pudimos conectar con Google Drive. Ve a Configuración → Google Drive en el panel administrativo.'
     );
@@ -293,10 +293,10 @@ const uploadStatementEvidence = asyncHandler(async (req, res) => {
   if (!statement) throw ApiError.notFound('Estado de cuenta no encontrado');
 
   const client = statement.apiSubaccount.client;
-  const { documentsFolderId } = await documentStorage.ensureClientFolders(client);
+  const statementsFolderId = await driveStorage.getOrCreateSubfolder(client, 'statements');
 
-  const uploaded = await documentStorage.uploadDocument(req.file.buffer, {
-    folderId: documentsFolderId,
+  const uploaded = await driveStorage.uploadFileToDrive(req.file.buffer, {
+    folderId: statementsFolderId,
     fileName: req.file.originalname,
     mimeType: req.file.mimetype,
   });
@@ -307,7 +307,7 @@ const uploadStatementEvidence = asyncHandler(async (req, res) => {
       category: 'evidencia_estado_cuenta',
       description: req.body.description || null,
       driveFileId: uploaded.id,
-      driveFolderId: documentsFolderId,
+      driveFolderId: statementsFolderId,
       fileName: req.file.originalname,
       extension: path.extname(req.file.originalname).replace('.', '') || null,
       mimeType: req.file.mimetype,

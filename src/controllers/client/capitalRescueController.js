@@ -2,7 +2,7 @@ const { z } = require('zod');
 const prisma = require('../../config/prisma');
 const ApiError = require('../../utils/ApiError');
 const asyncHandler = require('../../utils/asyncHandler');
-const documentStorage = require('../../services/documentStorage');
+const driveStorage = require('../../services/driveStorageService');
 const { notifyClient, notifyAdmins } = require('../../utils/notify');
 const { computeRescueState, CAPITAL_RESCUE_INCLUDE } = require('../../utils/capitalRescueState');
 
@@ -110,7 +110,7 @@ const downloadComprobante = asyncHandler(async (req, res) => {
   if (!participation) throw ApiError.notFound('Participación no encontrada');
   if (!participation.comprobantePdfDriveFileId) throw ApiError.notFound('El comprobante todavía no está disponible');
 
-  const { stream, fileName, mimeType } = await documentStorage.downloadDocument(participation.comprobantePdfDriveFileId);
+  const { stream, fileName, mimeType } = await driveStorage.downloadFileFromDrive(participation.comprobantePdfDriveFileId);
   res.setHeader('Content-Type', mimeType || 'application/pdf');
   res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(fileName || participation.comprobantePdfFileName)}"`);
   stream.on('error', () => res.status(500).end());

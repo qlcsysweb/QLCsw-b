@@ -1,12 +1,12 @@
 const path = require('path');
-const documentStorage = require('../../services/documentStorage');
+const driveStorage = require('../../services/driveStorageService');
 const prisma = require('../../config/prisma');
 const ApiError = require('../../utils/ApiError');
 const asyncHandler = require('../../utils/asyncHandler');
 const { notifyClient, notifyAdmins } = require('../../utils/notify');
 
 async function assertDriveReady() {
-  if (!(await documentStorage.isConfigured())) {
+  if (!(await driveStorage.isConfigured())) {
     throw ApiError.serviceUnavailable(
       'No pudimos conectar con el almacenamiento de documentos. Contacta al equipo de QLC.'
     );
@@ -40,9 +40,9 @@ const uploadDocument = asyncHandler(async (req, res) => {
   }
 
   await assertDriveReady();
-  const { documentsFolderId } = await documentStorage.ensureClientFolders(req.clientProfile);
+  const { documentsFolderId } = await driveStorage.ensureClientFolders(req.clientProfile);
 
-  const uploaded = await documentStorage.uploadDocument(req.file.buffer, {
+  const uploaded = await driveStorage.uploadFileToDrive(req.file.buffer, {
     folderId: documentsFolderId,
     fileName: req.file.originalname,
     mimeType: req.file.mimetype,
@@ -89,7 +89,7 @@ const downloadDocument = asyncHandler(async (req, res) => {
   });
   if (!document) throw ApiError.notFound('Documento no encontrado');
 
-  const { stream, fileName, mimeType } = await documentStorage.downloadDocument(document.driveFileId);
+  const { stream, fileName, mimeType } = await driveStorage.downloadFileFromDrive(document.driveFileId);
   res.setHeader('Content-Type', mimeType || document.mimeType);
   res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(fileName || document.fileName)}"`);
   stream.on('error', () => res.status(500).end());
@@ -114,8 +114,9 @@ const deleteDocument = asyncHandler(async (req, res) => {
     );
   }
 
-  if (await documentStorage.isConfigured()) {
-    await documentStorage.deleteDocument(document.driveFileId).catch(() => {});
+  if (await driveStorage.isConfigured()) {
+    // Ownership ya verificado arriba (clientId: req.clientProfile.id).
+    await driveStorage.deleteDriveFileOnlyWhenAuthorized(document.driveFileId, { authorized: true }).catch(() => {});
   }
   await prisma.document.delete({ where: { id: document.id } });
 

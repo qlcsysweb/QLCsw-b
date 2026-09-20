@@ -1,5 +1,6 @@
 const { z } = require('zod');
 const driveConfigService = require('../services/driveConfigService');
+const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 
 // Cualquier admin puede editar o desconectar la configuración — el único
@@ -21,10 +22,8 @@ const updateSchema = z.object({
   rootFolderId: z.string().optional(),
   rootFolderName: z.string().min(1).optional(),
   isEnabled: z.boolean().optional(),
-  // CORRECCIÓN 7: credencial técnica configurable desde el panel — ambos
-  // opcionales (dejar vacío conserva la credencial ya guardada).
-  serviceAccountEmail: z.string().email('Email inválido').optional(),
-  serviceAccountPrivateKey: z.string().min(1).optional(),
+  googleClientId: z.string().min(1).optional(),
+  googleClientSecret: z.string().min(1).optional(),
 });
 
 const updateConfig = asyncHandler(async (req, res) => {
@@ -34,22 +33,56 @@ const updateConfig = asyncHandler(async (req, res) => {
   res.json({ ok: true, config: shapeStatus(status, req.user.id), message: 'Configuración de Google Drive guardada correctamente.' });
 });
 
+// Paso 1 del OAuth2: devuelve la URL de consentimiento de Google.
+const oauthStart = asyncHandler(async (req, res) => {
+  try {
+    const { url } = await driveConfigService.startOAuth(req.user.id);
+    res.json({ ok: true, url });
+  } catch (err) {
+    if (err instanceof driveConfigService.OAuthConfigError) throw ApiError.badRequest(err.message);
+    throw err;
+  }
+});
+
+// Paso 2: Google redirige aquí (navegación normal del navegador, no un XHR
+// autenticado) con ?code=&state=. Vive fuera del middleware de autenticación
+// (ver routes/publicRoutes.js) — la identidad del admin viaja en el "state"
+// firmado (ver startOAuth). Nunca devuelve JSON: siempre redirige al panel.
+const oauthCallback = async (req, res) => {
+  const redirectBase = (process.env.CLIENT_ORIGIN || '').replace(/\/+$/, '');
+  const { code, state, error } = req.query;
+
+  if (error) {
+    res.redirect(
+      `${redirectBase}/admin/settings/drive?oauth=error&reason=${encodeURIComponent('Autorización cancelada en Google: ' + error)}`
+    );
+    return;
+  }
+
+  try {
+    const result = await driveConfigService.completeOAuth({ code, state });
+    res.redirect(`${redirectBase}/admin/settings/drive?oauth=success&email=${encodeURIComponent(result.email)}`);
+  } catch (err) {
+    res.redirect(
+      `${redirectBase}/admin/settings/drive?oauth=error&reason=${encodeURIComponent(err.message || 'Error desconocido al conectar con Google.')}`
+    );
+  }
+};
+
 const disconnect = asyncHandler(async (req, res) => {
   await driveConfigService.disconnect(req.user.id);
   const status = await driveConfigService.getStatus();
   res.json({ ok: true, config: shapeStatus(status, req.user.id), message: 'Google Drive fue desconectado.' });
 });
 
+// Prueba real contra Drive (verify + carpeta raíz). El admin la dispara a
+// propósito desde el panel; nunca ocurre automáticamente. NOTA: esta función
+// existe y queda lista, pero no se invoca en esta fase — las pruebas reales
+// contra Google Drive requieren autorización explícita del usuario.
 const testConnection = asyncHandler(async (req, res) => {
   const result = await driveConfigService.testConnection();
   const status = await driveConfigService.getStatus();
-  res.json({
-    ok: result.ok,
-    message: result.message,
-    capabilities: result.capabilities,
-    folderName: result.folderName,
-    config: shapeStatus(status, req.user.id),
-  });
+  res.json({ ok: result.ok, message: result.message, config: shapeStatus(status, req.user.id) });
 });
 
-module.exports = { getConfig, updateConfig, disconnect, testConnection };
+module.exports = { getConfig, updateConfig, disconnect, testConnection, oauthStart, oauthCallback };

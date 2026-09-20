@@ -1,11 +1,11 @@
-const documentStorage = require('../services/documentStorage');
+const driveStorage = require('../services/driveStorageService');
 const prisma = require('../config/prisma');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const { notifyClient } = require('../utils/notify');
 
 async function assertDriveReady() {
-  if (!(await documentStorage.isConfigured())) {
+  if (!(await driveStorage.isConfigured())) {
     throw ApiError.serviceUnavailable(
       'No pudimos conectar con Google Drive. Ve a Configuración → Google Drive en el panel administrativo.'
     );
@@ -51,7 +51,7 @@ const downloadDocument = asyncHandler(async (req, res) => {
   const document = await prisma.document.findUnique({ where: { id: req.params.id } });
   if (!document) throw ApiError.notFound('Documento no encontrado');
 
-  const { stream, fileName, mimeType } = await documentStorage.downloadDocument(document.driveFileId);
+  const { stream, fileName, mimeType } = await driveStorage.downloadFileFromDrive(document.driveFileId);
   res.setHeader('Content-Type', mimeType || document.mimeType);
   res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(fileName || document.fileName)}"`);
   stream.on('error', () => res.status(500).end());
@@ -62,8 +62,9 @@ const deleteDocument = asyncHandler(async (req, res) => {
   const document = await prisma.document.findUnique({ where: { id: req.params.id } });
   if (!document) throw ApiError.notFound('Documento no encontrado');
 
-  if (await documentStorage.isConfigured()) {
-    await documentStorage.deleteDocument(document.driveFileId).catch(() => {});
+  if (await driveStorage.isConfigured()) {
+    // Ruta exclusiva de ADMIN (requireRole en el router) — autorizado por rol.
+    await driveStorage.deleteDriveFileOnlyWhenAuthorized(document.driveFileId, { authorized: true }).catch(() => {});
   }
   await prisma.document.delete({ where: { id: document.id } });
 

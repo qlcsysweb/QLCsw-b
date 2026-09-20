@@ -3,7 +3,7 @@ const { z } = require('zod');
 const prisma = require('../config/prisma');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
-const documentStorage = require('../services/documentStorage');
+const driveStorage = require('../services/driveStorageService');
 const { enforceCommissionDeadline } = require('../utils/connectionDeadlines');
 const { ensurePrincipalSubaccount } = require('../utils/subaccountProvisioning');
 const { verifyClientDeletionPassword } = require('./securityConfigController');
@@ -181,6 +181,16 @@ const createClient = asyncHandler(async (req, res) => {
   // alta al cliente directamente.
   await ensurePrincipalSubaccount(user.clientProfile.id);
 
+  // IMPLEMENTACIÓN DEFINITIVA DE GOOGLE DRIVE — igual que en el registro
+  // público: se intenta preparar la carpeta, nunca bloquea la creación.
+  if (await driveStorage.isConfigured()) {
+    await driveStorage.getOrCreateClientFolder(user.clientProfile).catch((err) => {
+      prisma.clientProfile
+        .update({ where: { id: user.clientProfile.id }, data: { driveSyncStatus: 'ERROR', driveSyncError: err.message } })
+        .catch(() => {});
+    });
+  }
+
   res.status(201).json({ ok: true, client: user.clientProfile });
 });
 
@@ -256,10 +266,27 @@ const setClientActive = asyncHandler(async (req, res) => {
 const getWallet = asyncHandler(async (req, res) => {
   const client = await prisma.clientProfile.findUnique({
     where: { id: req.params.id },
-    select: { walletAddress: true, walletNetwork: true, walletQrUrl: true },
+    select: { walletAddress: true, walletNetwork: true, walletQrUrl: true, walletQrDriveFileId: true },
   });
   if (!client) throw ApiError.notFound('Cliente no encontrado');
-  res.json({ ok: true, wallet: client });
+  res.json({ ok: true, wallet: { ...client, hasWalletQrDrive: Boolean(client.walletQrDriveFileId), walletQrDriveFileId: undefined } });
+});
+
+// Sirve el QR de wallet de ESTE cliente (por :id de la ruta) desde Drive,
+// por un endpoint protegido de ADMIN — nunca un enlace público de Drive.
+const downloadWalletQr = asyncHandler(async (req, res) => {
+  const client = await prisma.clientProfile.findUnique({
+    where: { id: req.params.id },
+    select: { walletQrDriveFileId: true },
+  });
+  if (!client) throw ApiError.notFound('Cliente no encontrado');
+  if (!client.walletQrDriveFileId) throw ApiError.notFound('No hay un QR de wallet almacenado en Drive.');
+
+  const { stream, fileName, mimeType } = await driveStorage.downloadFileFromDrive(client.walletQrDriveFileId);
+  res.setHeader('Content-Type', mimeType || 'image/png');
+  res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(fileName || 'wallet-qr.png')}"`);
+  stream.on('error', () => res.status(500).end());
+  stream.pipe(res);
 });
 
 // Eliminación REAL y permanente del cliente (su cuenta, perfil y TODO lo
@@ -301,13 +328,15 @@ const deleteClient = asyncHandler(async (req, res) => {
   // (una vez cascadeada la eliminación en BD, los driveFileId ya no
   // existirían en ningún lado para poder limpiarlos). Best-effort: si Drive
   // no está configurado o un archivo puntual falla, no bloquea el borrado.
-  if (await documentStorage.isConfigured()) {
+  if (await driveStorage.isConfigured()) {
     const fileIds = [
       ...client.documents.map((d) => d.driveFileId),
       ...client.apiSubaccounts.flatMap((s) => s.paymentReports.map((p) => p.proofDriveFileId)),
       ...client.apiSubaccounts.flatMap((s) => s.statements.map((st) => st.pdfDriveFileId)),
     ].filter(Boolean);
-    await Promise.all(fileIds.map((id) => documentStorage.deleteDocument(id).catch(() => {})));
+    // Autorizado: ruta exclusiva de ADMIN GENERAL con contraseña de seguridad
+    // ya verificada arriba antes de llegar aquí.
+    await Promise.all(fileIds.map((id) => driveStorage.deleteDriveFileOnlyWhenAuthorized(id, { authorized: true }).catch(() => {})));
   }
 
   await prisma.user.delete({ where: { id: client.user.id } });
@@ -322,5 +351,6 @@ module.exports = {
   updateClient,
   setClientActive,
   getWallet,
+  downloadWalletQr,
   deleteClient,
 };

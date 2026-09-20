@@ -7,6 +7,7 @@ const trackRecordController = require('../controllers/trackRecordController');
 const prospectController = require('../controllers/prospectController');
 const appointmentController = require('../controllers/appointmentController');
 const emailConfigController = require('../controllers/emailConfigController');
+const driveConfigController = require('../controllers/driveConfigController');
 
 const router = Router();
 
@@ -37,5 +38,10 @@ router.post('/appointments', publicFormLimiter, appointmentController.createAppo
 // La identidad del admin y la protección CSRF viajan en el "state" firmado
 // (ver emailConfigService.startOAuth/completeOAuth) — nunca en la sesión.
 router.get('/email-config/oauth/callback', emailConfigController.oauthCallback);
+
+// Callback de Google OAuth2 para Google Drive (Admin → Configuración →
+// Google Drive) — mismo motivo que el callback de correo: llega como
+// navegación normal del navegador, nunca con un XHR autenticado.
+router.get('/drive-config/oauth/callback', driveConfigController.oauthCallback);
 
 module.exports = router;

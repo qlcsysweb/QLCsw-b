@@ -5,6 +5,7 @@ const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const { signToken, cookieOptions } = require('../utils/token');
 const { ensurePrincipalSubaccount } = require('../utils/subaccountProvisioning');
+const driveStorage = require('../services/driveStorageService');
 const { notifyAdmins } = require('../utils/notify');
 const {
   isTwoFactorGloballyEnabled,
@@ -193,6 +194,19 @@ const register = asyncHandler(async (req, res) => {
   // PRINCIPAL. Cualquier subcuenta adicional (hasta 20) nace de una
   // solicitud del cliente que un admin aprueba.
   await ensurePrincipalSubaccount(user.clientProfile.id);
+
+  // IMPLEMENTACIÓN DEFINITIVA DE GOOGLE DRIVE — se intenta preparar la
+  // carpeta del cliente de inmediato, pero NUNCA debe bloquear el registro:
+  // si Drive todavía no está conectado (o falla), el cliente se crea igual
+  // y queda con driveSyncStatus="PENDING" hasta la primera subida real
+  // (ver driveStorageService.getOrCreateClientFolder, que reintenta sola).
+  if (await driveStorage.isConfigured()) {
+    await driveStorage.getOrCreateClientFolder(user.clientProfile).catch((err) => {
+      prisma.clientProfile
+        .update({ where: { id: user.clientProfile.id }, data: { driveSyncStatus: 'ERROR', driveSyncError: err.message } })
+        .catch(() => {});
+    });
+  }
 
   await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
 

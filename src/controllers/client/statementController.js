@@ -1,7 +1,7 @@
 const prisma = require('../../config/prisma');
 const ApiError = require('../../utils/ApiError');
 const asyncHandler = require('../../utils/asyncHandler');
-const documentStorage = require('../../services/documentStorage');
+const driveStorage = require('../../services/driveStorageService');
 
 async function assertOwnsSubaccount(clientId, apiSubaccountId) {
   const subaccount = await prisma.apiSubaccount.findFirst({ where: { id: apiSubaccountId, clientId } });
@@ -53,7 +53,7 @@ const downloadStatementFile = asyncHandler(async (req, res) => {
   await assertOwnsSubaccount(req.clientProfile.id, statement.apiSubaccountId);
   if (!statement.pdfDriveFileId) throw ApiError.notFound('El PDF de este estado de cuenta no está disponible');
 
-  const { stream, fileName, mimeType } = await documentStorage.downloadDocument(statement.pdfDriveFileId);
+  const { stream, fileName, mimeType } = await driveStorage.downloadFileFromDrive(statement.pdfDriveFileId);
   res.setHeader('Content-Type', mimeType || 'application/pdf');
   res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(fileName || statement.pdfFileName)}"`);
   stream.on('error', () => res.status(500).end());

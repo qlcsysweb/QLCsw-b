@@ -78,6 +78,7 @@ router.delete('/documents/:id', documentController.deleteDocument);
 
 // Pagos — por subcuenta
 router.get('/payment-config', paymentController.getPaymentConfig);
+router.get('/payment-config/qr', paymentController.downloadPaymentQr);
 router.get('/api-subaccounts/:apiSubaccountId/payment-reports', paymentController.listPaymentReports);
 router.post(
   '/api-subaccounts/:apiSubaccountId/payment-reports',
@@ -98,6 +99,7 @@ router.get('/statements/:id/evidence', statementController.listStatementEvidence
 // Wallet personal (CORRECCIÓN 28)
 router.get('/wallet', walletController.getWallet);
 router.patch('/wallet', walletController.updateWallet);
+router.get('/wallet/qr', walletController.downloadWalletQr);
 
 // Liga hacia la plataforma externa (CORRECCIÓN 10) — solo lectura para el cliente
 router.get('/platform-link', platformSettingsController.getPlatformLinkForClient);

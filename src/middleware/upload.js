@@ -16,7 +16,9 @@ const uploadDocument = multer({
   },
 });
 
-// Solo para imágenes (branding, contenido público, QR de pago) → Cloudinary
+// Parser multipart en memoria para imágenes — el destino final (Cloudinary
+// para recursos visuales del sitio, o Google Drive para QR/archivos
+// operativos) lo decide cada controlador, no este middleware.
 const uploadImage = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 },
