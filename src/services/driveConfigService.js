@@ -8,7 +8,6 @@
 const jwt = require('jsonwebtoken');
 const {
   getDriveConfigRow,
-  hasCredentials,
   resolveCredentials,
   buildGoogleAuthUrl,
   exchangeOAuthCode,
@@ -33,20 +32,76 @@ function maskGeneric(value) {
   return `${value.slice(0, 6)}••••••••${value.slice(-4)}`;
 }
 
+// CORRECCIÓN — el estado ya NO depende de que el admin haya pulsado
+// "Probar conexión" (eso hace además una llamada real a Drive para revisar
+// la carpeta raíz — algo que en esta fase todavía no se autoriza). Aquí se
+// hace una verificación EN VIVO pero liviana, solo contra el propio OAuth2
+// de Google (refrescar el token + tokeninfo) — nunca toca archivos ni
+// carpetas de Drive — para que "CONECTADO" refleje la realidad apenas se
+// completa la autorización, sin depender de un paso manual aparte.
+//
+// Los 4 estados posibles, en el orden en que se evalúan:
+//   NOT_CONFIGURED       — falta Client ID/Secret.
+//   PENDING_AUTHORIZATION — hay credenciales, pero no hay (o no hay forma de
+//                           usar) un refresh token: nunca se autorizó, o la
+//                           fila está deshabilitada.
+//   AUTH_ERROR           — hay un refresh token guardado, pero la
+//                           verificación en vivo falló (vencido, revocado,
+//                           cuenta equivocada, o sin el scope drive.file).
+//   CONNECTED            — la verificación en vivo confirmó todo lo anterior.
 async function getStatus() {
   const row = await getDriveConfigRow();
-  const hasCreds = await hasCredentials();
+  const hasGoogleOAuthClient = Boolean(row.googleOAuthClientId && row.googleOAuthClientSecretEncrypted);
+  const hasRefreshToken = Boolean(row.googleOAuthRefreshTokenEncrypted);
+
+  let connectionState;
+  let connectionError = null;
+  let verifiedEmail = null;
+
+  if (!hasGoogleOAuthClient) {
+    connectionState = 'NOT_CONFIGURED';
+  } else {
+    let creds = null;
+    try {
+      creds = await resolveCredentials();
+    } catch (err) {
+      logSafeError('status-decrypt', err);
+      connectionState = 'AUTH_ERROR';
+      connectionError = `${err.message} (posible cambio de la clave de cifrado ENCRYPTION_KEY del servidor desde que se guardó). Vuelve a guardar la credencial desde este panel.`;
+    }
+    if (!connectionState) {
+      if (!creds) {
+        connectionState = 'PENDING_AUTHORIZATION';
+      } else {
+        try {
+          const result = await verifyOAuth2(creds);
+          connectionState = 'CONNECTED';
+          verifiedEmail = result.authorizedEmail;
+        } catch (err) {
+          logSafeError('status-verify', err);
+          connectionState = 'AUTH_ERROR';
+          connectionError = humanizeError(err) + safeDiagnostic(err);
+        }
+      }
+    }
+  }
 
   return {
-    // "Conectado" exige que la ÚLTIMA prueba de conexión contra Drive haya
-    // sido exitosa — igual criterio que el correo (ver emailConfigService).
-    isConnected: Boolean(hasCreds && row.isEnabled && row.lastTestStatus === 'OK'),
+    connectionState,
+    connectionError,
+    isConnected: connectionState === 'CONNECTED',
     isEnabled: row.isEnabled,
-    hasCredentials: hasCreds,
-    hasGoogleOAuthClient: Boolean(row.googleOAuthClientId && row.googleOAuthClientSecretEncrypted),
+    hasCredentials: hasRefreshToken,
+    hasGoogleOAuthClient,
     googleOAuthClientIdMasked: maskGeneric(row.googleOAuthClientId),
+    // Se muestra el correo que quedó guardado como referencia (útil incluso
+    // en AUTH_ERROR, para saber con qué cuenta reconectar) — pero
+    // `connectionState` es SIEMPRE la única fuente real de si está
+    // conectado; nunca se infiere "conectado" solo porque este campo tenga
+    // un valor, evitando la cuenta "fantasma" enmascarada.
     oauthConnectedEmail: row.oauthConnectedEmail,
     oauthConnectedEmailMasked: maskEmail(row.oauthConnectedEmail),
+    verifiedEmail,
     rootFolderId: row.rootFolderId,
     rootFolderName: row.rootFolderName,
     lastTestedAt: row.lastTestedAt,
