@@ -213,6 +213,23 @@ async function verifyOAuth2(creds) {
     err.authorizedEmail = info.email;
     throw err;
   }
+  // El correo puede coincidir y el token seguir siendo inútil para enviar:
+  // Google concede EXACTAMENTE los scopes que el consentimiento realmente
+  // autorizó, sin importar cuáles pidió el código. Si `gmail.send` no está
+  // agregado en Google Cloud Console → OAuth consent screen → Data access,
+  // Google lo omite del token sin lanzar ningún error — el "Probar conexión"
+  // pasaría igual (el correo es correcto) y solo el envío real fallaría con
+  // "insufficient authentication scopes". Se detecta aquí para que la prueba
+  // de conexión ya lo reporte, en vez de descubrirlo con un envío real fallido.
+  const grantedScopes = info.scopes || [];
+  if (!grantedScopes.includes('https://www.googleapis.com/auth/gmail.send')) {
+    const err = new Error(
+      `Google autorizó la cuenta ${info.email} pero SIN el permiso de envío (gmail.send). Esto pasa cuando ese permiso no está agregado en Google Cloud Console → OAuth consent screen → Data access. Agrega el scope "https://www.googleapis.com/auth/gmail.send" ahí, guarda, y vuelve a pulsar "Conectar con Google" en este panel.`
+    );
+    err.code = 'EOAUTH_MISSING_SCOPE';
+    err.grantedScopes = grantedScopes;
+    throw err;
+  }
   return { accessToken: token, authorizedEmail: info.email };
 }
 

@@ -232,6 +232,22 @@ async function completeOAuth({ code, state }) {
     );
   }
 
+  // Google concede EXACTAMENTE los scopes que el consentimiento autorizó, sin
+  // importar cuáles pidió buildGoogleAuthUrl — si "gmail.send" no está
+  // agregado en Google Cloud Console → OAuth consent screen → Data access,
+  // Google lo omite en silencio del token.scope devuelto aquí (sin error), y
+  // el envío real fallaría después con "insufficient authentication scopes".
+  // Se rechaza guardar un token así para no mostrar "conectado" con un token
+  // inservible para enviar correo.
+  const grantedScopes = (tokens.scope || '').split(/\s+/).filter(Boolean);
+  if (!grantedScopes.includes('https://www.googleapis.com/auth/gmail.send')) {
+    throw new OAuthConfigError(
+      `Google autorizó ${authorizedEmail} pero SIN el permiso de envío (gmail.send). No se guardó nada. ` +
+        `Esto pasa cuando ese scope no está agregado en Google Cloud Console → OAuth consent screen → Data access (Agregar o quitar permisos). ` +
+        `Agrega ahí el scope "https://www.googleapis.com/auth/gmail.send", guarda, y vuelve a pulsar "Conectar con Google".`
+    );
+  }
+
   await prisma.emailConfiguration.update({
     where: { id: row.id },
     data: {
@@ -266,10 +282,22 @@ function logSafeError(stage, err) {
     responseCode: err?.responseCode,
     command: err?.command,
     smtpResponse: typeof err?.response === 'string' ? err.response.slice(0, 300) : undefined,
-    oauthError: err?.response?.data?.error,
+    oauthError: extractOAuthErrorCode(err),
     oauthErrorDescription: err?.response?.data?.error_description,
     authorizedEmail: err?.authorizedEmail,
+    grantedScopes: err?.grantedScopes,
   });
+}
+
+// Dos formas MUY distintas de error traen `response.data.error`:
+//   - el endpoint de TOKEN de Google (ej. invalid_grant) → string corto.
+//   - la Gmail API en sí (ej. al enviar) → un objeto {code, message, status}.
+// Sin distinguirlas, interpolar el objeto directo en un mensaje produce
+// "[object Object]" en vez del texto real del error.
+function extractOAuthErrorCode(err) {
+  const raw = err?.response?.data?.error;
+  if (!raw) return undefined;
+  return typeof raw === 'string' ? raw : raw.status || raw.message || JSON.stringify(raw);
 }
 
 // Fragmento técnico verificable que se agrega al mensaje mostrado en el
@@ -280,9 +308,11 @@ function safeDiagnostic(err) {
   if (err?.code) parts.push(`código=${err.code}`);
   if (err?.responseCode) parts.push(`SMTP=${err.responseCode}`);
   if (err?.command) parts.push(`comando=${err.command}`);
-  if (err?.response?.data?.error) parts.push(`oauth_error=${err.response.data.error}`);
+  const oauthErrorCode = extractOAuthErrorCode(err);
+  if (oauthErrorCode) parts.push(`oauth_error=${oauthErrorCode}`);
   if (typeof err?.response === 'string' && err.response) parts.push(`respuesta de Gmail="${err.response.slice(0, 200)}"`);
   if (err?.authorizedEmail) parts.push(`correo_autorizado=${err.authorizedEmail}`);
+  if (err?.grantedScopes) parts.push(`scopes_otorgados=${err.grantedScopes.join(', ') || 'ninguno'}`);
   return parts.length ? ` (${parts.join(', ')})` : '';
 }
 
@@ -354,10 +384,16 @@ function humanizeError(err) {
   if (err?.code === 'EOAUTH_EMAIL_MISMATCH') {
     return `El token de Google autorizado pertenece a ${err.authorizedEmail}, no a la cuenta configurada. Reconecta con "Conectar con Google" usando exactamente esa cuenta.`;
   }
-  if (err?.code === 'EOAUTH_NO_TOKEN' || err?.code === 'EOAUTH_NO_EMAIL' || err?.code === 'EMISSING_BACKEND_URL') {
+  if (err?.code === 'EOAUTH_MISSING_SCOPE' || err?.code === 'EOAUTH_NO_TOKEN' || err?.code === 'EOAUTH_NO_EMAIL' || err?.code === 'EMISSING_BACKEND_URL') {
     return err.message;
   }
-  const oauthError = err?.response?.data?.error;
+  // 403 PERMISSION_DENIED de la Gmail API en sí (al enviar), no del endpoint
+  // de token — Google ya devolvió un access token válido, pero sin el scope
+  // gmail.send. Mismo síntoma que EOAUTH_MISSING_SCOPE, distinta forma de error.
+  if (err?.response?.data?.error?.status === 'PERMISSION_DENIED' || /insufficient (authentication )?scopes?/i.test(err?.message || '')) {
+    return 'Google rechazó el envío: el token autorizado no tiene el permiso de envío (gmail.send). Esto pasa cuando ese scope no está agregado en Google Cloud Console → OAuth consent screen → Data access. Agrégalo ahí, guarda, y vuelve a pulsar "Conectar con Google" en este panel.';
+  }
+  const oauthError = extractOAuthErrorCode(err);
   if (oauthError === 'invalid_grant') {
     return 'Google rechazó el refresh token guardado (fue revocado desde la cuenta de Google, expiró por inactividad prolongada, o cambió la contraseña de esa cuenta). Debes reconectar desde "Conectar con Google".';
   }
