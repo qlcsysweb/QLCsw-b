@@ -57,6 +57,10 @@ async function findFolderByName(drive, name, parentId) {
     q: `name='${escapeForQuery(name)}' and '${parentId}' in parents and mimeType='${FOLDER_MIME}' and trashed=false`,
     fields: 'files(id, name)',
     spaces: 'drive',
+    // Sin efecto en "Mi unidad" (caso real de sistemaweb.qlc@gmail.com);
+    // evita que una carpeta dentro de una unidad compartida quede invisible.
+    supportsAllDrives: true,
+    includeItemsFromAllDrives: true,
   });
   return data.files && data.files.length > 0 ? data.files[0].id : null;
 }
@@ -65,6 +69,7 @@ async function createFolder(drive, name, parentId) {
   const { data } = await drive.files.create({
     requestBody: { name, mimeType: FOLDER_MIME, parents: [parentId] },
     fields: 'id',
+    supportsAllDrives: true,
   });
   return data.id;
 }
@@ -109,7 +114,7 @@ async function renameClientFolderIfNeeded(client) {
 
   const drive = await getDriveClient();
   const newName = clientFolderName(client);
-  await drive.files.update({ fileId: client.driveClientFolderId, requestBody: { name: newName } });
+  await drive.files.update({ fileId: client.driveClientFolderId, requestBody: { name: newName }, supportsAllDrives: true });
   return client.driveClientFolderId;
 }
 
@@ -203,14 +208,15 @@ async function uploadFileToDrive(buffer, { folderId, fileName, mimeType }) {
     requestBody: { name: fileName, parents: [folderId] },
     media: { mimeType, body: Readable.from(buffer) },
     fields: 'id, name, mimeType, size',
+    supportsAllDrives: true,
   });
   return data;
 }
 
 async function downloadFileFromDrive(fileId) {
   const drive = await getDriveClient();
-  const { data: meta } = await drive.files.get({ fileId, fields: 'name, mimeType, size' });
-  const { data: stream } = await drive.files.get({ fileId, alt: 'media' }, { responseType: 'stream' });
+  const { data: meta } = await drive.files.get({ fileId, fields: 'name, mimeType, size', supportsAllDrives: true });
+  const { data: stream } = await drive.files.get({ fileId, alt: 'media', supportsAllDrives: true }, { responseType: 'stream' });
   return { stream, fileName: meta.name, mimeType: meta.mimeType };
 }
 
@@ -225,7 +231,7 @@ async function deleteDriveFileOnlyWhenAuthorized(fileId, { authorized } = {}) {
     throw new Error('deleteDriveFileOnlyWhenAuthorized: falta confirmar autorización antes de eliminar.');
   }
   const drive = await getDriveClient();
-  await drive.files.delete({ fileId });
+  await drive.files.delete({ fileId, supportsAllDrives: true });
 }
 
 // Metadatos estándar para guardar en NeonDB junto al archivo — cada

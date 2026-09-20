@@ -14,6 +14,7 @@ const {
   getAuthorizedEmail,
   verifyOAuth2,
   invalidateDriveClientCache,
+  REQUIRED_DRIVE_SCOPE,
 } = require('../config/googleDrive');
 const prisma = require('../config/prisma');
 const { encrypt, decrypt } = require('../utils/crypto');
@@ -47,7 +48,9 @@ function maskGeneric(value) {
 //                           fila está deshabilitada.
 //   AUTH_ERROR           — hay un refresh token guardado, pero la
 //                           verificación en vivo falló (vencido, revocado,
-//                           cuenta equivocada, o sin el scope drive.file).
+//                           cuenta equivocada, o sin el scope "drive" completo
+//                           — esto último pasa con cualquier token emitido
+//                           antes del cambio a este scope, y exige reconectar).
 //   CONNECTED            — la verificación en vivo confirmó todo lo anterior.
 async function getStatus() {
   const row = await getDriveConfigRow();
@@ -238,12 +241,17 @@ async function completeOAuth({ code, state }) {
   }
 
   // Mismo control de scope que en Gmail: Google concede EXACTAMENTE lo que
-  // el consentimiento autorizó, sin importar qué pidió el código.
+  // el consentimiento autorizó, sin importar qué pidió el código. Esto
+  // también es lo que obliga a reautorizar tras el cambio de "drive.file" a
+  // "drive": un refresh token viejo jamás llega hasta aquí de nuevo (esto
+  // solo corre al completar un consentimiento NUEVO), pero si la cuenta de
+  // Google todavía no tiene agregado el scope "drive" completo en su
+  // pantalla de consentimiento, Google lo detecta aquí y no se guarda nada.
   const grantedScopes = (tokens.scope || '').split(/\s+/).filter(Boolean);
-  if (!grantedScopes.includes('https://www.googleapis.com/auth/drive.file')) {
+  if (!grantedScopes.includes(REQUIRED_DRIVE_SCOPE)) {
     throw new OAuthConfigError(
-      `Google autorizó ${authorizedEmail} pero SIN el permiso de archivos de Drive (drive.file). No se guardó nada. ` +
-        'Agrega ese scope en Google Cloud Console → OAuth consent screen → Data access (Agregar o quitar permisos), guarda, y vuelve a pulsar "Conectar con Google".'
+      `Google autorizó ${authorizedEmail} pero sin el permiso completo de Google Drive (scope "drive"). No se guardó nada. ` +
+        'Agrega el scope "https://www.googleapis.com/auth/drive" en Google Cloud Console → OAuth consent screen → Data access (Agregar o quitar permisos), guarda, y vuelve a pulsar "Conectar con Google".'
     );
   }
 
@@ -307,7 +315,7 @@ function humanizeError(err) {
     return err.message;
   }
   if (err?.response?.data?.error?.status === 'PERMISSION_DENIED' || /insufficient (authentication )?scopes?/i.test(err?.message || '')) {
-    return 'Google rechazó la operación: el token autorizado no tiene el permiso de archivos de Drive (drive.file). Agrega ese scope en Google Cloud Console → OAuth consent screen → Data access y vuelve a conectar.';
+    return 'Google rechazó la operación: el token autorizado no tiene el permiso completo de Google Drive (scope "drive"). Agrega ese scope en Google Cloud Console → OAuth consent screen → Data access y vuelve a conectar.';
   }
   const oauthError = extractOAuthErrorCode(err);
   if (oauthError === 'invalid_grant') {
@@ -358,35 +366,42 @@ async function testConnection() {
   try {
     const { getDriveClient } = require('../config/googleDrive');
     const drive = await getDriveClient();
-    const { data } = await drive.files.get({ fileId: row.rootFolderId, fields: 'id, name, mimeType' });
+    // supportsAllDrives: sin efecto para una carpeta normal de "Mi unidad"
+    // (el caso real de sistemaweb.qlc@gmail.com, una cuenta personal sin
+    // Workspace), pero evita un 404 falso si en el futuro esta configuración
+    // llega a apuntar a una carpeta dentro de una unidad compartida.
+    const { data } = await drive.files.get({
+      fileId: row.rootFolderId,
+      fields: 'id, name, mimeType, trashed, capabilities(canListChildren, canAddChildren)',
+      supportsAllDrives: true,
+    });
     if (data.mimeType !== 'application/vnd.google-apps.folder') {
-      return recordTestResult(row.id, 'ERROR', 'El ID configurado no corresponde a una carpeta de Google Drive.');
+      return recordTestResult(row.id, 'ERROR', 'El ID configurado no corresponde a una carpeta de Google Drive (es otro tipo de archivo).');
+    }
+    if (data.trashed) {
+      return recordTestResult(row.id, 'ERROR', `La carpeta "${data.name}" existe pero está en la papelera de Google Drive. Restáurala o configura otra carpeta.`);
     }
     return recordTestResult(row.id, 'OK', `Conexión verificada con la cuenta ${creds.connectedEmail} y la carpeta "${data.name}".`);
   } catch (err) {
     logSafeError('root-folder', err);
     const code = err?.code || err?.response?.status;
-    // El scope "drive.file" (ver config/googleDrive.js) SOLO deja ver
-    // archivos/carpetas que esta app creó, o que el usuario abrió con ella
-    // explícitamente desde un selector de Google — NUNCA una carpeta ya
-    // existente que el admin creó a mano desde drive.google.com, aunque el
-    // Folder ID sea correcto y pertenezca a la misma cuenta conectada.
-    // Google Drive API, en ese caso, responde literalmente 404 "File not
-    // found" — indistinguible, a nivel de API, de un ID inexistente. Por
-    // eso el mensaje aquí cubre ambas causas reales en vez de asumir que el
-    // Folder ID está mal.
+    // Con el scope "drive" completo (ver config/googleDrive.js), un 404 aquí
+    // ya significa lo que dice: el Folder ID no existe, o no existe PARA
+    // ESTA cuenta (ver también el 403 abajo). A diferencia del scope
+    // anterior "drive.file", ya no hay una limitación de visibilidad propia
+    // de la app que pueda confundirse con "no existe".
     if (code === 404) {
       return recordTestResult(
         row.id,
         'ERROR',
-        `No pudimos acceder a la carpeta con ID "${row.rootFolderId}" desde la cuenta ${creds.connectedEmail}. Puede deberse a: (1) el Folder ID no es correcto o la carpeta ya no existe, o (2) la carpeta se creó manualmente en drive.google.com — el permiso "drive.file" que usa esta app solo le permite ver carpetas que ella misma creó, no cualquier carpeta existente de la cuenta, aunque el ID sea correcto.`
+        `No encontramos ninguna carpeta con ID "${row.rootFolderId}" en la cuenta ${creds.connectedEmail}. Verifica que el Folder ID (o la URL) sea exactamente el de esa carpeta, y que no haya sido eliminada permanentemente.`
       );
     }
     if (code === 403) {
       return recordTestResult(
         row.id,
         'ERROR',
-        `Google denegó el acceso a esa carpeta (permiso insuficiente). La cuenta ${creds.connectedEmail} está conectada, pero no tiene permisos sobre el Folder ID "${row.rootFolderId}".`
+        `Google denegó el acceso a esa carpeta (permiso insuficiente). La carpeta con ID "${row.rootFolderId}" existe, pero no pertenece ni fue compartida con la cuenta ${creds.connectedEmail} — verifica que sea exactamente la cuenta dueña de la carpeta, o que la haya compartido con permisos de al menos "Editor".`
       );
     }
     return recordTestResult(row.id, 'ERROR', humanizeError(err) + safeDiagnostic(err));

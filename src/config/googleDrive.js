@@ -13,15 +13,21 @@ const { decrypt } = require('../utils/crypto');
  * llama siempre a las funciones de este archivo sin conocer el detalle de
  * autenticación.
  *
- * Scope: "drive.file" (no el genérico "drive") — la app solo necesita crear,
- * buscar, subir y descargar los archivos/carpetas que ELLA MISMA crea
- * (documentos de clientes, comprobantes, estados de cuenta, QR). Nunca
- * necesita listar ni leer el resto del Drive personal del usuario. Es un
- * scope "no sensible" — más fácil de aprobar y de mantener en modo de
- * prueba de Google Cloud que el genérico "drive".
+ * Scope: "drive" completo (antes se usaba "drive.file", más restringido).
+ * CORRECCIÓN — "drive.file" solo permite ver archivos/carpetas que la propia
+ * app crea o que el usuario abre explícitamente con ella desde un selector
+ * de Google; NUNCA una carpeta ya existente creada a mano desde
+ * drive.google.com (como la carpeta raíz "QLC" real de sistemaweb.qlc@gmail.com),
+ * aunque el Folder ID sea correcto y pertenezca a la misma cuenta — Google
+ * responde 404 "File not found" en ese caso, indistinguible de un ID
+ * inexistente. El scope "drive" da acceso completo al Drive de la cuenta
+ * autorizada, permitiendo ver/usar esa carpeta y sus subcarpetas. Es un
+ * scope "sensible" (más difícil de verificar ante Google si se publica la
+ * app, pero QLC la mantiene en modo de prueba con sistemaweb.qlc@gmail.com
+ * como usuario de prueba, así que no hace falta verificación).
  */
 const GOOGLE_DRIVE_SCOPES = [
-  'https://www.googleapis.com/auth/drive.file',
+  'https://www.googleapis.com/auth/drive',
   'https://www.googleapis.com/auth/userinfo.email',
   'openid',
 ];
@@ -131,10 +137,19 @@ async function getAuthorizedEmail({ clientId, clientSecret, accessToken }) {
   return info.email || null;
 }
 
-// Verifica que el refresh token siga siendo válido Y que el scope
-// "drive.file" realmente se haya concedido (Google concede EXACTAMENTE lo
-// que el consentimiento autorizó, sin importar qué pidió el código — ver el
-// mismo control ya aplicado a Gmail en config/emailConfig.js).
+// Scope real que necesita esta app — un solo lugar para no repetir el
+// string y arriesgar que una actualización futura deje una comparación
+// desactualizada en otro archivo (ver driveConfigService.js).
+const REQUIRED_DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive';
+
+// Verifica que el refresh token siga siendo válido Y que el scope "drive"
+// completo realmente se haya concedido (Google concede EXACTAMENTE lo que
+// el consentimiento autorizó, sin importar qué pidió el código — ver el
+// mismo control ya aplicado a Gmail en config/emailConfig.js). Un refresh
+// token emitido ANTES de este cambio (bajo el scope anterior "drive.file")
+// no incluye "drive" en sus scopes otorgados, así que esta verificación lo
+// detecta solo y exige reconectar — nunca se asume que un token viejo sirve
+// para el scope nuevo.
 async function verifyOAuth2(creds) {
   const client = createOAuth2Client(creds.clientId, creds.clientSecret);
   client.setCredentials({ refresh_token: creds.refreshToken });
@@ -157,9 +172,9 @@ async function verifyOAuth2(creds) {
     throw err;
   }
   const grantedScopes = info.scopes || [];
-  if (!grantedScopes.includes('https://www.googleapis.com/auth/drive.file')) {
+  if (!grantedScopes.includes(REQUIRED_DRIVE_SCOPE)) {
     const err = new Error(
-      `Google autorizó la cuenta ${info.email} pero SIN el permiso de archivos de Drive (drive.file). Agrega ese scope en Google Cloud Console → OAuth consent screen → Data access, y vuelve a pulsar "Conectar con Google".`
+      `Google autorizó la cuenta ${info.email} pero sin el permiso completo de Google Drive (scope "drive"). Esto pasa si la cuenta autorizó con una versión anterior de esta app (scope "drive.file"). Agrega el scope "https://www.googleapis.com/auth/drive" en Google Cloud Console → OAuth consent screen → Data access, y vuelve a pulsar "Conectar con Google" para reautorizar.`
     );
     err.code = 'EOAUTH_MISSING_SCOPE';
     err.grantedScopes = grantedScopes;
@@ -202,6 +217,7 @@ function invalidateDriveClientCache() {
 
 module.exports = {
   GOOGLE_DRIVE_SCOPES,
+  REQUIRED_DRIVE_SCOPE,
   getDriveConfigRow,
   resolveCredentials,
   hasCredentials,
