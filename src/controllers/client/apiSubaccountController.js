@@ -6,12 +6,14 @@ const { encrypt } = require('../../utils/crypto');
 const { enforceCommissionDeadline } = require('../../utils/connectionDeadlines');
 const { isValidIp } = require('../../utils/ipValidation');
 const { notifyAdmins } = require('../../utils/notify');
+const { MAX_SUBACCOUNTS_PER_CLIENT } = require('../../utils/subaccountProvisioning');
+const subaccountRequestService = require('../../services/subaccountRequestService');
 
-// CORRECCIÓN (subcuentas ocultas) — de las 20 subcuentas pre-creadas al
-// registro, el cliente solo ve la PRINCIPAL y las que un admin ya reveló
-// (visibleToClient=true). Mismo filtro en listMine/getMine para que una
-// subcuenta oculta tampoco sea accesible adivinando su URL/id.
-const VISIBLE_TO_CLIENT_WHERE = { OR: [{ isPrincipal: true }, { visibleToClient: true }] };
+// GESTIÓN DINÁMICA DE SUBCUENTAS — ya no existen subcuentas "ocultas": toda
+// subcuenta que exista y no tenga removedAt es, por definición, activa y
+// visible para su cliente. Mismo filtro en listMine/getMine para que una
+// subcuenta eliminada tampoco sea accesible adivinando su URL/id.
+const ACTIVE_WHERE = { removedAt: null };
 
 function shape(subaccount) {
   const { apiKeyEncrypted, apiSecretEncrypted, apiPassphraseEncrypted, ...rest } = subaccount;
@@ -25,62 +27,64 @@ function shape(subaccount) {
 
 const listMine = asyncHandler(async (req, res) => {
   const clientId = req.clientProfile.id;
-  const preCheck = await prisma.apiSubaccount.findMany({ where: { clientId }, select: { id: true } });
+  const preCheck = await prisma.apiSubaccount.findMany({ where: { clientId, ...ACTIVE_WHERE }, select: { id: true } });
   await Promise.all(preCheck.map((s) => enforceCommissionDeadline(s.id)));
 
-  const [subaccounts, hiddenCount, client] = await Promise.all([
+  const [subaccounts, activeCount, requests] = await Promise.all([
     prisma.apiSubaccount.findMany({
-      where: { clientId, ...VISIBLE_TO_CLIENT_WHERE },
+      where: { clientId, ...ACTIVE_WHERE },
       orderBy: { slotIndex: 'asc' },
       include: {
         clientModel: { include: { model: true } },
         process: { include: { conditions: true } },
       },
     }),
-    prisma.apiSubaccount.count({ where: { clientId, isPrincipal: false, visibleToClient: false } }),
-    prisma.clientProfile.findUnique({ where: { id: clientId }, select: { subaccountRequestedAt: true } }),
+    prisma.apiSubaccount.count({ where: { clientId, isPrincipal: false, ...ACTIVE_WHERE } }),
+    subaccountRequestService.listRequestsForClient(clientId),
   ]);
   res.json({
     ok: true,
     subaccounts: subaccounts.map(shape),
-    hiddenCount,
-    requestPending: Boolean(client?.subaccountRequestedAt),
+    activeCount,
+    maxSubaccounts: MAX_SUBACCOUNTS_PER_CLIENT,
+    requests,
   });
 });
 
-// CORRECCIÓN (subcuentas ocultas) — el cliente ya no puede pedir una
-// subcuenta "nueva" (las 20 ya existen desde el registro): esto solo avisa
-// al equipo QLC para que revele manualmente una de las ocultas.
-const requestAdditionalSubaccount = asyncHandler(async (req, res) => {
-  const clientId = req.clientProfile.id;
-  const client = await prisma.clientProfile.findUnique({ where: { id: clientId } });
-  if (client.subaccountRequestedAt) {
-    throw ApiError.conflict('Ya tienes una solicitud pendiente de revisión por el equipo de QLC.');
-  }
+const requestSchema = z.object({ reason: z.string().max(500).optional() });
 
-  const hiddenCount = await prisma.apiSubaccount.count({
-    where: { clientId, isPrincipal: false, visibleToClient: false },
+// El cliente nunca crea una subcuenta directamente — solo solicita, y el
+// admin decide si la aprueba (ver subaccountRequestService).
+const requestNewSubaccount = asyncHandler(async (req, res) => {
+  const { reason } = requestSchema.parse(req.body || {});
+  const request = await subaccountRequestService.requestCreateSubaccount({
+    clientId: req.clientProfile.id,
+    reason,
+    requestedByUserId: req.user.id,
   });
-  if (hiddenCount === 0) {
-    throw ApiError.conflict('Ya tienes disponibles todas tus subcuentas.');
-  }
+  res.status(201).json({ ok: true, request });
+});
 
-  await prisma.clientProfile.update({ where: { id: clientId }, data: { subaccountRequestedAt: new Date() } });
-  await notifyAdmins({
-    title: 'Solicitud de nueva subcuenta',
-    message: `${client.firstName} ${client.lastName} solicitó que se le habilite una subcuenta adicional.`,
-    type: 'info',
-    templateKey: 'subaccount_request_admin',
-    templateParams: { clientName: `${client.firstName} ${client.lastName}`, clientId },
+const requestDeleteSchema = z.object({ reason: z.string().max(500).optional() });
+
+// El cliente tampoco elimina directamente: solicita, y el admin aprueba o
+// rechaza. Se bloquea aquí mismo (antes de llegar al admin) si la subcuenta
+// tiene un estado de cuenta con comisión pendiente de pago.
+const requestDeleteSubaccount = asyncHandler(async (req, res) => {
+  const { reason } = requestDeleteSchema.parse(req.body || {});
+  const request = await subaccountRequestService.requestDeleteSubaccount({
+    clientId: req.clientProfile.id,
+    apiSubaccountId: req.params.id,
+    reason,
+    requestedByUserId: req.user.id,
   });
-
-  res.json({ ok: true });
+  res.status(201).json({ ok: true, request });
 });
 
 const getMine = asyncHandler(async (req, res) => {
   await enforceCommissionDeadline(req.params.id);
   const subaccount = await prisma.apiSubaccount.findFirst({
-    where: { id: req.params.id, clientId: req.clientProfile.id, ...VISIBLE_TO_CLIENT_WHERE },
+    where: { id: req.params.id, clientId: req.clientProfile.id, ...ACTIVE_WHERE },
     include: {
       clientModel: { include: { model: true } },
       process: { include: { conditions: true } },
@@ -114,7 +118,7 @@ const updateMine = asyncHandler(async (req, res) => {
   }
 
   const existing = await prisma.apiSubaccount.findFirst({
-    where: { id: req.params.id, clientId: req.clientProfile.id },
+    where: { id: req.params.id, clientId: req.clientProfile.id, ...ACTIVE_WHERE },
   });
   if (!existing) throw ApiError.notFound('Subcuenta no encontrada');
 
@@ -147,7 +151,7 @@ const updateMine = asyncHandler(async (req, res) => {
 // plataforma externa de QLC.
 const reportCapitalReady = asyncHandler(async (req, res) => {
   const existing = await prisma.apiSubaccount.findFirst({
-    where: { id: req.params.id, clientId: req.clientProfile.id },
+    where: { id: req.params.id, clientId: req.clientProfile.id, ...ACTIVE_WHERE },
   });
   if (!existing) throw ApiError.notFound('Subcuenta no encontrada');
 
@@ -182,7 +186,7 @@ const reportCapitalDistributionSchema = z.object({
 const reportCapitalDistribution = asyncHandler(async (req, res) => {
   const { note } = reportCapitalDistributionSchema.parse(req.body);
   const subaccount = await prisma.apiSubaccount.findFirst({
-    where: { id: req.params.id, clientId: req.clientProfile.id },
+    where: { id: req.params.id, clientId: req.clientProfile.id, ...ACTIVE_WHERE },
   });
   if (!subaccount) throw ApiError.notFound('Subcuenta no encontrada');
   if (subaccount.requiredCapital == null) {
@@ -217,7 +221,7 @@ const reportCapitalDistribution = asyncHandler(async (req, res) => {
 
 const listCapitalDistributionReports = asyncHandler(async (req, res) => {
   const subaccount = await prisma.apiSubaccount.findFirst({
-    where: { id: req.params.id, clientId: req.clientProfile.id },
+    where: { id: req.params.id, clientId: req.clientProfile.id, ...ACTIVE_WHERE },
   });
   if (!subaccount) throw ApiError.notFound('Subcuenta no encontrada');
 
@@ -233,7 +237,7 @@ const selectModelSchema = z.object({ modelId: z.string().min(1) });
 const selectModel = asyncHandler(async (req, res) => {
   const { modelId } = selectModelSchema.parse(req.body);
   const subaccount = await prisma.apiSubaccount.findFirst({
-    where: { id: req.params.id, clientId: req.clientProfile.id },
+    where: { id: req.params.id, clientId: req.clientProfile.id, ...ACTIVE_WHERE },
   });
   if (!subaccount) throw ApiError.notFound('Subcuenta no encontrada');
 
@@ -260,7 +264,7 @@ const selectModel = asyncHandler(async (req, res) => {
 // se obtuvo en el registro (Aviso de Privacidad + Términos y Condiciones).
 const confirmModel = asyncHandler(async (req, res) => {
   const subaccount = await prisma.apiSubaccount.findFirst({
-    where: { id: req.params.id, clientId: req.clientProfile.id },
+    where: { id: req.params.id, clientId: req.clientProfile.id, ...ACTIVE_WHERE },
   });
   if (!subaccount) throw ApiError.notFound('Subcuenta no encontrada');
 
@@ -280,9 +284,16 @@ const confirmModel = asyncHandler(async (req, res) => {
   res.json({ ok: true, clientModel: confirmed });
 });
 
+const listMyRequests = asyncHandler(async (req, res) => {
+  const requests = await subaccountRequestService.listRequestsForClient(req.clientProfile.id);
+  res.json({ ok: true, requests });
+});
+
 module.exports = {
   listMine,
-  requestAdditionalSubaccount,
+  requestNewSubaccount,
+  requestDeleteSubaccount,
+  listMyRequests,
   getMine,
   updateMine,
   reportCapitalReady,

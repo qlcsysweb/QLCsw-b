@@ -188,6 +188,9 @@ model User {
   securityConfigsUpdated             SecurityConfiguration[]     @relation("SecurityConfigUpdatedBy")
   processStepsUpdated                ProcessStep[]               @relation("ProcessStepUpdatedBy")
   supportCaseMessagesSent            SupportCaseMessage[]        @relation("SupportCaseMessageSender")
+  apiSubaccountsRemoved              ApiSubaccount[]             @relation("ApiSubaccountRemovedBy")
+  subaccountRequestsMade             SubaccountRequest[]         @relation("SubaccountRequestRequestedBy")
+  subaccountRequestsReviewed         SubaccountRequest[]         @relation("SubaccountRequestReviewedBy")
 
   @@map("users")
 }
@@ -269,13 +272,6 @@ model ClientProfile {
   apiAuthorizationAccepted   Boolean   @default(false)
   apiAuthorizationAcceptedAt DateTime?
 
-  // CORRECCIÓN (subcuentas ocultas) — el cliente tiene sus 20 subcuentas
-  // pre-creadas desde el registro, pero solo ve la PRINCIPAL y las que ya
-  // están CONECTADA/reveladas por un admin (ver ApiSubaccount.visibleToClient).
-  // Este timestamp marca que el cliente pidió que se le habilite una más;
-  // se limpia en cuanto un admin revela una subcuenta oculta para él.
-  subaccountRequestedAt DateTime?
-
   documents    Document[]    @relation("ClientDocuments")
   appointments Appointment[]
   supportCases SupportCase[]
@@ -283,6 +279,12 @@ model ClientProfile {
 
   // CORRECCIÓN 11/16: hasta 20 subcuentas/API por cliente.
   apiSubaccounts ApiSubaccount[]
+
+  // GESTIÓN DINÁMICA DE SUBCUENTAS — cada solicitud (crear o eliminar una
+  // subcuenta) queda registrada aquí, con su propio historial de revisión.
+  // Reemplaza el timestamp único `subaccountRequestedAt` (solo permitía
+  // saber "hay una solicitud sí/no", nunca el motivo ni el historial).
+  subaccountRequests SubaccountRequest[]
 
   // CORRECCIÓN 7: invitaciones de aumento de saldo operativo (historial completo).
   capitalIncreaseInvitations CapitalIncreaseInvitation[]
@@ -339,13 +341,21 @@ model ApiSubaccount {
   ipRequired Boolean @default(false)
   ipAddress  String?
 
-  // CORRECCIÓN (subcuentas ocultas) — de las 20 subcuentas pre-creadas al
-  // registrarse, el cliente solo ve la PRINCIPAL y las que ya tienen
-  // visibleToClient=true. Un admin la revela manualmente (indicando a la
-  // vez el capital operativo requerido) cuando el cliente solicita una
-  // subcuenta adicional — ver ClientProfile.subaccountRequestedAt. Nunca se
-  // vuelve a ocultar una vez revelada.
-  visibleToClient Boolean @default(false)
+  // GESTIÓN DINÁMICA DE SUBCUENTAS — reemplaza la lógica de "subcuentas
+  // ocultas" (visibleToClient): ya no se pre-crean 20 subcuentas por
+  // cliente, así que toda subcuenta que existe está, por definición,
+  // creada a propósito (ya sea automáticamente para la principal, o porque
+  // un admin aprobó una solicitud/la creó manualmente) y es visible.
+  //
+  // "Eliminar" una subcuenta NUNCA borra la fila (eso arrastraría en
+  // cascada sus estados de cuenta, pagos y documentos históricos vía
+  // onDelete: Cascade). Solo se marca removedAt/removedByUserId — deja de
+  // aparecer como activa para el cliente y para los conteos contra el
+  // límite de 20, pero su historial permanece intacto y consultable por un
+  // administrador.
+  removedAt       DateTime?
+  removedByUserId String?
+  removedBy       User?     @relation("ApiSubaccountRemovedBy", fields: [removedByUserId], references: [id])
 
   // CORRECCIÓN 10: capital operativo requerido — configurable por ADMIN.
   // El cliente solo puede INFORMAR que ya lo tiene disponible; la
@@ -375,9 +385,59 @@ model ApiSubaccount {
   rescueDistributionItems    CapitalRescueDistributionItem[] @relation("RescueDistributionItems")
   appointments               Appointment[]
   capitalDistributionReports CapitalDistributionReport[]
+  deletionRequests           SubaccountRequest[]
 
   @@unique([clientId, slotIndex])
   @@map("api_subaccounts")
+}
+
+// ==========================================================
+// GESTIÓN DINÁMICA DE SUBCUENTAS — SOLICITUDES
+// ==========================================================
+// Cada cliente nace con únicamente su cuenta PRINCIPAL (slotIndex 0). Para
+// cualquier subcuenta adicional (hasta el máximo de 20), el cliente debe
+// solicitarla — igual para eliminar una que ya no usa. Un administrador
+// revisa cada solicitud y decide: solo entonces se crea o se desactiva la
+// subcuenta real. El cliente nunca crea ni elimina una subcuenta
+// directamente.
+enum SubaccountRequestType {
+  CREATE
+  DELETE
+}
+
+enum SubaccountRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model SubaccountRequest {
+  id       String        @id @default(cuid())
+  clientId String
+  client   ClientProfile @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  type     SubaccountRequestType
+
+  // Solo aplica (y es obligatorio) para type=DELETE: la subcuenta que el
+  // cliente quiere dejar de usar. Para type=CREATE queda null — la
+  // subcuenta todavía no existe hasta que el admin aprueba y la crea.
+  apiSubaccountId String?
+  apiSubaccount   ApiSubaccount? @relation(fields: [apiSubaccountId], references: [id], onDelete: Cascade)
+
+  // Explicación opcional que el cliente agrega al solicitar.
+  reason String?
+
+  status     SubaccountRequestStatus @default(PENDING)
+  reviewNote String?
+
+  requestedByUserId String
+  requestedBy       User     @relation("SubaccountRequestRequestedBy", fields: [requestedByUserId], references: [id])
+  requestedAt       DateTime @default(now())
+
+  reviewedByUserId String?
+  reviewedBy       User?     @relation("SubaccountRequestReviewedBy", fields: [reviewedByUserId], references: [id])
+  reviewedAt       DateTime?
+
+  @@map("subaccount_requests")
 }
 
 model ApiConnectionEvent {

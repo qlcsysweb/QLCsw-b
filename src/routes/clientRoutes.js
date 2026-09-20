@@ -51,9 +51,13 @@ router.get('/capital-rescue/participations/:id/comprobante', capitalRescueContro
 // Modelos de participación (lectura pública, ya activos)
 router.get('/models', modelController.listModelsPublic);
 
-// Subcuentas / API (CORRECCIÓN 11) — hasta 20 por cliente
+// Subcuentas / API — GESTIÓN DINÁMICA: el cliente nace con solo su cuenta
+// PRINCIPAL; toda subcuenta adicional (hasta 20) y toda eliminación pasan
+// por una solicitud que un admin aprueba o rechaza.
 router.get('/api-subaccounts', apiSubaccountController.listMine);
-router.post('/api-subaccounts/request-additional', apiSubaccountController.requestAdditionalSubaccount);
+router.get('/api-subaccounts/requests', apiSubaccountController.listMyRequests);
+router.post('/api-subaccounts/requests', apiSubaccountController.requestNewSubaccount);
+router.post('/api-subaccounts/:id/requests/delete', apiSubaccountController.requestDeleteSubaccount);
 router.get('/api-subaccounts/:id', apiSubaccountController.getMine);
 router.patch('/api-subaccounts/:id', apiSubaccountController.updateMine);
 router.post('/api-subaccounts/:id/report-capital-ready', apiSubaccountController.reportCapitalReady);

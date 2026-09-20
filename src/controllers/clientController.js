@@ -5,7 +5,7 @@ const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const documentStorage = require('../services/documentStorage');
 const { enforceCommissionDeadline } = require('../utils/connectionDeadlines');
-const { ensureAllSubaccounts } = require('../utils/subaccountProvisioning');
+const { ensurePrincipalSubaccount } = require('../utils/subaccountProvisioning');
 const { verifyClientDeletionPassword } = require('./securityConfigController');
 
 // Resumen de avance de UNA subcuenta/API — para el indicador de "lista
@@ -176,9 +176,10 @@ const createClient = asyncHandler(async (req, res) => {
     include: { clientProfile: true },
   });
 
-  // Especificación funcional QLC — Flujo de Registro: 1 cuenta principal +
-  // 20 subcuentas individuales, también cuando el ADMIN da de alta al cliente.
-  await ensureAllSubaccounts(user.clientProfile.id);
+  // GESTIÓN DINÁMICA DE SUBCUENTAS — igual que en el registro público: solo
+  // la cuenta PRINCIPAL nace automáticamente, también cuando el ADMIN da de
+  // alta al cliente directamente.
+  await ensurePrincipalSubaccount(user.clientProfile.id);
 
   res.status(201).json({ ok: true, client: user.clientProfile });
 });

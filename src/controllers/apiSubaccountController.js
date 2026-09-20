@@ -6,10 +6,12 @@ const { encrypt, decrypt } = require('../utils/crypto');
 const { notifyClient } = require('../utils/notify');
 const { isValidIp } = require('../utils/ipValidation');
 const {
-  ensureAllSubaccounts,
+  getNextSlotIndex,
+  countActiveSubaccounts,
   MAX_SUBACCOUNTS_PER_CLIENT,
   PROCESS_CONDITION_TYPES,
 } = require('../utils/subaccountProvisioning');
+const subaccountRequestService = require('../services/subaccountRequestService');
 
 // CORRECCIÓN 11/16: cada subcuenta nace con su propio proceso de
 // activación (5 condiciones) — igual que antes nacía a nivel cliente.
@@ -18,6 +20,9 @@ const createSubaccountSchema = z.object({
   requiredCapital: z.number().positive().optional(),
 });
 
+// Creación manual directa por un admin (sin pasar por una solicitud del
+// cliente) — el admin conserva el control final de la creación en
+// cualquier momento, como pide la gestión dinámica de subcuentas.
 const createSubaccount = asyncHandler(async (req, res) => {
   const data = createSubaccountSchema.parse(req.body);
   const client = await prisma.clientProfile.findUnique({ where: { id: req.params.clientId } });
@@ -25,8 +30,8 @@ const createSubaccount = asyncHandler(async (req, res) => {
 
   // CORREGIR.xlsx CLIENTE 06: la cuenta PRINCIPAL (slotIndex 0) nunca cuenta
   // contra el máximo de 20 subcuentas/API numeradas.
-  const count = await prisma.apiSubaccount.count({ where: { clientId: client.id, isPrincipal: false } });
-  if (count >= MAX_SUBACCOUNTS_PER_CLIENT) {
+  const activeCount = await countActiveSubaccounts(client.id);
+  if (activeCount >= MAX_SUBACCOUNTS_PER_CLIENT) {
     throw ApiError.conflict(`Este cliente ya tiene el máximo de ${MAX_SUBACCOUNTS_PER_CLIENT} subcuentas/API.`);
   }
 
@@ -40,17 +45,13 @@ const createSubaccount = asyncHandler(async (req, res) => {
   // pedir un dato que ya tiene guardado.
   const clientHasWallet = Boolean(client.walletAddress);
 
-  const nextSlot = count + 1;
+  const nextSlot = await getNextSlotIndex(client.id);
   const subaccount = await prisma.apiSubaccount.create({
     data: {
       clientId: client.id,
       slotIndex: nextSlot,
       identifier: data.identifier || null,
       requiredCapital: data.requiredCapital ?? null,
-      // A diferencia de las 20 subcuentas pre-creadas al registro (que
-      // nacen ocultas), una subcuenta que el admin crea aquí manualmente
-      // es visible de inmediato para el cliente.
-      visibleToClient: true,
       updatedByUserId: req.user.id,
       process: {
         create: {
@@ -85,25 +86,13 @@ const updateSubaccountSchema = z.object({
   // válido (se valida abajo, no en el schema, porque depende del otro campo).
   ipRequired: z.boolean().optional(),
   ipAddress: z.string().nullable().optional(),
-  // CORRECCIÓN (subcuentas ocultas) — revela al cliente una subcuenta que
-  // nació oculta. Nunca se vuelve a ocultar desde aquí (one-way).
-  visibleToClient: z.boolean().optional(),
 });
 
 const updateSubaccount = asyncHandler(async (req, res) => {
   const data = updateSubaccountSchema.parse(req.body);
   const existing = await prisma.apiSubaccount.findUnique({ where: { id: req.params.id } });
   if (!existing) throw ApiError.notFound('Subcuenta no encontrada');
-
-  // Revelar una subcuenta sin capital operativo configurado dejaría al
-  // cliente viendo "pendiente de configuración" justo cuando el admin cree
-  // que ya quedó lista — se exige el monto en el mismo paso.
-  const revealingNow = data.visibleToClient === true && !existing.visibleToClient;
-  if (revealingNow && data.requiredCapital == null && existing.requiredCapital == null) {
-    throw ApiError.badRequest(
-      'Indica el capital operativo requerido (USDT) antes de revelar esta subcuenta al cliente.'
-    );
-  }
+  if (existing.removedAt) throw ApiError.conflict('Esta subcuenta fue eliminada y ya no puede editarse.');
 
   if (data.identifier && data.identifier !== existing.identifier) {
     const clash = await prisma.apiSubaccount.findUnique({ where: { identifier: data.identifier } });
@@ -131,28 +120,11 @@ const updateSubaccount = asyncHandler(async (req, res) => {
       ...(data.notes !== undefined ? { notes: data.notes } : {}),
       ...(data.ipRequired !== undefined ? { ipRequired: data.ipRequired } : {}),
       ...(data.ipAddress !== undefined ? { ipAddress: data.ipAddress } : {}),
-      ...(data.visibleToClient !== undefined ? { visibleToClient: data.visibleToClient } : {}),
       ...(statusChanged && data.status === 'DESCONECTADA' ? { disconnectedAt: new Date() } : {}),
       ...(statusChanged && data.status === 'CONECTADA' ? { reconnectedAt: new Date() } : {}),
       updatedByUserId: req.user.id,
     },
   });
-
-  if (revealingNow) {
-    await prisma.clientProfile.update({
-      where: { id: existing.clientId },
-      data: { subaccountRequestedAt: null },
-    });
-    await notifyClient(existing.clientId, {
-      title: 'Nueva subcuenta disponible',
-      message: `QLC habilitó una subcuenta adicional para ti${
-        updated.requiredCapital != null ? ` — capital operativo requerido: ${updated.requiredCapital} USDT` : ''
-      }.`,
-      type: 'success',
-      templateKey: 'subaccount_revealed',
-      templateParams: { apiSubaccountId: updated.id },
-    });
-  }
 
   if (statusChanged) {
     // CORRECCIÓN 19/25: historial detallado de conexión/desconexión — la
@@ -223,17 +195,6 @@ const getSubaccountSecrets = asyncHandler(async (req, res) => {
   });
 });
 
-// CORRECCIÓN 27/29: backfill idempotente — crea únicamente las subcuentas
-// faltantes hasta llegar a 20, nunca duplica las existentes. Útil para
-// clientes dados de alta antes de esta actualización.
-const ensureSubaccounts = asyncHandler(async (req, res) => {
-  const client = await prisma.clientProfile.findUnique({ where: { id: req.params.clientId } });
-  if (!client) throw ApiError.notFound('Cliente no encontrado');
-
-  const created = await ensureAllSubaccounts(client.id);
-  res.json({ ok: true, createdCount: created.length });
-});
-
 // CORREGIR.xlsx CLIENTE 13 — revisión admin de los reportes de distribución
 // de capital (mismo patrón que la revisión de pagos): el admin aprueba o
 // rechaza; solo al aprobar se confirma la condición FUNDS y se marca
@@ -295,67 +256,134 @@ const reviewCapitalDistributionReport = asyncHandler(async (req, res) => {
   res.json({ ok: true, report: updated });
 });
 
-// AUDITORÍA QLC PARTE 9 — cola de solicitudes de subcuenta/API pendientes
-// (ClientProfile.subaccountRequestedAt), para que el admin las vea en un
-// solo lugar sin tener que recorrer cliente por cliente. Muestra también
-// cuántas subcuentas ocultas tiene disponibles para revelar.
-const listPendingSubaccountRequests = asyncHandler(async (req, res) => {
-  const clients = await prisma.clientProfile.findMany({
-    where: { subaccountRequestedAt: { not: null } },
-    orderBy: { subaccountRequestedAt: 'asc' },
-    include: {
-      user: { select: { email: true } },
-      apiSubaccounts: {
-        where: { isPrincipal: false, visibleToClient: false },
-        orderBy: { slotIndex: 'asc' },
-        select: { id: true, slotIndex: true, identifier: true },
-      },
-    },
-  });
-  res.json({
-    ok: true,
-    requests: clients.map((c) => ({
-      clientId: c.id,
-      username: c.username,
-      firstName: c.firstName,
-      lastName: c.lastName,
-      email: c.user?.email,
-      requestedAt: c.subaccountRequestedAt,
-      nextHiddenSubaccount: c.apiSubaccounts[0] || null,
-      hiddenCount: c.apiSubaccounts.length,
-    })),
-  });
+// GESTIÓN DINÁMICA DE SUBCUENTAS — cola de solicitudes de creación/
+// eliminación, en un solo lugar sin tener que recorrer cliente por cliente.
+// Reemplaza la cola basada en ClientProfile.subaccountRequestedAt.
+const listRequestsSchema = z.object({
+  status: z.enum(['PENDING', 'APPROVED', 'REJECTED']).optional(),
+  type: z.enum(['CREATE', 'DELETE']).optional(),
 });
 
-// El admin puede rechazar la solicitud sin revelar ninguna subcuenta —
-// nunca cambia visibleToClient, solo limpia la marca de "pendiente" y avisa
-// al cliente.
-const rejectSubaccountRequest = asyncHandler(async (req, res) => {
-  const client = await prisma.clientProfile.findUnique({ where: { id: req.params.clientId } });
-  if (!client) throw ApiError.notFound('Cliente no encontrado');
-  if (!client.subaccountRequestedAt) {
-    throw ApiError.conflict('Este cliente no tiene una solicitud de subcuenta pendiente.');
-  }
+const listRequests = asyncHandler(async (req, res) => {
+  const { status, type } = listRequestsSchema.parse(req.query);
+  const requests = await subaccountRequestService.listRequestsForAdmin({ status, type });
+  res.json({ ok: true, requests });
+});
 
-  await prisma.clientProfile.update({ where: { id: client.id }, data: { subaccountRequestedAt: null } });
-  await notifyClient(client.id, {
-    title: 'Solicitud de subcuenta rechazada',
-    message: 'QLC revisó tu solicitud de subcuenta adicional y, por ahora, no fue posible habilitarla. Contacta a soporte si necesitas más información.',
-    type: 'warning',
-    templateKey: 'subaccount_request_rejected',
+const approveCreateRequestSchema = z.object({
+  identifier: z.string().min(1).optional(),
+  requiredCapital: z.number().positive().optional(),
+});
+
+const approveCreateRequest = asyncHandler(async (req, res) => {
+  const data = approveCreateRequestSchema.parse(req.body || {});
+  const result = await subaccountRequestService.approveCreateRequest({
+    requestId: req.params.id,
+    ...data,
+    reviewedByUserId: req.user.id,
+  });
+  res.json({ ok: true, ...result });
+});
+
+const approveDeleteRequest = asyncHandler(async (req, res) => {
+  const removed = await subaccountRequestService.approveDeleteRequest({
+    requestId: req.params.id,
+    reviewedByUserId: req.user.id,
+  });
+  res.json({ ok: true, subaccount: removed });
+});
+
+const rejectRequestSchema = z.object({ reviewNote: z.string().max(500).optional() });
+
+const rejectRequest = asyncHandler(async (req, res) => {
+  const { reviewNote } = rejectRequestSchema.parse(req.body || {});
+  const request = await subaccountRequestService.rejectRequest({
+    requestId: req.params.id,
+    reviewNote,
+    reviewedByUserId: req.user.id,
+  });
+  res.json({ ok: true, request });
+});
+
+// Eliminación directa desde el panel admin, sin pasar por una solicitud
+// previa del cliente — el admin conserva el control final. Se exige que la
+// subcuenta pertenezca al :clientId de la ruta (defensa contra IDOR: un id
+// de subcuenta de OTRO cliente nunca calza y responde 404).
+const removeSubaccountSchema = z.object({ reviewNote: z.string().max(500).optional() });
+
+const removeSubaccountDirect = asyncHandler(async (req, res) => {
+  const { reviewNote } = removeSubaccountSchema.parse(req.body || {});
+  const removed = await subaccountRequestService.removeSubaccount({
+    clientId: req.params.clientId,
+    apiSubaccountId: req.params.id,
+    removedByUserId: req.user.id,
+    reviewNote,
+  });
+  res.json({ ok: true, subaccount: removed });
+});
+
+// AUDITORÍA §8 — herramienta de solo lectura para que el admin identifique,
+// cliente por cliente, qué subcuentas activas parecen no usarse (sin
+// identificador, sin API configurada, sin estados de cuenta/pagos/
+// documentos ni actividad de conexión) y sean candidatas a revisar para una
+// eliminación manual. NUNCA elimina nada por sí sola.
+const listAuditCandidates = asyncHandler(async (req, res) => {
+  const subaccounts = await prisma.apiSubaccount.findMany({
+    where: { isPrincipal: false, removedAt: null },
+    orderBy: [{ clientId: 'asc' }, { slotIndex: 'asc' }],
+    include: {
+      client: { select: { firstName: true, lastName: true, user: { select: { email: true } } } },
+      _count: { select: { statements: true, paymentReports: true, connectionEvents: true } },
+    },
   });
 
-  res.json({ ok: true });
+  const documentCounts = await prisma.document.groupBy({
+    by: ['clientId'],
+    _count: true,
+  });
+  const documentCountByClient = new Map(documentCounts.map((d) => [d.clientId, d._count]));
+
+  res.json({
+    ok: true,
+    subaccounts: subaccounts.map((s) => {
+      const hasStatements = s._count.statements > 0;
+      const hasPayments = s._count.paymentReports > 0;
+      const hasActivity = s._count.connectionEvents > 0;
+      const hasApi = Boolean(s.apiKeyEncrypted);
+      const hasDocuments = (documentCountByClient.get(s.clientId) || 0) > 0;
+      const candidateForRemoval =
+        !s.identifier && !hasApi && !hasStatements && !hasPayments && !hasActivity && s.status === 'PENDIENTE';
+      return {
+        id: s.id,
+        clientId: s.clientId,
+        clientName: `${s.client.firstName} ${s.client.lastName}`,
+        clientEmail: s.client.user?.email || null,
+        identifier: s.identifier,
+        slotIndex: s.slotIndex,
+        status: s.status,
+        createdAt: s.createdAt,
+        hasStatements,
+        hasPayments,
+        hasDocuments,
+        hasActivity,
+        hasApi,
+        candidateForRemoval,
+      };
+    }),
+  });
 });
 
 module.exports = {
   createSubaccount,
   updateSubaccount,
   getSubaccountSecrets,
-  ensureSubaccounts,
   listCapitalDistributionReports,
   reviewCapitalDistributionReport,
-  listPendingSubaccountRequests,
-  rejectSubaccountRequest,
+  listRequests,
+  approveCreateRequest,
+  approveDeleteRequest,
+  rejectRequest,
+  removeSubaccountDirect,
+  listAuditCandidates,
   MAX_SUBACCOUNTS_PER_CLIENT,
 };

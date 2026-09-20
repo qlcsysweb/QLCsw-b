@@ -72,15 +72,20 @@ router.post('/capital-rescue/participations/:participationId/finalize', capitalR
 router.post('/capital-rescue/participations/:participationId/remuneration', capitalRescueController.registerRemuneration);
 router.get('/capital-rescue/participations/:id/comprobante', capitalRescueController.downloadComprobante);
 
-// Subcuentas / API (CORRECCIÓN 10/11/27) — 1 cuenta principal + 20
-// subcuentas, creadas automáticamente al registrar/crear un cliente.
+// Subcuentas / API — GESTIÓN DINÁMICA: cada cliente nace con únicamente su
+// cuenta PRINCIPAL; cualquier subcuenta adicional nace de una solicitud del
+// cliente aprobada por un admin, o de una creación manual directa.
 router.post('/clients/:clientId/api-subaccounts', apiSubaccountController.createSubaccount);
-router.post('/clients/:clientId/api-subaccounts/ensure-all', apiSubaccountController.ensureSubaccounts);
 router.patch('/api-subaccounts/:id', apiSubaccountController.updateSubaccount);
 router.get('/api-subaccounts/:id/secrets', apiSubaccountController.getSubaccountSecrets);
-// AUDITORÍA QLC PARTE 9 — cola de solicitudes de subcuenta/API pendientes.
-router.get('/subaccount-requests', apiSubaccountController.listPendingSubaccountRequests);
-router.post('/clients/:clientId/subaccount-request/reject', apiSubaccountController.rejectSubaccountRequest);
+router.post('/clients/:clientId/api-subaccounts/:id/remove', apiSubaccountController.removeSubaccountDirect);
+router.get('/subaccounts/audit', apiSubaccountController.listAuditCandidates);
+
+// Cola de solicitudes de creación/eliminación de subcuenta.
+router.get('/subaccount-requests', apiSubaccountController.listRequests);
+router.post('/subaccount-requests/:id/approve-create', apiSubaccountController.approveCreateRequest);
+router.post('/subaccount-requests/:id/approve-delete', apiSubaccountController.approveDeleteRequest);
+router.post('/subaccount-requests/:id/reject', apiSubaccountController.rejectRequest);
 
 // CORREGIR.xlsx CLIENTE 13 — revisión de reportes de distribución de capital
 router.get('/capital-distribution-reports', apiSubaccountController.listCapitalDistributionReports);

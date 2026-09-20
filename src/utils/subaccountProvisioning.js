@@ -1,13 +1,9 @@
 /*
- * Especificación funcional QLC — Flujo de Registro, Subcuentas y
- * Distribución de Saldo: al registrarse, cada cliente recibe automáticamente
- * 1 cuenta principal + 20 subcuentas individuales. Los datos generales del
- * cliente (nombre, nacionalidad) se heredan conceptualmente hacia las 20
- * subcuentas — nunca se vuelven a pedir. Lo único independiente por
- * subcuenta es su propia API Key/Secret/Passphrase.
- *
- * Esta función es idempotente: si el cliente ya tiene subcuentas (parcial o
- * completo), solo crea las que falten hasta llegar a 20 — nunca duplica.
+ * GESTIÓN DINÁMICA DE SUBCUENTAS/API — cada cliente nace con únicamente su
+ * cuenta PRINCIPAL (slotIndex 0). Ya NO se pre-crean 20 subcuentas por
+ * cliente: cualquier subcuenta adicional nace solo cuando un admin la crea
+ * manualmente o aprueba una solicitud del cliente (ver
+ * services/subaccountRequestService.js).
  */
 const prisma = require('../config/prisma');
 
@@ -19,70 +15,80 @@ const prisma = require('../config/prisma');
 const PROCESS_CONDITION_TYPES = ['WALLET', 'PAYMENT', 'FUNDS', 'API', 'ACTIVATION'];
 const MAX_SUBACCOUNTS_PER_CLIENT = 20;
 
-async function ensureAllSubaccounts(clientId) {
-  const client = await prisma.clientProfile.findUnique({ where: { id: clientId } });
-  if (!client) return [];
-
-  const existing = await prisma.apiSubaccount.findMany({
-    where: { clientId },
-    select: { slotIndex: true },
-    orderBy: { slotIndex: 'asc' },
-  });
-  const existingSlots = new Set(existing.map((s) => s.slotIndex));
-  const clientHasWallet = Boolean(client.walletAddress);
-
-  const created = [];
-
-  // CORREGIR.xlsx CLIENTE 06 — cuenta PRINCIPAL (slotIndex 0), siempre por
-  // encima de las 20 subcuentas/API numeradas y con el mismo panel interno
-  // (contrato/modelo/proceso/pagos/estados de cuenta) que cualquier otra
-  // subcuenta. No cuenta contra el límite de 20.
-  if (!existingSlots.has(0)) {
-    const principal = await prisma.apiSubaccount.create({
-      data: {
-        clientId,
-        slotIndex: 0,
-        isPrincipal: true,
-        // La PRINCIPAL siempre es visible; las 20 numeradas nacen ocultas
-        // (ver ApiSubaccount.visibleToClient) hasta que un admin las revele.
-        visibleToClient: true,
-        process: {
-          create: {
-            conditions: {
-              create: PROCESS_CONDITION_TYPES.map((type) => ({
-                type,
-                status: type === 'WALLET' && clientHasWallet ? 'CONFIRMED' : 'PENDING',
-              })),
-            },
-          },
-        },
+function buildProcessCreateData(clientHasWallet) {
+  return {
+    create: {
+      conditions: {
+        create: PROCESS_CONDITION_TYPES.map((type) => ({
+          type,
+          status: type === 'WALLET' && clientHasWallet ? 'CONFIRMED' : 'PENDING',
+        })),
       },
-    });
-    created.push(principal);
-  }
-
-  for (let slot = 1; slot <= MAX_SUBACCOUNTS_PER_CLIENT; slot += 1) {
-    if (existingSlots.has(slot)) continue;
-    // eslint-disable-next-line no-await-in-loop
-    const subaccount = await prisma.apiSubaccount.create({
-      data: {
-        clientId,
-        slotIndex: slot,
-        process: {
-          create: {
-            conditions: {
-              create: PROCESS_CONDITION_TYPES.map((type) => ({
-                type,
-                status: type === 'WALLET' && clientHasWallet ? 'CONFIRMED' : 'PENDING',
-              })),
-            },
-          },
-        },
-      },
-    });
-    created.push(subaccount);
-  }
-  return created;
+    },
+  };
 }
 
-module.exports = { ensureAllSubaccounts, MAX_SUBACCOUNTS_PER_CLIENT, PROCESS_CONDITION_TYPES };
+// Idempotente: si el cliente ya tiene su cuenta PRINCIPAL (slotIndex 0), no
+// hace nada. Se usa en el registro público y en la creación administrativa
+// de clientes — nunca crea subcuentas numeradas adicionales.
+async function ensurePrincipalSubaccount(clientId) {
+  const client = await prisma.clientProfile.findUnique({ where: { id: clientId } });
+  if (!client) return null;
+
+  const existingPrincipal = await prisma.apiSubaccount.findUnique({
+    where: { clientId_slotIndex: { clientId, slotIndex: 0 } },
+  });
+  if (existingPrincipal) return existingPrincipal;
+
+  return prisma.apiSubaccount.create({
+    data: {
+      clientId,
+      slotIndex: 0,
+      isPrincipal: true,
+      process: buildProcessCreateData(Boolean(client.walletAddress)),
+    },
+  });
+}
+
+// Próximo slotIndex disponible para una subcuenta NUMERADA (1..20) nueva de
+// este cliente. Se basa en el máximo slotIndex ya usado (incluyendo
+// subcuentas removidas/históricas) para nunca chocar con la restricción
+// única [clientId, slotIndex] — el slotIndex es solo un orden interno, el
+// identificador visible para el cliente/admin es `identifier`.
+async function getNextSlotIndex(clientId) {
+  const last = await prisma.apiSubaccount.findFirst({
+    where: { clientId, isPrincipal: false },
+    orderBy: { slotIndex: 'desc' },
+    select: { slotIndex: true },
+  });
+  return (last?.slotIndex || 0) + 1;
+}
+
+// Cuenta contra el límite de 20 — únicamente las subcuentas numeradas
+// ACTIVAS (ni la principal ni las removidas cuentan).
+async function countActiveSubaccounts(clientId) {
+  return prisma.apiSubaccount.count({
+    where: { clientId, isPrincipal: false, removedAt: null },
+  });
+}
+
+// Regla segura de eliminación: no se permite remover una subcuenta mientras
+// tenga cualquier estado de cuenta con comisión pendiente de pago (vencida
+// o no). `Statement.displayStatus` se deriva siempre de
+// commission/commissionPaid (ver statementController.js) — nunca se guarda
+// como columna redundante, así que se replica el mismo criterio aquí.
+async function hasPendingStatements(apiSubaccountId) {
+  const count = await prisma.statement.count({
+    where: { apiSubaccountId, commission: { gt: 0 }, commissionPaid: false },
+  });
+  return count > 0;
+}
+
+module.exports = {
+  ensurePrincipalSubaccount,
+  getNextSlotIndex,
+  countActiveSubaccounts,
+  hasPendingStatements,
+  MAX_SUBACCOUNTS_PER_CLIENT,
+  PROCESS_CONDITION_TYPES,
+};
