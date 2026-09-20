@@ -7,22 +7,19 @@ const adminRoutes = require('./routes/adminRoutes');
 const clientRoutes = require('./routes/clientRoutes');
 const publicRoutes = require('./routes/publicRoutes');
 const { notFoundHandler, errorHandler } = require('./middleware/errorHandler');
+const { corsOptions } = require('./config/corsConfig');
 
 const app = express();
 
-// El navegador nunca incluye "/" al final del Origin (es solo scheme://host:port).
-// Si CLIENT_ORIGIN se configura por error con una barra final (p. ej.
-// "https://mi-app.vercel.app/"), la comparación exacta de `cors` nunca
-// coincide y bloquea TODAS las peticiones reales — se normaliza aquí para
-// que ese error de configuración no pueda volver a romper la conexión.
-const CLIENT_ORIGIN = (process.env.CLIENT_ORIGIN || '').replace(/\/+$/, '');
-
-app.use(
-  cors({
-    origin: CLIENT_ORIGIN,
-    credentials: true,
-  })
-);
+// CORS dinámico contra una lista blanca (ver config/corsConfig.js) — el
+// frontend vive en más de un origen (dominio propio qlctrade.net + URL de
+// Vercel + previews por rama), así que un `Access-Control-Allow-Origin` fijo
+// (lo que había antes) siempre termina rompiendo a alguno de ellos.
+app.use(cors(corsOptions));
+// Preflight explícito para cualquier ruta — algunas peticiones (headers no
+// simples, métodos como PATCH/DELETE) disparan OPTIONS antes de la petición
+// real, y necesitan la misma política que arriba.
+app.options('*', cors(corsOptions));
 app.use(express.json({ limit: '2mb' }));
 app.use(cookieParser());
 
