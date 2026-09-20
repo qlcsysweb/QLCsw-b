@@ -97,6 +97,22 @@ async function findClientFolder(client) {
   return findFolderByName(drive, clientFolderName(client), clientesFolderId);
 }
 
+// NOMENCLATURA ÚNICA — cuando un admin asigna la nomenclatura de un cliente
+// que YA tenía una carpeta creada (bajo el nombre provisional con su ID
+// interno, por haber subido algo antes de tener nomenclatura), esta función
+// la renombra en Drive en vez de crear una carpeta duplicada. Si el cliente
+// todavía no tiene carpeta, no hace nada — se creará normalmente con el
+// nombre correcto en su primer uso (ver getOrCreateClientFolder).
+async function renameClientFolderIfNeeded(client) {
+  if (!client.driveClientFolderId) return null;
+  if (!(await isConfigured())) return null;
+
+  const drive = await getDriveClient();
+  const newName = clientFolderName(client);
+  await drive.files.update({ fileId: client.driveClientFolderId, requestBody: { name: newName } });
+  return client.driveClientFolderId;
+}
+
 async function getOrCreateSubfolderInDrive(drive, clientFolderId, key) {
   const name = SUBFOLDER_NAMES[key];
   if (!name) throw new Error(`Subcarpeta desconocida: ${key}`);
@@ -235,6 +251,7 @@ module.exports = {
   isConfigured,
   findClientFolder,
   getOrCreateClientFolder,
+  renameClientFolderIfNeeded,
   getOrCreateSubfolder,
   ensureClientFolders,
   ensurePlatformFolder,

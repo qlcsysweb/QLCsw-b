@@ -92,7 +92,7 @@ const updateSubaccount = asyncHandler(async (req, res) => {
   const data = updateSubaccountSchema.parse(req.body);
   const existing = await prisma.apiSubaccount.findUnique({ where: { id: req.params.id } });
   if (!existing) throw ApiError.notFound('Subcuenta no encontrada');
-  if (existing.removedAt) throw ApiError.conflict('Esta subcuenta fue eliminada y ya no puede editarse.');
+  if (existing.deactivatedAt) throw ApiError.conflict('Esta subcuenta está inactiva. Actívala antes de editarla.');
 
   if (data.identifier && data.identifier !== existing.identifier) {
     const clash = await prisma.apiSubaccount.findUnique({ where: { identifier: data.identifier } });
@@ -257,11 +257,10 @@ const reviewCapitalDistributionReport = asyncHandler(async (req, res) => {
 });
 
 // GESTIÓN DINÁMICA DE SUBCUENTAS — cola de solicitudes de creación/
-// eliminación, en un solo lugar sin tener que recorrer cliente por cliente.
-// Reemplaza la cola basada en ClientProfile.subaccountRequestedAt.
+// desactivación, en un solo lugar sin tener que recorrer cliente por cliente.
 const listRequestsSchema = z.object({
   status: z.enum(['PENDING', 'APPROVED', 'REJECTED']).optional(),
-  type: z.enum(['CREATE', 'DELETE']).optional(),
+  type: z.enum(['CREATE', 'DEACTIVATE']).optional(),
 });
 
 const listRequests = asyncHandler(async (req, res) => {
@@ -285,12 +284,12 @@ const approveCreateRequest = asyncHandler(async (req, res) => {
   res.json({ ok: true, ...result });
 });
 
-const approveDeleteRequest = asyncHandler(async (req, res) => {
-  const removed = await subaccountRequestService.approveDeleteRequest({
+const approveDeactivateRequest = asyncHandler(async (req, res) => {
+  const deactivated = await subaccountRequestService.approveDeactivateRequest({
     requestId: req.params.id,
     reviewedByUserId: req.user.id,
   });
-  res.json({ ok: true, subaccount: removed });
+  res.json({ ok: true, subaccount: deactivated });
 });
 
 const rejectRequestSchema = z.object({ reviewNote: z.string().max(500).optional() });
@@ -305,31 +304,43 @@ const rejectRequest = asyncHandler(async (req, res) => {
   res.json({ ok: true, request });
 });
 
-// Eliminación directa desde el panel admin, sin pasar por una solicitud
+// Desactivación directa desde el panel admin, sin pasar por una solicitud
 // previa del cliente — el admin conserva el control final. Se exige que la
 // subcuenta pertenezca al :clientId de la ruta (defensa contra IDOR: un id
-// de subcuenta de OTRO cliente nunca calza y responde 404).
-const removeSubaccountSchema = z.object({ reviewNote: z.string().max(500).optional() });
+// de subcuenta de OTRO cliente nunca calza y responde 404). Nunca elimina —
+// solo cambia el estado a INACTIVA (reversible con activateSubaccountDirect).
+const deactivateSubaccountSchema = z.object({ reviewNote: z.string().max(500).optional() });
 
-const removeSubaccountDirect = asyncHandler(async (req, res) => {
-  const { reviewNote } = removeSubaccountSchema.parse(req.body || {});
-  const removed = await subaccountRequestService.removeSubaccount({
+const deactivateSubaccountDirect = asyncHandler(async (req, res) => {
+  const { reviewNote } = deactivateSubaccountSchema.parse(req.body || {});
+  const deactivated = await subaccountRequestService.deactivateSubaccount({
     clientId: req.params.clientId,
     apiSubaccountId: req.params.id,
-    removedByUserId: req.user.id,
+    deactivatedByUserId: req.user.id,
     reviewNote,
   });
-  res.json({ ok: true, subaccount: removed });
+  res.json({ ok: true, subaccount: deactivated });
+});
+
+// Reactivación directa — mismo control IDOR (clientId de la ruta debe
+// coincidir con el dueño real de la subcuenta).
+const activateSubaccountDirect = asyncHandler(async (req, res) => {
+  const activated = await subaccountRequestService.activateSubaccount({
+    clientId: req.params.clientId,
+    apiSubaccountId: req.params.id,
+    activatedByUserId: req.user.id,
+  });
+  res.json({ ok: true, subaccount: activated });
 });
 
 // AUDITORÍA §8 — herramienta de solo lectura para que el admin identifique,
 // cliente por cliente, qué subcuentas activas parecen no usarse (sin
 // identificador, sin API configurada, sin estados de cuenta/pagos/
 // documentos ni actividad de conexión) y sean candidatas a revisar para una
-// eliminación manual. NUNCA elimina nada por sí sola.
+// posible desactivación manual. NUNCA cambia nada por sí sola.
 const listAuditCandidates = asyncHandler(async (req, res) => {
   const subaccounts = await prisma.apiSubaccount.findMany({
-    where: { isPrincipal: false, removedAt: null },
+    where: { isPrincipal: false, deactivatedAt: null },
     orderBy: [{ clientId: 'asc' }, { slotIndex: 'asc' }],
     include: {
       client: { select: { firstName: true, lastName: true, user: { select: { email: true } } } },
@@ -351,7 +362,7 @@ const listAuditCandidates = asyncHandler(async (req, res) => {
       const hasActivity = s._count.connectionEvents > 0;
       const hasApi = Boolean(s.apiKeyEncrypted);
       const hasDocuments = (documentCountByClient.get(s.clientId) || 0) > 0;
-      const candidateForRemoval =
+      const candidateForReview =
         !s.identifier && !hasApi && !hasStatements && !hasPayments && !hasActivity && s.status === 'PENDIENTE';
       return {
         id: s.id,
@@ -367,7 +378,7 @@ const listAuditCandidates = asyncHandler(async (req, res) => {
         hasDocuments,
         hasActivity,
         hasApi,
-        candidateForRemoval,
+        candidateForReview,
       };
     }),
   });
@@ -381,9 +392,10 @@ module.exports = {
   reviewCapitalDistributionReport,
   listRequests,
   approveCreateRequest,
-  approveDeleteRequest,
+  approveDeactivateRequest,
   rejectRequest,
-  removeSubaccountDirect,
+  deactivateSubaccountDirect,
+  activateSubaccountDirect,
   listAuditCandidates,
   MAX_SUBACCOUNTS_PER_CLIENT,
 };

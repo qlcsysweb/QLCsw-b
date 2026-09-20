@@ -47,6 +47,7 @@ router.get('/clients', clientController.listClients);
 router.post('/clients', clientController.createClient);
 router.get('/clients/:id', clientController.getClient);
 router.patch('/clients/:id', clientController.updateClient);
+router.post('/clients/:id/assign-username', clientController.assignUsername);
 router.patch('/clients/:id/active', clientController.setClientActive);
 router.get('/clients/:id/wallet', clientController.getWallet);
 router.get('/clients/:id/wallet-qr', clientController.downloadWalletQr);
@@ -79,13 +80,15 @@ router.get('/capital-rescue/participations/:id/comprobante', capitalRescueContro
 router.post('/clients/:clientId/api-subaccounts', apiSubaccountController.createSubaccount);
 router.patch('/api-subaccounts/:id', apiSubaccountController.updateSubaccount);
 router.get('/api-subaccounts/:id/secrets', apiSubaccountController.getSubaccountSecrets);
-router.post('/clients/:clientId/api-subaccounts/:id/remove', apiSubaccountController.removeSubaccountDirect);
+// Subcuentas por ESTADO — activar/desactivar, reversible, nunca eliminar.
+router.post('/clients/:clientId/api-subaccounts/:id/deactivate', apiSubaccountController.deactivateSubaccountDirect);
+router.post('/clients/:clientId/api-subaccounts/:id/activate', apiSubaccountController.activateSubaccountDirect);
 router.get('/subaccounts/audit', apiSubaccountController.listAuditCandidates);
 
-// Cola de solicitudes de creación/eliminación de subcuenta.
+// Cola de solicitudes de creación/desactivación de subcuenta.
 router.get('/subaccount-requests', apiSubaccountController.listRequests);
 router.post('/subaccount-requests/:id/approve-create', apiSubaccountController.approveCreateRequest);
-router.post('/subaccount-requests/:id/approve-delete', apiSubaccountController.approveDeleteRequest);
+router.post('/subaccount-requests/:id/approve-deactivate', apiSubaccountController.approveDeactivateRequest);
 router.post('/subaccount-requests/:id/reject', apiSubaccountController.rejectRequest);
 
 // CORREGIR.xlsx CLIENTE 13 — revisión de reportes de distribución de capital

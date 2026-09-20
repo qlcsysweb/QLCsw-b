@@ -9,11 +9,11 @@ const { notifyAdmins } = require('../../utils/notify');
 const { MAX_SUBACCOUNTS_PER_CLIENT } = require('../../utils/subaccountProvisioning');
 const subaccountRequestService = require('../../services/subaccountRequestService');
 
-// GESTIÓN DINÁMICA DE SUBCUENTAS — ya no existen subcuentas "ocultas": toda
-// subcuenta que exista y no tenga removedAt es, por definición, activa y
-// visible para su cliente. Mismo filtro en listMine/getMine para que una
-// subcuenta eliminada tampoco sea accesible adivinando su URL/id.
-const ACTIVE_WHERE = { removedAt: null };
+// GESTIÓN DINÁMICA DE SUBCUENTAS — subcuentas por ESTADO: toda subcuenta sin
+// deactivatedAt es, por definición, ACTIVA y visible para su cliente. Una
+// subcuenta INACTIVA nunca se borra (conserva su historial), pero tampoco es
+// accesible para el cliente ni adivinando su URL/id.
+const ACTIVE_WHERE = { deactivatedAt: null };
 
 function shape(subaccount) {
   const { apiKeyEncrypted, apiSecretEncrypted, apiPassphraseEncrypted, ...rest } = subaccount;
@@ -65,14 +65,14 @@ const requestNewSubaccount = asyncHandler(async (req, res) => {
   res.status(201).json({ ok: true, request });
 });
 
-const requestDeleteSchema = z.object({ reason: z.string().max(500).optional() });
+const requestDeactivateSchema = z.object({ reason: z.string().max(500).optional() });
 
-// El cliente tampoco elimina directamente: solicita, y el admin aprueba o
+// El cliente tampoco desactiva directamente: solicita, y el admin aprueba o
 // rechaza. Se bloquea aquí mismo (antes de llegar al admin) si la subcuenta
 // tiene un estado de cuenta con comisión pendiente de pago.
-const requestDeleteSubaccount = asyncHandler(async (req, res) => {
-  const { reason } = requestDeleteSchema.parse(req.body || {});
-  const request = await subaccountRequestService.requestDeleteSubaccount({
+const requestDeactivateSubaccount = asyncHandler(async (req, res) => {
+  const { reason } = requestDeactivateSchema.parse(req.body || {});
+  const request = await subaccountRequestService.requestDeactivateSubaccount({
     clientId: req.clientProfile.id,
     apiSubaccountId: req.params.id,
     reason,
@@ -292,7 +292,7 @@ const listMyRequests = asyncHandler(async (req, res) => {
 module.exports = {
   listMine,
   requestNewSubaccount,
-  requestDeleteSubaccount,
+  requestDeactivateSubaccount,
   listMyRequests,
   getMine,
   updateMine,

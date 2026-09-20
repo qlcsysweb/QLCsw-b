@@ -5,7 +5,6 @@ const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const { signToken, cookieOptions } = require('../utils/token');
 const { ensurePrincipalSubaccount } = require('../utils/subaccountProvisioning');
-const driveStorage = require('../services/driveStorageService');
 const { notifyAdmins } = require('../utils/notify');
 const {
   isTwoFactorGloballyEnabled,
@@ -195,24 +194,22 @@ const register = asyncHandler(async (req, res) => {
   // solicitud del cliente que un admin aprueba.
   await ensurePrincipalSubaccount(user.clientProfile.id);
 
-  // IMPLEMENTACIÓN DEFINITIVA DE GOOGLE DRIVE — se intenta preparar la
-  // carpeta del cliente de inmediato, pero NUNCA debe bloquear el registro:
-  // si Drive todavía no está conectado (o falla), el cliente se crea igual
-  // y queda con driveSyncStatus="PENDING" hasta la primera subida real
-  // (ver driveStorageService.getOrCreateClientFolder, que reintenta sola).
-  if (await driveStorage.isConfigured()) {
-    await driveStorage.getOrCreateClientFolder(user.clientProfile).catch((err) => {
-      prisma.clientProfile
-        .update({ where: { id: user.clientProfile.id }, data: { driveSyncStatus: 'ERROR', driveSyncError: err.message } })
-        .catch(() => {});
-    });
-  }
+  // NOMENCLATURA ÚNICA §9/§10 — el registro público NUNCA asigna su propia
+  // nomenclatura (el campo no existe en registerSchema: nace null =
+  // "PENDIENTE DE ASIGNACIÓN"). Por eso tampoco se prepara la carpeta de
+  // Drive aquí todavía: crearla ahora obligaría a usar el ID interno como
+  // nombre provisional ("nomenclatura inventada"). Queda con
+  // driveSyncStatus="PENDING" (default del esquema) — cuando un admin
+  // asigne la nomenclatura (assignUsername), ahí sí se prepara/renombra la
+  // carpeta correspondiente. Si el cliente sube algo ANTES de eso, el flujo
+  // de subida sigue funcionando (usa el ID como respaldo y se renombra
+  // después) — nunca se bloquea al cliente por falta de nomenclatura.
 
   await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
 
   await notifyAdmins({
     title: 'Nuevo cliente registrado',
-    message: `${data.firstName} ${data.lastName} (${data.email}) se registró en QLC.`,
+    message: `${data.firstName} ${data.lastName} (${data.email}) se registró en QLC. Todavía no tiene nomenclatura única asignada — actívala desde su ficha para completar su identificación y preparar su carpeta de Google Drive.`,
     type: 'info',
     templateKey: 'new_client_registered_admin',
     templateParams: { clientName: `${data.firstName} ${data.lastName}`, email: data.email, clientId: user.clientProfile.id },

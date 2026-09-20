@@ -188,7 +188,7 @@ model User {
   securityConfigsUpdated             SecurityConfiguration[]     @relation("SecurityConfigUpdatedBy")
   processStepsUpdated                ProcessStep[]               @relation("ProcessStepUpdatedBy")
   supportCaseMessagesSent            SupportCaseMessage[]        @relation("SupportCaseMessageSender")
-  apiSubaccountsRemoved              ApiSubaccount[]             @relation("ApiSubaccountRemovedBy")
+  apiSubaccountsDeactivated          ApiSubaccount[]             @relation("ApiSubaccountDeactivatedBy")
   subaccountRequestsMade             SubaccountRequest[]         @relation("SubaccountRequestRequestedBy")
   subaccountRequestsReviewed         SubaccountRequest[]         @relation("SubaccountRequestReviewedBy")
 
@@ -232,12 +232,15 @@ model ClientProfile {
   id          String       @id @default(cuid())
   userId      String       @unique
   user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  // CORRECCIÓN 2 (bloque de 20) — "usuario" es una nomenclatura libre que
-  // define QLC (ej. "QLC001") para identificar al cliente en el panel
-  // admin. Es INDEPENDIENTE del correo (que sigue siendo el dato real de
-  // inicio de sesión) y del nombre completo. Nullable porque los clientes
-  // ya existentes no tienen uno todavía hasta que un admin se lo asigne.
-  username    String?      @unique
+  // NOMENCLATURA ÚNICA DEL CLIENTE — "usuario" es un identificador libre
+  // (cualquier carácter, máx. 30) que el ADMINISTRADOR asigna para
+  // identificar al cliente y nombrar su carpeta de Google Drive. Es
+  // INDEPENDIENTE del correo (login), del nombre visible y del identificador
+  // de una subcuenta. Se asigna UNA sola vez — ni el cliente ni el admin
+  // pueden editarla después (ver clientController.updateClient, que la
+  // rechaza explícitamente si ya existe). Null = "PENDIENTE DE ASIGNACIÓN":
+  // así nace todo registro público; un admin la asigna después.
+  username    String?      @unique @db.VarChar(30)
   firstName   String
   lastName    String
   // CORRECCIÓN 4: capturada en el registro, reutilizada automáticamente en
@@ -362,15 +365,15 @@ model ApiSubaccount {
   // creada a propósito (ya sea automáticamente para la principal, o porque
   // un admin aprobó una solicitud/la creó manualmente) y es visible.
   //
-  // "Eliminar" una subcuenta NUNCA borra la fila (eso arrastraría en
-  // cascada sus estados de cuenta, pagos y documentos históricos vía
-  // onDelete: Cascade). Solo se marca removedAt/removedByUserId — deja de
-  // aparecer como activa para el cliente y para los conteos contra el
-  // límite de 20, pero su historial permanece intacto y consultable por un
-  // administrador.
-  removedAt       DateTime?
-  removedByUserId String?
-  removedBy       User?     @relation("ApiSubaccountRemovedBy", fields: [removedByUserId], references: [id])
+  // CORRECCIÓN — subcuentas por ESTADO, no por eliminación: una subcuenta
+  // NUNCA se borra de la base de datos (eso arrastraría en cascada sus
+  // estados de cuenta, pagos y documentos históricos vía onDelete: Cascade,
+  // y perdería el historial). "deactivatedAt" null = ACTIVA; con fecha =
+  // INACTIVA. El administrador puede activarla y desactivarla libremente
+  // (reversible), nunca es un archivo de "eliminadas" — solo dos estados.
+  deactivatedAt       DateTime?
+  deactivatedByUserId String?
+  deactivatedBy       User?     @relation("ApiSubaccountDeactivatedBy", fields: [deactivatedByUserId], references: [id])
 
   // CORRECCIÓN 10: capital operativo requerido — configurable por ADMIN.
   // El cliente solo puede INFORMAR que ya lo tiene disponible; la
@@ -400,7 +403,7 @@ model ApiSubaccount {
   rescueDistributionItems    CapitalRescueDistributionItem[] @relation("RescueDistributionItems")
   appointments               Appointment[]
   capitalDistributionReports CapitalDistributionReport[]
-  deletionRequests           SubaccountRequest[]
+  deactivationRequests       SubaccountRequest[]
 
   @@unique([clientId, slotIndex])
   @@map("api_subaccounts")
@@ -411,13 +414,13 @@ model ApiSubaccount {
 // ==========================================================
 // Cada cliente nace con únicamente su cuenta PRINCIPAL (slotIndex 0). Para
 // cualquier subcuenta adicional (hasta el máximo de 20), el cliente debe
-// solicitarla — igual para eliminar una que ya no usa. Un administrador
+// solicitarla — igual para desactivar una que ya no usa. Un administrador
 // revisa cada solicitud y decide: solo entonces se crea o se desactiva la
-// subcuenta real. El cliente nunca crea ni elimina una subcuenta
-// directamente.
+// subcuenta real (nunca se elimina). El cliente nunca crea ni desactiva una
+// subcuenta directamente.
 enum SubaccountRequestType {
   CREATE
-  DELETE
+  DEACTIVATE
 }
 
 enum SubaccountRequestStatus {
@@ -432,8 +435,8 @@ model SubaccountRequest {
   client   ClientProfile @relation(fields: [clientId], references: [id], onDelete: Cascade)
   type     SubaccountRequestType
 
-  // Solo aplica (y es obligatorio) para type=DELETE: la subcuenta que el
-  // cliente quiere dejar de usar. Para type=CREATE queda null — la
+  // Solo aplica (y es obligatorio) para type=DEACTIVATE: la subcuenta que
+  // el cliente quiere dejar de usar. Para type=CREATE queda null — la
   // subcuenta todavía no existe hasta que el admin aprueba y la crea.
   apiSubaccountId String?
   apiSubaccount   ApiSubaccount? @relation(fields: [apiSubaccountId], references: [id], onDelete: Cascade)

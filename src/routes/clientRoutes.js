@@ -52,12 +52,12 @@ router.get('/capital-rescue/participations/:id/comprobante', capitalRescueContro
 router.get('/models', modelController.listModelsPublic);
 
 // Subcuentas / API — GESTIÓN DINÁMICA: el cliente nace con solo su cuenta
-// PRINCIPAL; toda subcuenta adicional (hasta 20) y toda eliminación pasan
-// por una solicitud que un admin aprueba o rechaza.
+// PRINCIPAL; toda subcuenta adicional (hasta 20) y toda desactivación pasan
+// por una solicitud que un admin aprueba o rechaza. Nunca se elimina.
 router.get('/api-subaccounts', apiSubaccountController.listMine);
 router.get('/api-subaccounts/requests', apiSubaccountController.listMyRequests);
 router.post('/api-subaccounts/requests', apiSubaccountController.requestNewSubaccount);
-router.post('/api-subaccounts/:id/requests/delete', apiSubaccountController.requestDeleteSubaccount);
+router.post('/api-subaccounts/:id/requests/deactivate', apiSubaccountController.requestDeactivateSubaccount);
 router.get('/api-subaccounts/:id', apiSubaccountController.getMine);
 router.patch('/api-subaccounts/:id', apiSubaccountController.updateMine);
 router.post('/api-subaccounts/:id/report-capital-ready', apiSubaccountController.reportCapitalReady);

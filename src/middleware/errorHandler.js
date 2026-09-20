@@ -4,7 +4,25 @@ function notFoundHandler(req, res, next) {
   next(ApiError.notFound(`Ruta no encontrada: ${req.method} ${req.originalUrl}`));
 }
 
+// CORRECCIÓN — un `schema.parse(req.body)` de Zod que falla (campo
+// obligatorio faltante, texto demasiado largo, email inválido, etc.) lanza
+// un ZodError, que ANTES caía aquí sin manejo específico y se mostraba como
+// un 500 genérico ("Ocurrió un problema inesperado") en vez del 400 con el
+// mensaje de validación real que el usuario necesita ver. Afecta a todos
+// los formularios del sistema, no solo a uno — se corrige en un solo lugar.
+function isZodError(err) {
+  return err?.name === 'ZodError' && Array.isArray(err?.issues);
+}
+
+function humanizeZodError(err) {
+  const first = err.issues[0];
+  return first?.message || 'Los datos enviados no son válidos.';
+}
+
 function errorHandler(err, req, res, next) {
+  if (isZodError(err)) {
+    err = ApiError.badRequest(humanizeZodError(err), err.issues);
+  }
   const statusCode = err instanceof ApiError ? err.statusCode : err.statusCode || 500;
 
   // Los errores no controlados (500) NUNCA muestran el mensaje técnico real al

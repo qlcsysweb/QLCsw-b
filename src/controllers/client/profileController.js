@@ -31,7 +31,7 @@ const getDashboard = asyncHandler(async (req, res) => {
   const [client, subaccounts, unreadNotifications, nextAppointment] = await Promise.all([
     prisma.clientProfile.findUnique({ where: { id: clientId } }),
     prisma.apiSubaccount.findMany({
-      where: { clientId },
+      where: { clientId, deactivatedAt: null },
       orderBy: { slotIndex: 'asc' },
       include: {
         clientModel: { include: { model: true } },

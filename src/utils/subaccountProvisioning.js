@@ -52,7 +52,7 @@ async function ensurePrincipalSubaccount(clientId) {
 
 // Próximo slotIndex disponible para una subcuenta NUMERADA (1..20) nueva de
 // este cliente. Se basa en el máximo slotIndex ya usado (incluyendo
-// subcuentas removidas/históricas) para nunca chocar con la restricción
+// subcuentas inactivas/históricas) para nunca chocar con la restricción
 // única [clientId, slotIndex] — el slotIndex es solo un orden interno, el
 // identificador visible para el cliente/admin es `identifier`.
 async function getNextSlotIndex(clientId) {
@@ -65,16 +65,16 @@ async function getNextSlotIndex(clientId) {
 }
 
 // Cuenta contra el límite de 20 — únicamente las subcuentas numeradas
-// ACTIVAS (ni la principal ni las removidas cuentan).
+// ACTIVAS (ni la principal ni las inactivas cuentan).
 async function countActiveSubaccounts(clientId) {
   return prisma.apiSubaccount.count({
-    where: { clientId, isPrincipal: false, removedAt: null },
+    where: { clientId, isPrincipal: false, deactivatedAt: null },
   });
 }
 
-// Regla segura de eliminación: no se permite remover una subcuenta mientras
-// tenga cualquier estado de cuenta con comisión pendiente de pago (vencida
-// o no). `Statement.displayStatus` se deriva siempre de
+// Regla segura de desactivación: no se permite desactivar una subcuenta
+// mientras tenga cualquier estado de cuenta con comisión pendiente de pago
+// (vencida o no). `Statement.displayStatus` se deriva siempre de
 // commission/commissionPaid (ver statementController.js) — nunca se guarda
 // como columna redundante, así que se replica el mismo criterio aquí.
 async function hasPendingStatements(apiSubaccountId) {

@@ -37,12 +37,16 @@ function summarizeSubaccounts(apiSubaccounts) {
 }
 
 // CORRECCIÓN 6/17/18: sin teléfono. El correo sigue siendo el identificador
-// real de acceso (login). CORRECCIÓN 2 (bloque de 20) — "username" es una
-// nomenclatura libre adicional que define QLC (ej. "QLC001") para
-// identificar al cliente en el panel; es independiente del correo y nunca
-// se usa para iniciar sesión.
+// real de acceso (login).
+//
+// NOMENCLATURA ÚNICA DEL CLIENTE — "username" ya NO es opcional cuando el
+// ADMIN registra manualmente a un cliente: es el identificador que QLC usa
+// para reconocerlo y para nombrar su carpeta de Google Drive. Cualquier
+// carácter, máximo 30, sin formato impuesto ni ejemplo sugerido (para no
+// inducir un formato). Se asigna UNA sola vez — ver updateClient, que la
+// rechaza si el cliente ya tiene una.
 const createClientSchema = z.object({
-  username: z.string().min(1).optional(),
+  username: z.string().min(1, 'La nomenclatura única es obligatoria').max(30, 'Máximo 30 caracteres'),
   firstName: z.string().min(1, 'El nombre es obligatorio'),
   lastName: z.string().min(1, 'El apellido es obligatorio'),
   email: z.string().email('Email inválido'),
@@ -150,10 +154,8 @@ const createClient = asyncHandler(async (req, res) => {
   const existingEmail = await prisma.user.findUnique({ where: { email: data.email } });
   if (existingEmail) throw ApiError.conflict('Ya existe un usuario con ese email');
 
-  if (data.username) {
-    const existingUsername = await prisma.clientProfile.findUnique({ where: { username: data.username } });
-    if (existingUsername) throw ApiError.conflict('Ese usuario ya está en uso por otro cliente');
-  }
+  const existingUsername = await prisma.clientProfile.findUnique({ where: { username: data.username } });
+  if (existingUsername) throw ApiError.conflict('Esa nomenclatura ya está en uso por otro cliente.');
 
   const passwordHash = await bcrypt.hash(data.password, 12);
 
@@ -164,7 +166,7 @@ const createClient = asyncHandler(async (req, res) => {
       role: 'CLIENT',
       clientProfile: {
         create: {
-          username: data.username || null,
+          username: data.username,
           firstName: data.firstName,
           lastName: data.lastName,
           nationality: data.nationality || null,
@@ -194,13 +196,17 @@ const createClient = asyncHandler(async (req, res) => {
   res.status(201).json({ ok: true, client: user.clientProfile });
 });
 
-// CORRECCIÓN 2 (bloque de 20) — el admin edita usuario/nombre/correo/
-// contraseña desde un único modal. "username" es libre y opcional;
-// "email"/"password" siguen viviendo en User (login), nunca en
-// ClientProfile. Un password vacío/omitido conserva el actual — nunca se
-// exige cambiarlo.
+// CORRECCIÓN 2 (bloque de 20) — el admin edita nombre/correo/contraseña
+// desde un único modal. "email"/"password" siguen viviendo en User (login),
+// nunca en ClientProfile. Un password vacío/omitido conserva el actual —
+// nunca se exige cambiarlo.
+//
+// NOMENCLATURA ÚNICA — "username" NO forma parte de este schema a
+// propósito: una vez asignada, ni el cliente ni el admin pueden editarla
+// (ver §11). Cualquier "username" que llegue en el body se ignora
+// silenciosamente aquí (zod.strip() por defecto) — la única forma de
+// asignarla es assignUsername, y solo cuando el cliente todavía no tiene una.
 const updateClientSchema = z.object({
-  username: z.string().min(1).nullable().optional(),
   firstName: z.string().min(1).optional(),
   lastName: z.string().min(1).optional(),
   email: z.string().email('Email inválido').optional(),
@@ -214,11 +220,6 @@ const updateClient = asyncHandler(async (req, res) => {
   const data = updateClientSchema.parse(req.body);
   const client = await prisma.clientProfile.findUnique({ where: { id: req.params.id }, include: { user: true } });
   if (!client) throw ApiError.notFound('Cliente no encontrado');
-
-  if (data.username !== undefined && data.username !== null && data.username !== client.username) {
-    const clash = await prisma.clientProfile.findUnique({ where: { username: data.username } });
-    if (clash) throw ApiError.conflict('Ese usuario ya está en uso por otro cliente');
-  }
 
   if (data.email && data.email !== client.user.email) {
     const clash = await prisma.user.findUnique({ where: { email: data.email } });
@@ -241,6 +242,47 @@ const updateClient = asyncHandler(async (req, res) => {
     data: profileData,
     include: { user: { select: { email: true, isActive: true, lastLoginAt: true } } },
   });
+
+  res.json({ ok: true, client: updated });
+});
+
+// NOMENCLATURA ÚNICA §9/§11 — único punto donde se puede ASIGNAR (nunca
+// editar) la nomenclatura de un cliente. Rechaza explícitamente si el
+// cliente ya tiene una — inmutable una vez guardada, sin excepción, ni
+// siquiera para el admin. Si el cliente ya tenía una carpeta de Drive
+// creada con un nombre provisional (por haber subido algo antes de tener
+// nomenclatura), la renombra en vez de duplicarla.
+const assignUsernameSchema = z.object({
+  username: z.string().min(1, 'La nomenclatura única es obligatoria').max(30, 'Máximo 30 caracteres'),
+});
+
+const assignUsername = asyncHandler(async (req, res) => {
+  const { username } = assignUsernameSchema.parse(req.body);
+  const client = await prisma.clientProfile.findUnique({ where: { id: req.params.id } });
+  if (!client) throw ApiError.notFound('Cliente no encontrado');
+  if (client.username) {
+    throw ApiError.conflict('Este cliente ya tiene una nomenclatura asignada. No puede cambiarse.');
+  }
+
+  const clash = await prisma.clientProfile.findUnique({ where: { username } });
+  if (clash) throw ApiError.conflict('Esa nomenclatura ya está en uso por otro cliente.');
+
+  const updated = await prisma.clientProfile.update({
+    where: { id: req.params.id },
+    data: { username },
+  });
+
+  // IMPLEMENTACIÓN DEFINITIVA DE GOOGLE DRIVE — best-effort, nunca bloquea
+  // la asignación: si ya existe una carpeta (nombre provisional con el ID),
+  // la renombra; si no existe todavía, no crea nada aquí (se creará sola en
+  // el primer uso real, ya con el nombre correcto).
+  if (await driveStorage.isConfigured()) {
+    await driveStorage.renameClientFolderIfNeeded(updated).catch((err) => {
+      prisma.clientProfile
+        .update({ where: { id: updated.id }, data: { driveSyncStatus: 'ERROR', driveSyncError: err.message } })
+        .catch(() => {});
+    });
+  }
 
   res.json({ ok: true, client: updated });
 });
@@ -293,13 +335,16 @@ const downloadWalletQr = asyncHandler(async (req, res) => {
 // dependiente) — nunca una simple desactivación. Las relaciones hijas de
 // ClientProfile (Document, Appointment→SetNull, SupportCase, ChatSession,
 // ApiSubaccount→ClientModel/Process/PaymentReport/Statement/
-// ApiConnectionEvent) están definidas con onDelete: Cascade (excepto
-// Appointment, que usa SetNull a propósito para conservar el historial de
-// citas), así que borrar el User cascada de forma segura sin huérfanos.
+// ApiConnectionEvent/SubaccountRequest) están definidas con onDelete:
+// Cascade (excepto Appointment, que usa SetNull a propósito para conservar
+// el historial de citas), así que un solo DELETE del User cascada de forma
+// atómica y segura sin huérfanos — Postgres garantiza esto dentro de la
+// misma sentencia, sin necesitar una transacción explícita adicional.
 //
 // Esta ruta SOLO puede alcanzar clientes: un ClientProfile nunca existe
 // para una cuenta ADMIN, así que es estructuralmente imposible borrar un
-// administrador desde aquí.
+// administrador desde aquí. El :id de la ruta es la única fuente del
+// cliente objetivo — nunca se toma un ID de otro lado del body.
 // CORREGIR.xlsx ADMIN 06: solo el administrador general puede eliminar
 // clientes, y siempre con la contraseña de seguridad exclusiva — validado
 // en backend, nunca solo en frontend, e imposible de sortear vía API
@@ -311,8 +356,6 @@ const deleteClient = asyncHandler(async (req, res) => {
     where: { id: req.params.id },
     include: {
       user: { select: { id: true, role: true, isActive: true } },
-      documents: true,
-      apiSubaccounts: { include: { paymentReports: true, statements: true } },
     },
   });
   if (!client) throw ApiError.notFound('Cliente no encontrado');
@@ -324,24 +367,38 @@ const deleteClient = asyncHandler(async (req, res) => {
     throw ApiError.badRequest('Primero debes desactivar a este cliente antes de poder eliminarlo.');
   }
 
-  // Borra los archivos reales en Google Drive ANTES de borrar las filas
-  // (una vez cascadeada la eliminación en BD, los driveFileId ya no
-  // existirían en ningún lado para poder limpiarlos). Best-effort: si Drive
-  // no está configurado o un archivo puntual falla, no bloquea el borrado.
+  // IMPLEMENTACIÓN DEFINITIVA DE GOOGLE DRIVE — borra la carpeta COMPLETA
+  // del cliente (y todo su contenido: documentos, comprobantes, estados de
+  // cuenta, QR) ANTES de borrar las filas en NeonDB — una vez cascadeada la
+  // eliminación en BD, el driveClientFolderId ya no existiría en ningún
+  // lado para poder limpiarlo. Nunca afirma "eliminada" si no se confirmó
+  // de verdad: driveDeletionStatus refleja el resultado real.
+  //   - "not_configured": Drive no está conectado — no se intentó nada.
+  //   - "no_folder": el cliente nunca llegó a tener una carpeta en Drive.
+  //   - "deleted": la llamada a Drive respondió sin error.
+  //   - "error": se intentó y Drive devolvió un error (detalle en driveDeletionError).
+  let driveDeletionStatus = 'not_configured';
+  let driveDeletionError = null;
   if (await driveStorage.isConfigured()) {
-    const fileIds = [
-      ...client.documents.map((d) => d.driveFileId),
-      ...client.apiSubaccounts.flatMap((s) => s.paymentReports.map((p) => p.proofDriveFileId)),
-      ...client.apiSubaccounts.flatMap((s) => s.statements.map((st) => st.pdfDriveFileId)),
-    ].filter(Boolean);
-    // Autorizado: ruta exclusiva de ADMIN GENERAL con contraseña de seguridad
-    // ya verificada arriba antes de llegar aquí.
-    await Promise.all(fileIds.map((id) => driveStorage.deleteDriveFileOnlyWhenAuthorized(id, { authorized: true }).catch(() => {})));
+    if (client.driveClientFolderId) {
+      try {
+        // Autorizado: ruta exclusiva de ADMIN GENERAL con contraseña de
+        // seguridad ya verificada arriba antes de llegar aquí. Borrar la
+        // carpeta borra en cascada TODO su contenido en Drive.
+        await driveStorage.deleteDriveFileOnlyWhenAuthorized(client.driveClientFolderId, { authorized: true });
+        driveDeletionStatus = 'deleted';
+      } catch (err) {
+        driveDeletionStatus = 'error';
+        driveDeletionError = err.message;
+      }
+    } else {
+      driveDeletionStatus = 'no_folder';
+    }
   }
 
   await prisma.user.delete({ where: { id: client.user.id } });
 
-  res.json({ ok: true });
+  res.json({ ok: true, driveDeletionStatus, driveDeletionError });
 });
 
 module.exports = {
@@ -349,6 +406,7 @@ module.exports = {
   getClient,
   createClient,
   updateClient,
+  assignUsername,
   setClientActive,
   getWallet,
   downloadWalletQr,
