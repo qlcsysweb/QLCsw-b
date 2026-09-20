@@ -2,6 +2,7 @@ const { z } = require('zod');
 const driveConfigService = require('../services/driveConfigService');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
+const { extractDriveFolderId } = require('../utils/driveFolderId');
 
 // Cualquier admin puede editar o desconectar la configuración — el único
 // dato relevante es informativo: quién la guardó por última vez.
@@ -28,9 +29,35 @@ const updateSchema = z.object({
 
 const updateConfig = asyncHandler(async (req, res) => {
   const data = updateSchema.parse(req.body);
+
+  // El admin puede pegar el Folder ID "pelón" o la URL completa de Drive —
+  // aquí se detecta y normaliza ANTES de guardar; en DB solo vive el ID.
+  let detectedFolderId = null;
+  if (data.rootFolderId !== undefined) {
+    const trimmed = data.rootFolderId.trim();
+    if (!trimmed) {
+      data.rootFolderId = '';
+    } else {
+      const extracted = extractDriveFolderId(trimmed);
+      if (!extracted) {
+        throw ApiError.badRequest(
+          'No se pudo reconocer un Folder ID válido en lo que pegaste. Pega el ID de la carpeta o su URL completa de Google Drive (por ejemplo: https://drive.google.com/drive/folders/TU_FOLDER_ID).'
+        );
+      }
+      data.rootFolderId = extracted;
+      detectedFolderId = extracted;
+    }
+  }
+
   await driveConfigService.updateConfig(data, req.user.id);
   const status = await driveConfigService.getStatus();
-  res.json({ ok: true, config: shapeStatus(status, req.user.id), message: 'Configuración de Google Drive guardada correctamente.' });
+  res.json({
+    ok: true,
+    config: shapeStatus(status, req.user.id),
+    message: detectedFolderId
+      ? `Configuración de Google Drive guardada correctamente. Folder ID detectado: ${detectedFolderId}`
+      : 'Configuración de Google Drive guardada correctamente.',
+  });
 });
 
 // Paso 1 del OAuth2: devuelve la URL de consentimiento de Google.

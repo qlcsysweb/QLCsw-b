@@ -83,8 +83,13 @@ const requestDeactivateSubaccount = asyncHandler(async (req, res) => {
 
 const getMine = asyncHandler(async (req, res) => {
   await enforceCommissionDeadline(req.params.id);
+  // Ojo: aquí NO se filtra por ACTIVE_WHERE — necesitamos saber si la
+  // subcuenta existe y es del cliente para poder distinguir "desactivada"
+  // (respuesta controlada 410, el cliente puede seguir viendo su propio
+  // historial) de "no existe / es de otro cliente" (404 genérico, protección
+  // IDOR: nunca revelamos si el id pertenece a alguien más).
   const subaccount = await prisma.apiSubaccount.findFirst({
-    where: { id: req.params.id, clientId: req.clientProfile.id, ...ACTIVE_WHERE },
+    where: { id: req.params.id, clientId: req.clientProfile.id },
     include: {
       clientModel: { include: { model: true } },
       process: { include: { conditions: true } },
@@ -95,6 +100,12 @@ const getMine = asyncHandler(async (req, res) => {
     },
   });
   if (!subaccount) throw ApiError.notFound('Subcuenta no encontrada');
+  if (subaccount.deactivatedAt) {
+    throw ApiError.gone('Esta subcuenta fue desactivada por administración. Su historial sigue disponible, pero ya no puede operarse.', {
+      code: 'SUBACCOUNT_DEACTIVATED',
+      deactivatedAt: subaccount.deactivatedAt,
+    });
+  }
   res.json({ ok: true, subaccount: shape(subaccount) });
 });
 

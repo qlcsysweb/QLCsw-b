@@ -25,6 +25,10 @@ class ApiError extends Error {
     return new ApiError(409, message);
   }
 
+  static gone(message, details) {
+    return new ApiError(410, message, details);
+  }
+
   static unprocessable(message, details) {
     return new ApiError(422, message, details);
   }

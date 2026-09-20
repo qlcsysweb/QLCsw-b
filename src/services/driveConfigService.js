@@ -366,8 +366,28 @@ async function testConnection() {
   } catch (err) {
     logSafeError('root-folder', err);
     const code = err?.code || err?.response?.status;
+    // El scope "drive.file" (ver config/googleDrive.js) SOLO deja ver
+    // archivos/carpetas que esta app creó, o que el usuario abrió con ella
+    // explícitamente desde un selector de Google — NUNCA una carpeta ya
+    // existente que el admin creó a mano desde drive.google.com, aunque el
+    // Folder ID sea correcto y pertenezca a la misma cuenta conectada.
+    // Google Drive API, en ese caso, responde literalmente 404 "File not
+    // found" — indistinguible, a nivel de API, de un ID inexistente. Por
+    // eso el mensaje aquí cubre ambas causas reales en vez de asumir que el
+    // Folder ID está mal.
     if (code === 404) {
-      return recordTestResult(row.id, 'ERROR', 'No encontramos esa carpeta en Google Drive. Verifica el Folder ID (y que la carpeta exista en la cuenta conectada).');
+      return recordTestResult(
+        row.id,
+        'ERROR',
+        `No pudimos acceder a la carpeta con ID "${row.rootFolderId}" desde la cuenta ${creds.connectedEmail}. Puede deberse a: (1) el Folder ID no es correcto o la carpeta ya no existe, o (2) la carpeta se creó manualmente en drive.google.com — el permiso "drive.file" que usa esta app solo le permite ver carpetas que ella misma creó, no cualquier carpeta existente de la cuenta, aunque el ID sea correcto.`
+      );
+    }
+    if (code === 403) {
+      return recordTestResult(
+        row.id,
+        'ERROR',
+        `Google denegó el acceso a esa carpeta (permiso insuficiente). La cuenta ${creds.connectedEmail} está conectada, pero no tiene permisos sobre el Folder ID "${row.rootFolderId}".`
+      );
     }
     return recordTestResult(row.id, 'ERROR', humanizeError(err) + safeDiagnostic(err));
   }
