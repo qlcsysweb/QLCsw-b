@@ -35,7 +35,14 @@ const envOrigins = (process.env.ALLOWED_ORIGINS || '')
   .map(normalizeOrigin)
   .filter(Boolean);
 
-const ALLOWED_ORIGINS = Array.from(new Set([...DEFAULT_ALLOWED_ORIGINS, ...envOrigins]));
+// Fuera de producción (dev local, `npm run dev`), el frontend corre en
+// localhost — se permite sin depender de ALLOWED_ORIGINS para que nadie
+// tenga que configurar nada extra solo para levantar el proyecto en su
+// máquina. Nunca se agrega en producción (Render corre con NODE_ENV=production).
+const LOCAL_DEV_ORIGINS =
+  process.env.NODE_ENV === 'production' ? [] : ['http://localhost:5173', 'http://127.0.0.1:5173'];
+
+const ALLOWED_ORIGINS = Array.from(new Set([...DEFAULT_ALLOWED_ORIGINS, ...envOrigins, ...LOCAL_DEV_ORIGINS]));
 
 function isOriginAllowed(origin) {
   return ALLOWED_ORIGINS.includes(normalizeOrigin(origin));
