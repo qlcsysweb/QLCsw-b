@@ -123,4 +123,87 @@ const deleteDocument = asyncHandler(async (req, res) => {
   res.json({ ok: true });
 });
 
-module.exports = { listDocuments, uploadDocument, downloadDocument, deleteDocument };
+// "Enviar archivo corregido" — reemplaza en un solo paso atómico el archivo
+// de un documento YA enviado, pero SOLO si un admin lo habilitó explícitamente
+// (clientEditUnlocked=true en ESE documento puntual; nunca se confía en nada
+// que venga de React). A diferencia de deleteDocument + uploadDocument por
+// separado, aquí el archivo VIEJO en Drive no se borra hasta que el nuevo ya
+// se subió correctamente y NeonDB ya refleja el cambio — si algo falla antes
+// de eso, el documento original sigue intacto y nada se pierde.
+const correctDocument = asyncHandler(async (req, res) => {
+  if (!req.file) throw ApiError.badRequest('Debes adjuntar el archivo corregido');
+
+  const document = await prisma.document.findFirst({
+    where: { id: req.params.id, clientId: req.clientProfile.id },
+  });
+  if (!document) throw ApiError.notFound('Documento no encontrado');
+  if (!document.clientEditUnlocked) {
+    throw ApiError.forbidden(
+      'Este documento no tiene una corrección habilitada. Contacta con QLC desde Soporte si necesitas reemplazarlo.'
+    );
+  }
+
+  await assertDriveReady();
+  const { documentsFolderId } = await driveStorage.ensureClientFolders(req.clientProfile);
+
+  const uploaded = await driveStorage.uploadFileToDrive(req.file.buffer, {
+    folderId: documentsFolderId,
+    fileName: req.file.originalname,
+    mimeType: req.file.mimetype,
+  });
+
+  const previous = {
+    fileName: document.fileName,
+    driveFileId: document.driveFileId,
+    mimeType: document.mimeType,
+    sizeBytes: document.sizeBytes,
+  };
+
+  const updated = await prisma.$transaction(async (tx) => {
+    await tx.documentCorrection.create({
+      data: {
+        documentId: document.id,
+        previousFileName: previous.fileName,
+        previousDriveFileId: previous.driveFileId,
+        previousMimeType: previous.mimeType,
+        previousSizeBytes: previous.sizeBytes,
+        correctedByUserId: req.user.id,
+      },
+    });
+
+    return tx.document.update({
+      where: { id: document.id },
+      data: {
+        driveFileId: uploaded.id,
+        driveFolderId: documentsFolderId,
+        fileName: req.file.originalname,
+        extension: path.extname(req.file.originalname).replace('.', '') || null,
+        mimeType: req.file.mimetype,
+        sizeBytes: req.file.size,
+        uploadedByUserId: req.user.id,
+        // Se bloquea de nuevo automáticamente y se apaga la corrección: el
+        // admin debe volver a habilitarla si hiciera falta otra corrección.
+        clientEditUnlocked: false,
+        unlockedByUserId: null,
+        unlockedAt: null,
+      },
+    });
+  });
+
+  // Solo ahora, con el archivo nuevo ya confirmado en Drive y en NeonDB, se
+  // borra el archivo anterior — nunca antes.
+  await driveStorage.deleteDriveFileOnlyWhenAuthorized(previous.driveFileId, { authorized: true }).catch(() => {});
+
+  const client = await prisma.clientProfile.findUnique({ where: { id: req.clientProfile.id } });
+  await notifyAdmins({
+    title: 'Documento corregido recibido',
+    message: `${client.firstName} ${client.lastName} envió una corrección de su documento de la categoría "${document.category}".`,
+    type: 'info',
+    templateKey: 'document_corrected_admin',
+    templateParams: { clientName: `${client.firstName} ${client.lastName}`, category: document.category, clientId: req.clientProfile.id },
+  });
+
+  res.json({ ok: true, document: updated });
+});
+
+module.exports = { listDocuments, uploadDocument, downloadDocument, deleteDocument, correctDocument };

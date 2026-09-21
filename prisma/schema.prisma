@@ -181,6 +181,7 @@ model User {
   mediaAssetUpdates                  MediaAsset[]                @relation("MediaAssetUpdatedBy")
   statementsCreated                  Statement[]                 @relation("StatementCreatedBy")
   documentUnlocksGranted             Document[]                  @relation("DocumentUnlockedBy")
+  documentCorrectionsUploaded        DocumentCorrection[]        @relation("DocumentCorrectionBy")
   capitalInvitationsCreated          CapitalIncreaseInvitation[] @relation("CapitalInvitationCreatedBy")
   rescueInvitationsCreated           CapitalRescueInvitation[]   @relation("RescueInvitationCreatedBy")
   notificationsSent                  Notification[]              @relation("NotificationSentBy")
@@ -760,6 +761,13 @@ model Document {
   unlockedBy         User?     @relation("DocumentUnlockedBy", fields: [unlockedByUserId], references: [id])
   unlockedAt         DateTime?
 
+  // Historial básico de sustituciones — cada vez que el cliente envía un
+  // "archivo corregido" (solo posible mientras clientEditUnlocked=true), se
+  // guarda una fila con los datos del archivo ANTERIOR antes de reemplazarlo.
+  // El documento en sí conserva el mismo id: se actualiza en el lugar, nunca
+  // se crea uno nuevo para esto.
+  corrections DocumentCorrection[]
+
   // CORREGIR.xlsx ADMIN 07 — organización tipo Google Drive (Año → Periodo
   // → Mes) dentro de la ficha del cliente. Metadata puramente organizativa
   // que agrupa documentos YA almacenados en Drive — nunca una carpeta
@@ -780,6 +788,25 @@ model Document {
   updatedAt DateTime @updatedAt
 
   @@map("documents")
+}
+
+// Un registro por cada vez que un cliente envía un "archivo corregido" sobre
+// un documento ya enviado (ver client/documentController.js#correctDocument)
+// — conserva evidencia de qué archivo existía antes, sin guardar el archivo
+// físico duplicado (ese se borra de Drive una vez confirmada la sustitución).
+model DocumentCorrection {
+  id                  String   @id @default(cuid())
+  documentId          String
+  document            Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  previousFileName    String
+  previousDriveFileId String
+  previousMimeType    String
+  previousSizeBytes   Int
+  correctedByUserId   String
+  correctedBy         User     @relation("DocumentCorrectionBy", fields: [correctedByUserId], references: [id])
+  correctedAt         DateTime @default(now())
+
+  @@map("document_corrections")
 }
 
 // ==========================================================

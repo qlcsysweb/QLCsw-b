@@ -109,7 +109,7 @@ const getClient = asyncHandler(async (req, res) => {
     where: { id: req.params.id },
     include: {
       user: { select: { email: true, isActive: true, lastLoginAt: true, createdAt: true } },
-      documents: { orderBy: { createdAt: 'desc' } },
+      documents: { orderBy: { createdAt: 'desc' }, include: { _count: { select: { corrections: true } } } },
       appointments: { orderBy: { requestedDate: 'desc' } },
       supportCases: { orderBy: { createdAt: 'desc' } },
       apiSubaccounts: {

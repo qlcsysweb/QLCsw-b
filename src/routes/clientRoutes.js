@@ -75,6 +75,7 @@ router.get('/documents', documentController.listDocuments);
 router.post('/documents', uploadDocumentFile.single('file'), documentController.uploadDocument);
 router.get('/documents/:id/download', documentController.downloadDocument);
 router.delete('/documents/:id', documentController.deleteDocument);
+router.post('/documents/:id/correction', uploadDocumentFile.single('file'), documentController.correctDocument);
 
 // Pagos — por subcuenta
 router.get('/payment-config', paymentController.getPaymentConfig);
