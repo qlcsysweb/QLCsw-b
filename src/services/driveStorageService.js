@@ -31,7 +31,6 @@ const FOLDER_MIME = 'application/vnd.google-apps.folder';
 const SUBFOLDER_NAMES = {
   documents: 'Documentos',
   payments: 'Pagos',
-  qr: 'QR',
   statements: 'Estados de cuenta',
   other: 'Otros',
 };
@@ -41,7 +40,6 @@ const SUBFOLDER_NAMES = {
 const SUBFOLDER_CACHE_FIELD = {
   documents: 'driveDocumentsFolderId',
   payments: 'drivePaymentsFolderId',
-  qr: 'driveQrFolderId',
   statements: 'driveStatementsFolderId',
 };
 
@@ -169,7 +167,7 @@ async function getOrCreateSubfolder(client, key) {
 
 // Compatibilidad con los controladores existentes: devuelve las dos
 // subcarpetas más usadas (Documentos/Pagos) de una sola vez, más la carpeta
-// del cliente. QR y Estados de cuenta se resuelven con getOrCreateSubfolder
+// del cliente. Estados de cuenta se resuelven con getOrCreateSubfolder
 // cuando se necesitan (evita crearlas de más para clientes que nunca suben
 // ese tipo de archivo).
 async function ensureClientFolders(client) {
@@ -177,29 +175,6 @@ async function ensureClientFolders(client) {
   const documentsFolderId = await getOrCreateSubfolder(client, 'documents');
   const paymentsFolderId = await getOrCreateSubfolder(client, 'payments');
   return { clientFolderId, documentsFolderId, paymentsFolderId };
-}
-
-// Carpeta raíz para archivos GLOBALES de la plataforma (no ligados a un
-// cliente específico) — ej. el QR de pago compartido, configurado una sola
-// vez por el admin para todos los clientes.
-async function ensurePlatformFolder() {
-  const drive = await getDriveClient();
-  const rootId = await resolveRootFolderId();
-  if (!rootId) {
-    throw new Error(
-      'No hay una carpeta raíz de Google Drive configurada. Ve a Configuración → Google Drive en el panel administrativo.'
-    );
-  }
-  return getOrCreateFolderByName(drive, 'Plataforma', rootId);
-}
-
-// Subcarpeta "QR" dentro de la carpeta global de Plataforma — usada por el
-// único QR compartido (el de la cuenta de pago), a diferencia del QR de
-// wallet, que es propio de cada cliente (ver getOrCreateSubfolder).
-async function ensurePlatformQrFolder() {
-  const drive = await getDriveClient();
-  const platformFolderId = await ensurePlatformFolder();
-  return getOrCreateFolderByName(drive, SUBFOLDER_NAMES.qr, platformFolderId);
 }
 
 async function uploadFileToDrive(buffer, { folderId, fileName, mimeType }) {
@@ -260,8 +235,6 @@ module.exports = {
   renameClientFolderIfNeeded,
   getOrCreateSubfolder,
   ensureClientFolders,
-  ensurePlatformFolder,
-  ensurePlatformQrFolder,
   uploadFileToDrive,
   downloadFileFromDrive,
   deleteDriveFileOnlyWhenAuthorized,

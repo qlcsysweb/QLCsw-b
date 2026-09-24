@@ -4,7 +4,7 @@ const prisma = require('../config/prisma');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const driveStorage = require('../services/driveStorageService');
-const { enforceCommissionDeadline } = require('../utils/connectionDeadlines');
+const { enforceCommissionDeadline, currentStatementSummary } = require('../utils/connectionDeadlines');
 const { ensurePrincipalSubaccount } = require('../utils/subaccountProvisioning');
 const { verifyClientDeletionPassword } = require('./securityConfigController');
 
@@ -118,9 +118,8 @@ const getClient = asyncHandler(async (req, res) => {
           clientModel: { include: { model: true } },
           process: { include: { conditions: true } },
           paymentReports: { orderBy: { reportedAt: 'desc' } },
-          statements: { orderBy: { createdAt: 'desc' } },
+          statements: { orderBy: { generatedAt: 'desc' } },
           connectionEvents: { orderBy: { occurredAt: 'desc' } },
-          capitalDistributionItems: true,
         },
       },
     },
@@ -142,6 +141,7 @@ const getClient = asyncHandler(async (req, res) => {
         hasApiSecret: Boolean(s.apiSecretEncrypted),
         hasApiPassphrase: Boolean(s.apiPassphraseEncrypted),
         conditionsSummary: summarizeConditions(s.process),
+        statementSummary: currentStatementSummary(s.statements),
       })),
       subaccountsSummary: summarizeSubaccounts(client.apiSubaccounts),
     },
@@ -303,34 +303,6 @@ const setClientActive = asyncHandler(async (req, res) => {
   res.json({ ok: true, client: updated });
 });
 
-// CORRECCIÓN 28: wallet personal del cliente (dato administrativo, nunca
-// se ejecutan transferencias automáticas).
-const getWallet = asyncHandler(async (req, res) => {
-  const client = await prisma.clientProfile.findUnique({
-    where: { id: req.params.id },
-    select: { walletAddress: true, walletNetwork: true, walletQrUrl: true, walletQrDriveFileId: true },
-  });
-  if (!client) throw ApiError.notFound('Cliente no encontrado');
-  res.json({ ok: true, wallet: { ...client, hasWalletQrDrive: Boolean(client.walletQrDriveFileId), walletQrDriveFileId: undefined } });
-});
-
-// Sirve el QR de wallet de ESTE cliente (por :id de la ruta) desde Drive,
-// por un endpoint protegido de ADMIN — nunca un enlace público de Drive.
-const downloadWalletQr = asyncHandler(async (req, res) => {
-  const client = await prisma.clientProfile.findUnique({
-    where: { id: req.params.id },
-    select: { walletQrDriveFileId: true },
-  });
-  if (!client) throw ApiError.notFound('Cliente no encontrado');
-  if (!client.walletQrDriveFileId) throw ApiError.notFound('No hay un QR de wallet almacenado en Drive.');
-
-  const { stream, fileName, mimeType } = await driveStorage.downloadFileFromDrive(client.walletQrDriveFileId);
-  res.setHeader('Content-Type', mimeType || 'image/png');
-  res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(fileName || 'wallet-qr.png')}"`);
-  stream.on('error', () => res.status(500).end());
-  stream.pipe(res);
-});
-
 // Eliminación REAL y permanente del cliente (su cuenta, perfil y TODO lo
 // dependiente) — nunca una simple desactivación. Las relaciones hijas de
 // ClientProfile (Document, Appointment→SetNull, SupportCase, ChatSession,
@@ -408,7 +380,5 @@ module.exports = {
   updateClient,
   assignUsername,
   setClientActive,
-  getWallet,
-  downloadWalletQr,
   deleteClient,
 };

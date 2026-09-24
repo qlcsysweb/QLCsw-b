@@ -3,7 +3,7 @@ const prisma = require('../../config/prisma');
 const ApiError = require('../../utils/ApiError');
 const asyncHandler = require('../../utils/asyncHandler');
 const { encrypt } = require('../../utils/crypto');
-const { enforceCommissionDeadline } = require('../../utils/connectionDeadlines');
+const { enforceCommissionDeadline, currentStatementSummary } = require('../../utils/connectionDeadlines');
 const { isValidIp } = require('../../utils/ipValidation');
 const { notifyAdmins } = require('../../utils/notify');
 const { MAX_SUBACCOUNTS_PER_CLIENT } = require('../../utils/subaccountProvisioning');
@@ -94,9 +94,8 @@ const getMine = asyncHandler(async (req, res) => {
       clientModel: { include: { model: true } },
       process: { include: { conditions: true } },
       paymentReports: { orderBy: { reportedAt: 'desc' } },
-      statements: { orderBy: { createdAt: 'desc' } },
+      statements: { orderBy: { generatedAt: 'desc' } },
       connectionEvents: { orderBy: { occurredAt: 'desc' } },
-      capitalDistributionItems: true,
     },
   });
   if (!subaccount) throw ApiError.notFound('Subcuenta no encontrada');
@@ -106,7 +105,7 @@ const getMine = asyncHandler(async (req, res) => {
       deactivatedAt: subaccount.deactivatedAt,
     });
   }
-  res.json({ ok: true, subaccount: shape(subaccount) });
+  res.json({ ok: true, subaccount: { ...shape(subaccount), statementSummary: currentStatementSummary(subaccount.statements) } });
 });
 
 const updateSchema = z.object({

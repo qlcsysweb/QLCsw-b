@@ -1,8 +1,8 @@
 /*
  * Almacenamiento de IMÁGENES VISUALES PÚBLICAS del sitio (logo, branding,
  * recursos visuales de la página pública) en Cloudinary. Cloudinary NUNCA
- * se usa para archivos operativos: ni documentos/PDFs, ni comprobantes, ni
- * QR (de pago o de wallet) — todo eso vive en Google Drive (ver
+ * se usa para archivos operativos: ni documentos/PDFs ni comprobantes — todo
+ * eso vive en Google Drive (ver
  * driveStorageService.js).
  */
 const { uploadBuffer, destroyAsset, FOLDERS } = require('../config/cloudinary');

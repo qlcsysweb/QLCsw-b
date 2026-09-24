@@ -21,6 +21,8 @@ const listNotifications = asyncHandler(async (req, res) => {
     where: { userId: req.user.id },
     orderBy: { createdAt: 'desc' },
     take: 50,
+    // El resultado técnico del envío de correo es solo para administración.
+    omit: { emailError: true },
   });
   res.json({ ok: true, notifications });
 });

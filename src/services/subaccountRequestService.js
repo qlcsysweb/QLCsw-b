@@ -148,10 +148,7 @@ async function approveCreateRequest({ requestId, identifier, requiredCapital, re
       process: {
         create: {
           conditions: {
-            create: PROCESS_CONDITION_TYPES.map((t) => ({
-              type: t,
-              status: t === 'WALLET' && request.client.walletAddress ? 'CONFIRMED' : 'PENDING',
-            })),
+            create: PROCESS_CONDITION_TYPES.map((t) => ({ type: t, status: 'PENDING' })),
           },
         },
       },

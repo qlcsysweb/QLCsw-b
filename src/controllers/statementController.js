@@ -1,12 +1,16 @@
-const path = require('path');
 const { z } = require('zod');
 const prisma = require('../config/prisma');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const driveStorage = require('../services/driveStorageService');
 const { generateStatementPdf } = require('../utils/pdf/statementPdf');
-const { notifyClient, notifyAdmins } = require('../utils/notify');
-const { sendStatementGeneratedEmail } = require('../services/emailService');
+const { notifyClient } = require('../utils/notify');
+const {
+  STATEMENT_DUE_HOURS,
+  effectiveStatementStatus,
+  currentStatementSummary,
+  enforceCommissionDeadline,
+} = require('../utils/connectionDeadlines');
 
 function monthLabel(date) {
   return new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City', month: 'long', year: 'numeric' }).format(
@@ -14,79 +18,30 @@ function monthLabel(date) {
   );
 }
 
-// CORRECCIÓN 14 — Estados de cuenta, uno por SUBCUENTA/API, nunca mezclados
-// entre subcuentas de un mismo cliente.
-// CORRECCIÓN 5 — se añade estado visible derivado (DISPONIBLE/PENDIENTE_DE_PAGO),
-// periodo "DESDE" autocompletado desde el periodo anterior, evidencias
-// documentales y reenvío de la notificación al cliente.
-
-// Estado visible derivado — nunca se guarda como columna redundante, se
-// calcula siempre a partir de commission/commissionPaid para que jamás
-// pueda desincronizarse del dato real.
-// AUDITORÍA QLC PARTE 10 — "GENERADO" (nunca "ACTIVA") mientras la comisión
-// esté pendiente de pago; "PAGADO" en cuanto el admin marca el pago; sin
-// comisión aplicable el estado es simplemente "DISPONIBLE".
-function displayStatusOf(statement) {
-  if (Number(statement.commission) > 0) return statement.commissionPaid ? 'PAGADO' : 'GENERADO';
-  return 'DISPONIBLE';
-}
-
+/*
+ * ESTADO DE CUENTA SIMPLIFICADO — uno por SUBCUENTA/API. El admin lo genera
+ * desde la propia subcuenta ("Generar"): NO GENERADO → PENDIENTE DE PAGO y
+ * arranca el plazo de 72 h (expiresAt calculado aquí, nunca en frontend).
+ * La comunicación al cliente es la mensajería interna + correo del propio
+ * sistema de notificaciones — no existe un flujo de "envío" separado.
+ */
 function shapeStatement(statement) {
-  return { ...statement, displayStatus: displayStatusOf(statement) };
+  return { ...statement, status: effectiveStatementStatus(statement) };
 }
 
 const listStatements = asyncHandler(async (req, res) => {
+  await enforceCommissionDeadline(req.params.apiSubaccountId);
   const statements = await prisma.statement.findMany({
     where: { apiSubaccountId: req.params.apiSubaccountId },
-    orderBy: { createdAt: 'desc' },
-    include: { evidenceDocuments: true },
+    orderBy: { generatedAt: 'desc' },
   });
-  res.json({ ok: true, statements: statements.map(shapeStatement) });
-});
-
-// CORREGIR.xlsx ADMIN 08 — sección dedicada donde el admin visualiza y
-// archiva TODOS los estados de cuenta generados (de cualquier cliente/
-// subcuenta), no solo desde la ficha de una subcuenta puntual.
-const listAllStatements = asyncHandler(async (req, res) => {
-  const { archived, clientId, apiSubaccountId } = req.query;
-  const statements = await prisma.statement.findMany({
-    where: {
-      ...(archived !== undefined ? { archived: archived === 'true' } : {}),
-      ...(apiSubaccountId ? { apiSubaccountId } : {}),
-      ...(clientId ? { apiSubaccount: { clientId } } : {}),
-    },
-    orderBy: { createdAt: 'desc' },
-    include: {
-      apiSubaccount: {
-        select: {
-          identifier: true,
-          slotIndex: true,
-          client: { select: { username: true, firstName: true, lastName: true } },
-        },
-      },
-    },
-  });
-  res.json({ ok: true, statements: statements.map(shapeStatement) });
-});
-
-const setStatementArchived = asyncHandler(async (req, res) => {
-  const archived = Boolean(req.body?.archived);
-  const statement = await prisma.statement.findUnique({ where: { id: req.params.id } });
-  if (!statement) throw ApiError.notFound('Estado de cuenta no encontrado');
-
-  const updated = await prisma.statement.update({
-    where: { id: statement.id },
-    data: { archived, archivedAt: archived ? new Date() : null },
-  });
-  res.json({ ok: true, statement: shapeStatement(updated) });
+  res.json({ ok: true, statements: statements.map(shapeStatement), current: currentStatementSummary(statements) });
 });
 
 const createStatementSchema = z
   .object({
-    // CORRECCIÓN 5: "DESDE" se autocompleta desde el periodo anterior de la
-    // MISMA subcuenta/API cuando ya existe uno — el admin solo captura
-    // "HASTA". Solo es obligatorio escribirlo a mano para el primer estado
-    // de cuenta de esa subcuenta (todavía no hay periodo anterior).
+    // "DESDE" se autocompleta desde el periodo anterior de la MISMA
+    // subcuenta/API; solo es obligatorio para el primer estado de cuenta.
     periodStart: z.coerce.date().optional(),
     periodEnd: z.coerce.date(),
     startingBalance: z.coerce.number(),
@@ -95,12 +50,9 @@ const createStatementSchema = z
     resultPercentage: z.coerce.number(),
     volatility: z.string().optional(),
     netResult: z.coerce.number().optional(),
-    commission: z.coerce.number().default(0),
+    commission: z.coerce.number().min(0).default(0),
     activityNotes: z.string().optional(),
     adminNotes: z.string().optional(),
-    // CORRECCIÓN 25: ventana de 72h para pagar la comisión antes de la
-    // desactivación automática de la conexión API de la subcuenta.
-    commissionDueHours: z.coerce.number().default(72),
   })
   .refine((data) => !data.periodStart || data.periodEnd > data.periodStart, {
     message: 'El periodo "hasta" debe ser posterior al periodo "desde".',
@@ -118,11 +70,18 @@ const createStatement = asyncHandler(async (req, res) => {
   });
   if (!subaccount) throw ApiError.notFound('Subcuenta no encontrada');
 
+  await enforceCommissionDeadline(subaccount.id);
+  const unpaid = await prisma.statement.findFirst({
+    where: { apiSubaccountId: subaccount.id, status: { in: ['PENDIENTE_DE_PAGO', 'VENCIDO_SIN_PAGAR'] } },
+  });
+  if (unpaid) {
+    throw ApiError.conflict('Esta subcuenta/API ya tiene un estado de cuenta sin pagar. Confirma su pago antes de generar uno nuevo.');
+  }
+
   const previousStatement = await prisma.statement.findFirst({
     where: { apiSubaccountId: subaccount.id },
     orderBy: { periodEnd: 'desc' },
   });
-
   const periodStart = previousStatement ? previousStatement.periodEnd : data.periodStart;
   if (!periodStart) {
     throw ApiError.badRequest('Indica la fecha "desde" para el primer estado de cuenta de esta subcuenta/API.');
@@ -131,8 +90,9 @@ const createStatement = asyncHandler(async (req, res) => {
     throw ApiError.badRequest('El periodo "hasta" debe ser posterior al periodo "desde".');
   }
 
-  const commissionDueAt =
-    data.commission > 0 ? new Date(Date.now() + data.commissionDueHours * 60 * 60 * 1000) : null;
+  // Fuente de verdad del contador: hora del servidor + 72 h.
+  const generatedAt = new Date();
+  const expiresAt = new Date(generatedAt.getTime() + STATEMENT_DUE_HOURS * 60 * 60 * 1000);
 
   let statement;
   try {
@@ -150,8 +110,9 @@ const createStatement = asyncHandler(async (req, res) => {
         commission: data.commission,
         activityNotes: data.activityNotes || null,
         adminNotes: data.adminNotes || null,
-        commissionDueAt,
-        commissionPaid: data.commission <= 0,
+        status: 'PENDIENTE_DE_PAGO',
+        generatedAt,
+        expiresAt,
         createdByUserId: req.user.id,
       },
     });
@@ -185,43 +146,73 @@ const createStatement = asyncHandler(async (req, res) => {
         data: { pdfDriveFileId: uploaded.id, pdfDriveFolderId: statementsFolderId, pdfFileName: fileName },
       });
     } catch {
-      // El estado de cuenta queda guardado igual aunque el PDF falle — el
-      // admin puede reintentar la descarga/generación más adelante.
+      // El estado de cuenta queda generado aunque el PDF falle.
     }
   }
 
+  // Mensajería interna + correo (notifyClient crea la notificación y envía
+  // el email al correo real del cliente en la misma acción).
   const month = monthLabel(data.periodEnd);
+  const identifier = subaccount.identifier || (subaccount.isPrincipal ? 'PRINCIPAL' : '');
   await notifyClient(subaccount.clientId, {
-    title: 'Estado de cuenta generado',
-    message:
-      data.commission > 0
-        ? `Su estado de cuenta de ${month} ha sido generado correctamente. El pago de la comisión correspondiente se encuentra pendiente. Dispone de ${data.commissionDueHours} horas para realizar el pago. Una vez finalizado este plazo sin recibir el pago, la conexión mediante API será desactivada. La conexión será reactivada una vez que el pago haya sido reportado y validado.`
-        : `Su estado de cuenta de ${month} ha sido generado correctamente.`,
+    title: 'Estado de cuenta generado — pendiente de pago',
+    message: `Tu estado de cuenta de ${month}${identifier ? ` (subcuenta/API ${identifier})` : ''} fue generado y está PENDIENTE DE PAGO. Dispones de ${STATEMENT_DUE_HOURS} horas para pagarlo mediante Transferencia interna Bitget desde Pagos / Garantía. Si el plazo vence sin pago, la conexión API será desactivada.`,
     type: 'info',
     templateKey: 'statement_generated',
     templateParams: {
-      identifier: subaccount.identifier || (subaccount.isPrincipal ? 'PRINCIPAL' : ''),
+      identifier,
       month,
       commission: String(data.commission),
-      commissionDueHours: String(data.commissionDueHours),
+      commissionDueHours: String(STATEMENT_DUE_HOURS),
       apiSubaccountId: subaccount.id,
     },
-    // Ya se envía un correo específico y más detallado más abajo
-    // (sendStatementGeneratedEmail) cuando aplica comisión — evita duplicar.
-    skipEmail: data.commission > 0,
   });
 
-  if (data.commission > 0 && subaccount.client?.user?.email) {
-    // Best-effort: si Gmail no está configurado o el envío falla, el
-    // estado de cuenta queda generado igual — la notificación interna ya
-    // se registró arriba y nunca depende del correo.
-    await sendStatementGeneratedEmail(subaccount.client.user, {
-      identifier: subaccount.identifier,
-      commissionDueHours: data.commissionDueHours,
-    }).catch(() => {});
-  }
-
   res.status(201).json({ ok: true, statement: shapeStatement(updatedStatement) });
+});
+
+async function markPaid(statementId) {
+  const statement = await prisma.statement.findUnique({
+    where: { id: statementId },
+    include: { apiSubaccount: true },
+  });
+  if (!statement) throw ApiError.notFound('Estado de cuenta no encontrado');
+  if (statement.status === 'PAGADO') return statement;
+
+  const updated = await prisma.statement.update({
+    where: { id: statement.id },
+    data: { status: 'PAGADO', paidAt: new Date() },
+  });
+
+  // Si la conexión se había desactivado por el vencimiento y ya no queda
+  // ningún otro estado de cuenta sin pagar, se reconecta.
+  const stillUnpaid = await prisma.statement.count({
+    where: { apiSubaccountId: statement.apiSubaccountId, status: { in: ['PENDIENTE_DE_PAGO', 'VENCIDO_SIN_PAGAR'] } },
+  });
+  if (!stillUnpaid && statement.apiSubaccount.status === 'DESCONECTADA') {
+    await prisma.apiSubaccount.update({
+      where: { id: statement.apiSubaccountId },
+      data: { status: 'CONECTADA', reconnectedAt: new Date() },
+    });
+    await prisma.apiConnectionEvent.create({ data: { apiSubaccountId: statement.apiSubaccountId, eventType: 'RECONNECTED' } });
+  }
+  return updated;
+}
+
+// Confirmación manual del pago desde la subcuenta (cuando el admin ya
+// validó el pago) — PAGADO y desaparece el contador.
+const markStatementPaid = asyncHandler(async (req, res) => {
+  const updated = await markPaid(req.params.id);
+  const subaccount = await prisma.apiSubaccount.findUnique({ where: { id: updated.apiSubaccountId } });
+  const identifier = subaccount.identifier || (subaccount.isPrincipal ? 'PRINCIPAL' : '');
+  await notifyClient(subaccount.clientId, {
+    title: 'Estado de cuenta pagado',
+    message: `El pago de tu estado de cuenta${identifier ? ` (subcuenta/API ${identifier})` : ''} fue confirmado por QLC. Estado: PAGADO.`,
+    type: 'success',
+    templateKey: 'statement_paid',
+    templateParams: { identifier, apiSubaccountId: subaccount.id },
+  });
+  res.json({ ok: true, statement: shapeStatement(updated) });
 });
 
 const downloadStatementFile = asyncHandler(async (req, res) => {
@@ -236,105 +227,10 @@ const downloadStatementFile = asyncHandler(async (req, res) => {
   stream.pipe(res);
 });
 
-// CORRECCIÓN 5: reenvía al cliente la notificación de un estado de cuenta ya
-// generado — reutiliza notifyClient, nunca un sistema de notificaciones
-// paralelo.
-const sendStatementToClient = asyncHandler(async (req, res) => {
-  const statement = await prisma.statement.findUnique({
-    where: { id: req.params.id },
-    include: { apiSubaccount: { include: { client: true } } },
-  });
-  if (!statement) throw ApiError.notFound('Estado de cuenta no encontrado');
-
-  const resentIdentifier =
-    statement.apiSubaccount.identifier || (statement.apiSubaccount.isPrincipal ? 'PRINCIPAL' : '');
-  await notifyClient(statement.apiSubaccount.clientId, {
-    title: 'Estado de cuenta disponible',
-    message: `QLC puso a tu disposición nuevamente tu estado de cuenta${
-      resentIdentifier ? ` de la subcuenta/API ${resentIdentifier}` : ''
-    }.`,
-    type: 'info',
-    templateKey: 'statement_resent',
-    templateParams: { identifier: resentIdentifier, apiSubaccountId: statement.apiSubaccount.id },
-  });
-
-  const client = statement.apiSubaccount.client;
-  await notifyAdmins({
-    title: 'Estado de cuenta enviado',
-    message: `El estado de cuenta${resentIdentifier ? ` de ${resentIdentifier}` : ''} fue enviado con éxito a ${client.firstName} ${client.lastName}.`,
-    type: 'info',
-    templateKey: 'statement_sent_admin',
-    templateParams: {
-      identifier: resentIdentifier,
-      clientName: `${client.firstName} ${client.lastName}`,
-      apiSubaccountId: statement.apiSubaccount.id,
-      clientId: client.id,
-    },
-  });
-
-  res.json({ ok: true });
-});
-
-// CORRECCIÓN 5: evidencia documental de un estado de cuenta — reutiliza
-// EXACTAMENTE el mismo almacenamiento (Google Drive/Document) que el resto
-// de documentos del cliente, nunca una arquitectura paralela.
-const uploadStatementEvidence = asyncHandler(async (req, res) => {
-  if (!(await driveStorage.isConfigured())) {
-    throw ApiError.serviceUnavailable(
-      'No pudimos conectar con Google Drive. Ve a Configuración → Google Drive en el panel administrativo.'
-    );
-  }
-  if (!req.file) throw ApiError.badRequest('Debes adjuntar un archivo');
-
-  const statement = await prisma.statement.findUnique({
-    where: { id: req.params.id },
-    include: { apiSubaccount: { include: { client: true } } },
-  });
-  if (!statement) throw ApiError.notFound('Estado de cuenta no encontrado');
-
-  const client = statement.apiSubaccount.client;
-  const statementsFolderId = await driveStorage.getOrCreateSubfolder(client, 'statements');
-
-  const uploaded = await driveStorage.uploadFileToDrive(req.file.buffer, {
-    folderId: statementsFolderId,
-    fileName: req.file.originalname,
-    mimeType: req.file.mimetype,
-  });
-
-  const document = await prisma.document.create({
-    data: {
-      clientId: client.id,
-      category: 'evidencia_estado_cuenta',
-      description: req.body.description || null,
-      driveFileId: uploaded.id,
-      driveFolderId: statementsFolderId,
-      fileName: req.file.originalname,
-      extension: path.extname(req.file.originalname).replace('.', '') || null,
-      mimeType: req.file.mimetype,
-      sizeBytes: req.file.size,
-      uploadedByUserId: req.user.id,
-      statementId: statement.id,
-    },
-  });
-
-  res.status(201).json({ ok: true, document });
-});
-
-const listStatementEvidence = asyncHandler(async (req, res) => {
-  const documents = await prisma.document.findMany({
-    where: { statementId: req.params.id },
-    orderBy: { createdAt: 'desc' },
-  });
-  res.json({ ok: true, documents });
-});
-
 module.exports = {
   listStatements,
-  listAllStatements,
-  setStatementArchived,
   createStatement,
+  markStatementPaid,
+  markPaid,
   downloadStatementFile,
-  sendStatementToClient,
-  uploadStatementEvidence,
-  listStatementEvidence,
 };

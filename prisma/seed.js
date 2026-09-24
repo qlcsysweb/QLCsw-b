@@ -311,7 +311,7 @@ async function main() {
   if (paymentConfigCount === 0) {
     await prisma.paymentConfiguration.create({
       data: {
-        instructions: 'Configura el QR, wallet y enlace de pago desde el panel administrativo.',
+        instructions: 'Envía tus USDT mediante Transferencia interna Bitget al UID de recepción de QLC (sin comisión).',
       },
     });
     console.log('Configuración de pagos inicial creada.');

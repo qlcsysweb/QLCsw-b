@@ -9,19 +9,25 @@ const { sendNotificationEmail } = require('../services/emailService');
  * nunca se pierde ni bloquea el flujo que la disparó. `emailSent`/
  * `emailError` en el registro permiten comprobar después si el correo salió.
  */
+// Devuelve la notificación con el resultado del correo ya registrado
+// (emailSent/emailError) para que el admin sepa si salió o falló. El motivo
+// se recorta — nunca se guarda un stack trace.
 async function dispatchEmail(notification, email) {
   try {
     const result = await sendNotificationEmail({ email }, { title: notification.title, message: notification.message });
-    await prisma.notification.update({
+    return await prisma.notification.update({
       where: { id: notification.id },
       data: result.sent
-        ? { emailSent: true, emailSentAt: new Date() }
-        : { emailError: result.reason || 'No se pudo enviar el correo.' },
+        ? { emailSent: true, emailSentAt: new Date(), emailError: null }
+        : { emailError: String(result.reason || 'No se pudo enviar el correo.').slice(0, 300) },
     });
   } catch (err) {
-    await prisma.notification
-      .update({ where: { id: notification.id }, data: { emailError: err?.message || 'Error desconocido al enviar el correo.' } })
-      .catch(() => {});
+    return prisma.notification
+      .update({
+        where: { id: notification.id },
+        data: { emailError: String(err?.message || 'Error desconocido al enviar el correo.').replace(/\s+/g, ' ').slice(0, 300) },
+      })
+      .catch(() => notification);
   }
 }
 
@@ -101,7 +107,12 @@ async function notifyUser(userId, { title, message, type = 'info', templateKey =
     },
   });
   if (!skipEmail && user?.isActive && user.email) {
-    await dispatchEmail(notification, user.email);
+    return dispatchEmail(notification, user.email);
+  }
+  if (!skipEmail) {
+    return prisma.notification
+      .update({ where: { id: notification.id }, data: { emailError: 'El usuario no tiene un correo activo.' } })
+      .catch(() => notification);
   }
   return notification;
 }

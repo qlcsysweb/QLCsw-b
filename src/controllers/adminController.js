@@ -162,7 +162,7 @@ const setGeneralAdmin = asyncHandler(async (req, res) => {
 // Eliminación real y permanente de un administrador. A diferencia de
 // clientController.deleteClient, aquí NO se puede simplemente cascadear:
 // el modelo User acumula relaciones "quién hizo esto" (documentos subidos,
-// estados de cuenta generados, invitaciones de capital, mensajes de chat y
+// estados de cuenta generados, mensajes de chat y
 // soporte) definidas como OBLIGATORIAS — borrar el usuario sin revisar esas
 // relaciones fallaría por restricción de clave foránea, o peor, dejaría
 // huérfano un registro de auditoría financiera. Por eso: exige que ya esté
@@ -186,20 +186,16 @@ const deleteAdmin = asyncHandler(async (req, res) => {
     throw ApiError.badRequest('Primero debes desactivar a este administrador antes de poder eliminarlo.');
   }
 
-  const [documents, capitalIncreaseInvitations, capitalRescueInvitations, statements, chatMessages, supportMessages] =
-    await Promise.all([
+  const [documents, statements, chatMessages, supportMessages] = await Promise.all([
       prisma.document.count({ where: { uploadedByUserId: admin.id } }),
-      prisma.capitalIncreaseInvitation.count({ where: { createdByUserId: admin.id } }),
-      prisma.capitalRescueInvitation.count({ where: { createdByUserId: admin.id } }),
       prisma.statement.count({ where: { createdByUserId: admin.id } }),
       prisma.chatMessage.count({ where: { senderUserId: admin.id } }),
       prisma.supportCaseMessage.count({ where: { senderUserId: admin.id } }),
     ]);
-  const hasActivity =
-    documents + capitalIncreaseInvitations + capitalRescueInvitations + statements + chatMessages + supportMessages > 0;
+  const hasActivity = documents + statements + chatMessages + supportMessages > 0;
   if (hasActivity) {
     throw ApiError.badRequest(
-      'Este administrador tiene actividad registrada en el sistema (documentos subidos, estados de cuenta generados, invitaciones de capital o mensajes de chat/soporte) y no puede eliminarse sin perder ese historial. Déjalo desactivado en su lugar.'
+      'Este administrador tiene actividad registrada en el sistema (documentos subidos, estados de cuenta generados o mensajes de chat/soporte) y no puede eliminarse sin perder ese historial. Déjalo desactivado en su lugar.'
     );
   }
 

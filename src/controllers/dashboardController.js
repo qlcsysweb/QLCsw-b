@@ -33,11 +33,12 @@ const getSummary = asyncHandler(async (req, res) => {
       },
     }),
     prisma.prospect.count({ where: { status: 'NUEVO' } }),
-    // CORRECCIÓN 13 (bloque de 20) — "Tiempo agotado": estados de cuenta con
-    // comisión pendiente cuyo plazo de 72h ya venció. Reemplaza la tarjeta
-    // de "prospectos sin registro" en el dashboard.
+    // "Tiempo agotado": estados de cuenta VENCIDO / SIN PAGAR (incluye los
+    // pendientes cuyo plazo de 72 h ya pasó y aún no barrió el servidor).
     prisma.statement.count({
-      where: { commissionPaid: false, commissionDueAt: { lt: new Date() } },
+      where: {
+        OR: [{ status: 'VENCIDO_SIN_PAGAR' }, { status: 'PENDIENTE_DE_PAGO', expiresAt: { lte: new Date() } }],
+      },
     }),
     prisma.appointment.count({ where: { status: 'PENDING' } }),
     prisma.paymentReport.count({ where: { status: { in: ['PENDING', 'EN_REVISION'] } } }),

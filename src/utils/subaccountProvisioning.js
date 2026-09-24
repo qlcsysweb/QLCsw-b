@@ -9,20 +9,17 @@ const prisma = require('../config/prisma');
 
 // CORREGIR(2).xlsx — el contrato ya NO es un requisito de activación (se
 // sustituyó por la aceptación de Términos y Condiciones en el registro).
-// Orden alineado al flujo real del cliente: Wallet/API → Garantía (PAYMENT,
-// mínimo 10% del capital) → Capital distribuido en el exchange (FUNDS) →
-// Activación.
-const PROCESS_CONDITION_TYPES = ['WALLET', 'PAYMENT', 'FUNDS', 'API', 'ACTIVATION'];
+// Orden alineado al flujo real del cliente: Garantía (PAYMENT, mínimo 10%
+// del capital, vía transferencia interna Bitget) → Capital distribuido en el
+// exchange (FUNDS) → API → Activación.
+const PROCESS_CONDITION_TYPES = ['PAYMENT', 'FUNDS', 'API', 'ACTIVATION'];
 const MAX_SUBACCOUNTS_PER_CLIENT = 20;
 
-function buildProcessCreateData(clientHasWallet) {
+function buildProcessCreateData() {
   return {
     create: {
       conditions: {
-        create: PROCESS_CONDITION_TYPES.map((type) => ({
-          type,
-          status: type === 'WALLET' && clientHasWallet ? 'CONFIRMED' : 'PENDING',
-        })),
+        create: PROCESS_CONDITION_TYPES.map((type) => ({ type, status: 'PENDING' })),
       },
     },
   };
@@ -45,7 +42,7 @@ async function ensurePrincipalSubaccount(clientId) {
       clientId,
       slotIndex: 0,
       isPrincipal: true,
-      process: buildProcessCreateData(Boolean(client.walletAddress)),
+      process: buildProcessCreateData(),
     },
   });
 }
@@ -73,13 +70,10 @@ async function countActiveSubaccounts(clientId) {
 }
 
 // Regla segura de desactivación: no se permite desactivar una subcuenta
-// mientras tenga cualquier estado de cuenta con comisión pendiente de pago
-// (vencida o no). `Statement.displayStatus` se deriva siempre de
-// commission/commissionPaid (ver statementController.js) — nunca se guarda
-// como columna redundante, así que se replica el mismo criterio aquí.
+// mientras tenga un estado de cuenta sin pagar (pendiente o vencido).
 async function hasPendingStatements(apiSubaccountId) {
   const count = await prisma.statement.count({
-    where: { apiSubaccountId, commission: { gt: 0 }, commissionPaid: false },
+    where: { apiSubaccountId, status: { in: ['PENDIENTE_DE_PAGO', 'VENCIDO_SIN_PAGAR'] } },
   });
   return count > 0;
 }

@@ -10,6 +10,11 @@ const { notifyUser } = require('../utils/notify');
  * paralela: el mensaje aparece en las notificaciones del cliente y queda
  * en el historial para siempre (excluido de la limpieza automática de 34
  * días — ver client/notificationController.js).
+ *
+ * Cada mensaje se guarda en BD, aparece como notificación interna y, en la
+ * MISMA acción, se envía por correo al email real del cliente (User.email).
+ * Si el correo falla, el mensaje interno NO se pierde: queda guardado con
+ * emailSent=false y el motivo en emailError (visible solo para el admin).
  */
 
 const listForClient = asyncHandler(async (req, res) => {
@@ -40,6 +45,8 @@ const sendMessage = asyncHandler(async (req, res) => {
   });
   if (!client) throw ApiError.notFound('Cliente no encontrado');
 
+  // notifyUser: guarda el mensaje + notificación interna y envía el correo
+  // al email real del cliente dentro de la misma petición.
   const notification = await notifyUser(client.userId, {
     title,
     message,

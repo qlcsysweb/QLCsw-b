@@ -40,11 +40,6 @@ const createSubaccount = asyncHandler(async (req, res) => {
     if (existingIdentifier) throw ApiError.conflict('Ese identificador ya está en uso por otra subcuenta.');
   }
 
-  // CORRECCIÓN 1: si el cliente ya registró su wallet antes de que existiera
-  // esta subcuenta, el paso "WALLET" nace confirmado — nunca se le vuelve a
-  // pedir un dato que ya tiene guardado.
-  const clientHasWallet = Boolean(client.walletAddress);
-
   const nextSlot = await getNextSlotIndex(client.id);
   const subaccount = await prisma.apiSubaccount.create({
     data: {
@@ -56,10 +51,7 @@ const createSubaccount = asyncHandler(async (req, res) => {
       process: {
         create: {
           conditions: {
-            create: PROCESS_CONDITION_TYPES.map((type) => ({
-              type,
-              status: type === 'WALLET' && clientHasWallet ? 'CONFIRMED' : 'PENDING',
-            })),
+            create: PROCESS_CONDITION_TYPES.map((type) => ({ type, status: 'PENDING' })),
           },
         },
       },

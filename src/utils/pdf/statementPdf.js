@@ -20,8 +20,8 @@ function generateStatementPdf({ client, identifier, model, statement }) {
     doc.on('error', reject);
 
     const commissionAmount = Number(statement.commission || 0);
-    const commissionPaid = Boolean(statement.commissionPaid);
-    const pendingAmount = commissionAmount > 0 && !commissionPaid ? commissionAmount : 0;
+    const isPaid = statement.status === 'PAGADO';
+    const pendingAmount = isPaid ? 0 : commissionAmount;
 
     doc.fontSize(18).fillColor('#0d131a').text('QUANTUM LIQUIDITY CAPITAL', { align: 'center' });
     doc.fontSize(11).fillColor('#5b6b7a').text('Estado de cuenta', { align: 'center' });
@@ -55,7 +55,8 @@ function generateStatementPdf({ client, identifier, model, statement }) {
     doc.text(`Rendimiento generado: ${statement.resultAmount} USDT`);
     doc.text(`Comisión QLC: ${commissionAmount} USDT`);
     doc.text(`Importe pendiente: ${pendingAmount} USDT`);
-    doc.text(`Estado de pago: ${commissionPaid ? 'PAGADO' : 'PENDIENTE'}`);
+    doc.text(`Estado de pago: ${isPaid ? 'PAGADO' : 'PENDIENTE DE PAGO'}`);
+    if (!isPaid && statement.expiresAt) doc.text(`Fecha límite de pago: ${formatCdmx(new Date(statement.expiresAt))}`);
     doc.moveDown(1);
 
     if (statement.activityNotes) {

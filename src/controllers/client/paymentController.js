@@ -4,14 +4,7 @@ const prisma = require('../../config/prisma');
 const ApiError = require('../../utils/ApiError');
 const asyncHandler = require('../../utils/asyncHandler');
 const { notifyAdmins } = require('../../utils/notify');
-
-async function assertDriveReady() {
-  if (!(await driveStorage.isConfigured())) {
-    throw ApiError.serviceUnavailable(
-      'No pudimos conectar con el almacenamiento de documentos. Contacta al equipo de QLC.'
-    );
-  }
-}
+const { enforceCommissionDeadline } = require('../../utils/connectionDeadlines');
 
 async function assertOwnsSubaccount(clientId, apiSubaccountId) {
   const subaccount = await prisma.apiSubaccount.findFirst({ where: { id: apiSubaccountId, clientId } });
@@ -19,104 +12,96 @@ async function assertOwnsSubaccount(clientId, apiSubaccountId) {
   return subaccount;
 }
 
+// TRANSFERENCIA INTERNA BITGET — el cliente solo ve (y copia) el UID de
+// recepción que administra QLC. Nunca puede modificarlo.
 const getPaymentConfig = asyncHandler(async (req, res) => {
-  const config = await prisma.paymentConfiguration.findFirst();
+  const config = await prisma.paymentConfiguration.findFirst({
+    select: { currency: true, bitgetReceiveUid: true, instructions: true },
+  });
   res.json({ ok: true, config });
 });
 
-// Sirve el QR de pago desde Drive por un endpoint protegido — nunca un
-// enlace público de Drive. Si solo existe el QR legado de Cloudinary
-// (qrUrl), devuelve 404 y el frontend cae a esa URL.
-const downloadPaymentQr = asyncHandler(async (req, res) => {
-  const config = await prisma.paymentConfiguration.findFirst();
-  if (!config?.qrDriveFileId) throw ApiError.notFound('No hay un QR de pago almacenado en Drive.');
-
-  const { stream, fileName, mimeType } = await driveStorage.downloadFileFromDrive(config.qrDriveFileId);
-  res.setHeader('Content-Type', mimeType || 'image/png');
-  res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(fileName || 'qr-pago.png')}"`);
-  stream.on('error', () => res.status(500).end());
-  stream.pipe(res);
-});
-
-// Pagos — por SUBCUENTA/API (CORRECCIÓN 11/28): nunca se mezclan entre
-// subcuentas de un mismo cliente.
+// Pagos — por SUBCUENTA/API: nunca se mezclan entre subcuentas del cliente.
 const listPaymentReports = asyncHandler(async (req, res) => {
   await assertOwnsSubaccount(req.clientProfile.id, req.params.apiSubaccountId);
   const reports = await prisma.paymentReport.findMany({
     where: { apiSubaccountId: req.params.apiSubaccountId },
     orderBy: { reportedAt: 'desc' },
+    select: {
+      id: true,
+      amount: true,
+      currency: true,
+      reference: true,
+      bitgetOrderNumber: true,
+      transactionAt: true,
+      status: true,
+      reportedAt: true,
+      reviewedAt: true,
+      statementId: true,
+      proofDriveFileId: true,
+      proofFileName: true,
+    },
   });
   res.json({ ok: true, reports });
 });
 
+// El cliente reporta SOLO dos datos: número de orden y fecha/hora de la
+// transacción. Nada de wallet, red, dirección, hash ni capturas.
 const createPaymentReportSchema = z.object({
-  amount: z.coerce.number().positive(),
-  currency: z.string().optional(),
-  // Dato libre declarado por el cliente (referencia/hash de la operación,
-  // últimos dígitos, etc.). Nunca se valida contra el exchange.
-  reference: z.string().max(200).optional(),
-  statementId: z.string().optional(),
+  bitgetOrderNumber: z
+    .string({ required_error: 'El número de orden es obligatorio' })
+    .trim()
+    .min(4, 'El número de orden es obligatorio')
+    .max(64, 'El número de orden no puede superar 64 caracteres')
+    .regex(/^[A-Za-z0-9-]+$/, 'El número de orden solo puede contener letras, números y guiones'),
+  transactionAt: z.coerce.date({ invalid_type_error: 'La fecha y hora de la transacción no es válida' }),
 });
 
-// CORRECCIÓN 6 — flujo del cliente: "GARANTÍA — pago de garantía mínimo
-// 10% del capital invertido". Esta validación solo aplica al pago inicial
-// de garantía (sin statementId); los pagos de comisión ligados a un
-// estado de cuenta ya tienen su propio monto definido por el admin.
 const createPaymentReport = asyncHandler(async (req, res) => {
   const subaccount = await assertOwnsSubaccount(req.clientProfile.id, req.params.apiSubaccountId);
-  const { amount, currency, reference, statementId } = createPaymentReportSchema.parse(req.body);
+  if (subaccount.deactivatedAt) throw ApiError.badRequest('Esta subcuenta fue desactivada.');
+  const { bitgetOrderNumber, transactionAt } = createPaymentReportSchema.parse(req.body);
 
-  if (!statementId && subaccount.requiredCapital) {
-    const minimumGuarantee = Number(subaccount.requiredCapital) * 0.1;
-    if (amount < minimumGuarantee) {
-      throw ApiError.badRequest(
-        `El pago de garantía debe ser de al menos el 10% del capital invertido (mínimo ${minimumGuarantee.toFixed(2)} USDT).`
-      );
-    }
+  // Tolerancia de 10 min por diferencias de reloj; nunca una fecha futura.
+  if (transactionAt.getTime() > Date.now() + 10 * 60 * 1000) {
+    throw ApiError.badRequest('La fecha y hora de la transacción no puede estar en el futuro.');
   }
 
-  let proofData = {};
-  if (req.file) {
-    await assertDriveReady();
-    const { paymentsFolderId } = await driveStorage.ensureClientFolders(req.clientProfile);
-    const uploaded = await driveStorage.uploadFileToDrive(req.file.buffer, {
-      folderId: paymentsFolderId,
-      fileName: req.file.originalname,
-      mimeType: req.file.mimetype,
-    });
-    proofData = {
-      proofDriveFileId: uploaded.id,
-      proofDriveFolderId: paymentsFolderId,
-      proofFileName: req.file.originalname,
-      proofMimeType: req.file.mimetype,
-      proofSizeBytes: req.file.size,
-    };
-  }
+  const duplicate = await prisma.paymentReport.findFirst({
+    where: { bitgetOrderNumber, status: { not: 'RECHAZADO' } },
+    select: { id: true },
+  });
+  if (duplicate) throw ApiError.conflict('Ese número de orden ya fue reportado.');
+
+  // Si la subcuenta tiene un estado de cuenta sin pagar, el reporte se
+  // asocia a él automáticamente (el cliente no tiene que elegir nada).
+  await enforceCommissionDeadline(subaccount.id);
+  const unpaidStatement = await prisma.statement.findFirst({
+    where: { apiSubaccountId: subaccount.id, status: { in: ['PENDIENTE_DE_PAGO', 'VENCIDO_SIN_PAGAR'] } },
+    orderBy: { generatedAt: 'desc' },
+    select: { id: true },
+  });
 
   const report = await prisma.paymentReport.create({
     data: {
       apiSubaccountId: subaccount.id,
-      amount,
-      currency: currency || 'USDT',
-      reference: reference || null,
-      statementId: statementId || null,
-      ...proofData,
+      currency: 'USDT',
+      bitgetOrderNumber,
+      transactionAt,
+      statementId: unpaidStatement?.id || null,
       status: 'PENDING',
     },
   });
 
-  // El cliente reportó que ya realizó la transferencia — notifica a
-  // administración de inmediato (mismo sistema de notificaciones existente,
-  // sin módulo paralelo).
+  const clientName = `${req.clientProfile.firstName} ${req.clientProfile.lastName}`;
   await notifyAdmins({
-    title: 'Transferencia reportada',
-    message: `${req.clientProfile.firstName} ${req.clientProfile.lastName} indicó que ya realizó la transferencia (${amount} ${currency || 'USDT'}).`,
+    title: 'Transferencia interna Bitget reportada',
+    message: `${clientName} reportó una transferencia interna Bitget (orden ${bitgetOrderNumber}).`,
     type: 'info',
     templateKey: 'payment_reported',
     templateParams: {
-      clientName: `${req.clientProfile.firstName} ${req.clientProfile.lastName}`,
-      amount: String(amount),
-      currency: currency || 'USDT',
+      clientName,
+      orderNumber: bitgetOrderNumber,
       apiSubaccountId: subaccount.id,
       clientId: req.clientProfile.id,
     },
@@ -125,12 +110,16 @@ const createPaymentReport = asyncHandler(async (req, res) => {
   res.status(201).json({ ok: true, report });
 });
 
+// Comprobantes históricos (reportes anteriores a la transferencia interna
+// Bitget) — solo descarga.
 const downloadPaymentProof = asyncHandler(async (req, res) => {
-  await assertDriveReady();
   const report = await prisma.paymentReport.findUnique({ where: { id: req.params.id } });
   if (!report) throw ApiError.notFound('Reporte de pago no encontrado');
   await assertOwnsSubaccount(req.clientProfile.id, report.apiSubaccountId);
   if (!report.proofDriveFileId) throw ApiError.notFound('Este reporte no tiene comprobante adjunto');
+  if (!(await driveStorage.isConfigured())) {
+    throw ApiError.serviceUnavailable('No pudimos conectar con el almacenamiento de documentos. Contacta al equipo de QLC.');
+  }
 
   const { stream, fileName, mimeType } = await driveStorage.downloadFileFromDrive(report.proofDriveFileId);
   res.setHeader('Content-Type', mimeType || report.proofMimeType);
@@ -142,4 +131,4 @@ const downloadPaymentProof = asyncHandler(async (req, res) => {
   stream.pipe(res);
 });
 
-module.exports = { getPaymentConfig, downloadPaymentQr, listPaymentReports, createPaymentReport, downloadPaymentProof };
+module.exports = { getPaymentConfig, listPaymentReports, createPaymentReport, downloadPaymentProof };

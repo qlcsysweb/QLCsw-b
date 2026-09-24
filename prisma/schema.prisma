@@ -24,7 +24,6 @@ enum ClientStatus {
 }
 
 enum ProcessConditionType {
-  WALLET
   FUNDS
   PAYMENT
   API
@@ -87,20 +86,6 @@ enum ConnectionEventType {
   RECONNECTED
 }
 
-// CORRECCIÓN 7 — Invitación para aumento de saldo operativo.
-enum CapitalInvitationStatus {
-  DESBLOQUEADA
-  ACEPTADA
-  RECHAZADA
-}
-
-enum CapitalRequestStatus {
-  EN_PROCESO
-  DISTRIBUCION_EN_PROCESO
-  INSTRUCCIONES_EMITIDAS
-  COMPLETADA
-}
-
 // CORRECCIÓN 1/6/20/21 — Guías de uso: biblioteca editable desde ADMIN,
 // consultada en modo lectura por CLIENTE/ADMIN según audiencia.
 enum GuideAudience {
@@ -109,30 +94,19 @@ enum GuideAudience {
   BOTH
 }
 
-// CORRECCIÓN 4 (nueva actualización) — Invitación para Capital Temporal
-// para Rescate. Flujo independiente de "Aumento de saldo operativo": aquí
-// SÍ es el ADMIN quien determina la distribución (depósito/devolución)
-// entre las cuentas/subcuentas del cliente — nunca el cliente.
-enum RescueInvitationStatus {
-  DESBLOQUEADA
-  ACEPTADA
-  RECHAZADA
-}
-
-enum RescueParticipationStatus {
-  EN_PROCESO
-  PENDIENTE_DE_DEPOSITO
-  EN_UTILIZACION
-  DISPONIBLE_PARA_DEVOLUCION
-  FINALIZADA
-}
-
 // CORRECCIÓN CORREGIR.xlsx — ADMIN 14: mensajería manual admin→cliente,
 // reutilizando Notification (nunca una tabla paralela). "SYSTEM" son las
 // notificaciones automáticas de siempre (con templateKey); "MANUAL" son
 // mensajes redactados a mano por un admin y quedan excluidos de la
 // limpieza automática de 34 días para preservar el historial del "correo
 // interno".
+// Estado de cuenta simplificado (ver model Statement).
+enum StatementStatus {
+  PENDIENTE_DE_PAGO
+  PAGADO
+  VENCIDO_SIN_PAGAR
+}
+
 enum NotificationKind {
   SYSTEM
   MANUAL
@@ -182,8 +156,6 @@ model User {
   statementsCreated                  Statement[]                 @relation("StatementCreatedBy")
   documentUnlocksGranted             Document[]                  @relation("DocumentUnlockedBy")
   documentCorrectionsUploaded        DocumentCorrection[]        @relation("DocumentCorrectionBy")
-  capitalInvitationsCreated          CapitalIncreaseInvitation[] @relation("CapitalInvitationCreatedBy")
-  rescueInvitationsCreated           CapitalRescueInvitation[]   @relation("RescueInvitationCreatedBy")
   notificationsSent                  Notification[]              @relation("NotificationSentBy")
   capitalDistributionReportsReviewed CapitalDistributionReport[] @relation("CapitalDistReportReviewedBy")
   securityConfigsUpdated             SecurityConfiguration[]     @relation("SecurityConfigUpdatedBy")
@@ -258,7 +230,6 @@ model ClientProfile {
   driveDocumentsFolderId  String?
   drivePaymentsFolderId   String?
   driveStatementsFolderId String?
-  driveQrFolderId         String?
   // IMPLEMENTACIÓN DEFINITIVA DE GOOGLE DRIVE — la carpeta del cliente se
   // intenta preparar apenas se registra (ver subaccountProvisioning/registro),
   // pero eso solo puede completarse si Drive ya está conectado. "PENDING"
@@ -266,20 +237,6 @@ model ClientProfile {
   // momento, o falló); "SYNCED" que sus carpetas ya existen en Drive.
   driveSyncStatus         String  @default("PENDING") // "PENDING" | "SYNCED" | "ERROR"
   driveSyncError          String?
-
-  // CORRECCIÓN 28: wallet personal del cliente — cuenta externa a la cual
-  // QLC podría transferir fondos en el supuesto contractual establecido.
-  // Nunca se ejecutan transferencias automáticas; solo se almacena el dato.
-  walletAddress    String?
-  walletNetwork    String?
-  // LEGADO — QR de wallet ya subido a Cloudinary antes de esta corrección.
-  // Se conserva sin tocar (no se migra ni se borra automáticamente); un QR
-  // nuevo se sube siempre a Drive (walletQrDrive*) y el endpoint de
-  // descarga prefiere Drive cuando existe, cayendo a esta URL si no.
-  walletQrUrl           String?
-  walletQrPublicId      String?
-  walletQrDriveFileId   String?
-  walletQrDriveFolderId String?
 
   // El contrato ya NO forma parte del registro (sustituido por Aviso de
   // Privacidad + Términos y Condiciones). Se conserva evidencia de qué
@@ -304,11 +261,6 @@ model ClientProfile {
   // Reemplaza el timestamp único `subaccountRequestedAt` (solo permitía
   // saber "hay una solicitud sí/no", nunca el motivo ni el historial).
   subaccountRequests SubaccountRequest[]
-
-  // CORRECCIÓN 7: invitaciones de aumento de saldo operativo (historial completo).
-  capitalIncreaseInvitations CapitalIncreaseInvitation[]
-  // CORRECCIÓN 4: invitaciones de capital temporal para rescate (historial completo).
-  capitalRescueInvitations   CapitalRescueInvitation[]
 
   @@map("client_profiles")
 }
@@ -399,9 +351,6 @@ model ApiSubaccount {
   paymentReports             PaymentReport[]
   statements                 Statement[]
   connectionEvents           ApiConnectionEvent[]
-  capitalDistributionItems   CapitalDistributionItem[]
-  capitalRescueInvitations   CapitalRescueInvitation[]
-  rescueDistributionItems    CapitalRescueDistributionItem[] @relation("RescueDistributionItems")
   appointments               Appointment[]
   capitalDistributionReports CapitalDistributionReport[]
   deactivationRequests       SubaccountRequest[]
@@ -431,9 +380,9 @@ enum SubaccountRequestStatus {
 }
 
 model SubaccountRequest {
-  id       String        @id @default(cuid())
+  id       String                @id @default(cuid())
   clientId String
-  client   ClientProfile @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  client   ClientProfile         @relation(fields: [clientId], references: [id], onDelete: Cascade)
   type     SubaccountRequestType
 
   // Solo aplica (y es obligatorio) para type=DEACTIVATE: la subcuenta que
@@ -470,186 +419,6 @@ model ApiConnectionEvent {
   occurredAt      DateTime            @default(now())
 
   @@map("api_connection_events")
-}
-
-// ==========================================================
-// INVITACIÓN PARA AUMENTO DE SALDO OPERATIVO (CORRECCIÓN 7)
-// ==========================================================
-// Solo QLC/ADMIN puede emitir una invitación — el cliente nunca la genera.
-// Flujo: DESBLOQUEADA -> ACEPTADA (crea CapitalIncreaseRequest) o RECHAZADA.
-// CORRECCIÓN 7/8 (actualización): una vez aceptada y con solicitud enviada,
-// el ADMIN autoriza/procesa la solicitud (EN_PROCESO -> DISTRIBUCION_EN_
-// PROCESO) pero NUNCA arma la distribución por el cliente — es el propio
-// CLIENTE quien distribuye el monto autorizado entre sus subcuentas/API
-// reales, en bloques de 20 USDT, hasta agotar exactamente el monto.
-model CapitalIncreaseInvitation {
-  id       String        @id @default(cuid())
-  clientId String
-  client   ClientProfile @relation(fields: [clientId], references: [id], onDelete: Cascade)
-
-  // Dato informativo capturado manualmente por el admin — el sistema NUNCA
-  // consulta saldo real en el exchange.
-  currentBalance Decimal  @db.Decimal(14, 2)
-  maxAmount      Decimal  @db.Decimal(14, 2)
-  validityDays   Int      @default(10)
-  expiresAt      DateTime
-  // Mensaje opcional del admin al emitir la invitación (motivo, contexto).
-  message        String?
-
-  status      CapitalInvitationStatus @default(DESBLOQUEADA)
-  respondedAt DateTime?
-
-  createdByUserId String
-  createdBy       User     @relation("CapitalInvitationCreatedBy", fields: [createdByUserId], references: [id])
-  createdAt       DateTime @default(now())
-
-  request CapitalIncreaseRequest?
-
-  @@map("capital_increase_invitations")
-}
-
-model CapitalIncreaseRequest {
-  id           String                    @id @default(cuid())
-  invitationId String                    @unique
-  invitation   CapitalIncreaseInvitation @relation(fields: [invitationId], references: [id], onDelete: Cascade)
-
-  requestedAmount Decimal              @db.Decimal(14, 2)
-  status          CapitalRequestStatus @default(EN_PROCESO)
-  requestedAt     DateTime             @default(now())
-  // CORRECCIÓN 7: 72 horas para que QLC procese y emita instrucciones.
-  deadlineAt      DateTime
-  readAt          DateTime?
-
-  distribution CapitalDistribution?
-
-  @@map("capital_increase_requests")
-}
-
-model CapitalDistribution {
-  id          String                 @id @default(cuid())
-  requestId   String                 @unique
-  request     CapitalIncreaseRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
-  publishedAt DateTime?
-  createdAt   DateTime               @default(now())
-
-  items CapitalDistributionItem[]
-
-  @@map("capital_distributions")
-}
-
-model CapitalDistributionItem {
-  id              String              @id @default(cuid())
-  distributionId  String
-  distribution    CapitalDistribution @relation(fields: [distributionId], references: [id], onDelete: Cascade)
-  // Siempre una subcuenta/API REAL del cliente — nunca un nombre ficticio.
-  // onDelete: Cascade para no bloquear la eliminación real de un cliente
-  // (deleteClient) cuando cascada a través de sus subcuentas/API.
-  apiSubaccountId String
-  apiSubaccount   ApiSubaccount       @relation(fields: [apiSubaccountId], references: [id], onDelete: Cascade)
-  amount          Decimal             @db.Decimal(14, 2)
-  order           Int                 @default(0)
-
-  @@map("capital_distribution_items")
-}
-
-// ==========================================================
-// INVITACIÓN PARA CAPITAL TEMPORAL PARA RESCATE (CORRECCIÓN 4)
-// ==========================================================
-// Flujo independiente de la invitación de "Aumento de saldo operativo".
-// Solo QLC/ADMIN puede emitir la invitación. Si el cliente acepta y
-// confirma su monto de participación, el ADMIN determina en qué
-// cuenta/subcuenta (siempre reales, del propio cliente) debe depositarse y,
-// al finalizar el rescate, desde cuáles debe retirarse — el cliente solo
-// consulta las instrucciones, nunca las genera.
-model CapitalRescueInvitation {
-  id       String        @id @default(cuid())
-  clientId String
-  client   ClientProfile @relation(fields: [clientId], references: [id], onDelete: Cascade)
-
-  // Subcuenta/API específica cuando la invitación aplica a una en concreto
-  // (opcional — el documento indica "cuando aplique").
-  apiSubaccountId String?
-  apiSubaccount   ApiSubaccount? @relation(fields: [apiSubaccountId], references: [id], onDelete: SetNull)
-
-  requestedAmount Decimal  @db.Decimal(14, 2)
-  // Remuneración diaria (%) mientras el capital esté en utilización.
-  dailyRate       Decimal  @db.Decimal(6, 3)
-  validityDays    Int      @default(10)
-  expiresAt       DateTime
-  message         String?
-
-  status      RescueInvitationStatus @default(DESBLOQUEADA)
-  respondedAt DateTime?
-
-  createdByUserId String
-  createdBy       User     @relation("RescueInvitationCreatedBy", fields: [createdByUserId], references: [id])
-  createdAt       DateTime @default(now())
-
-  participation CapitalRescueParticipation?
-
-  @@map("capital_rescue_invitations")
-}
-
-model CapitalRescueParticipation {
-  id           String                  @id @default(cuid())
-  invitationId String                  @unique
-  invitation   CapitalRescueInvitation @relation(fields: [invitationId], references: [id], onDelete: Cascade)
-
-  // Monto que el cliente confirmó (puede ser menor o igual al solicitado).
-  participationAmount Decimal                   @db.Decimal(14, 2)
-  status              RescueParticipationStatus @default(EN_PROCESO)
-  confirmedAt         DateTime                  @default(now())
-
-  // CAPITAL EN UTILIZACIÓN — inicia cuando el admin confirma el depósito.
-  depositConfirmedAt DateTime?
-  // Fin de la utilización (CAPITAL DISPONIBLE PARA DEVOLUCIÓN).
-  usageEndedAt       DateTime?
-
-  // Remuneración — SIEMPRE independiente/separada del capital principal.
-  remunerationAmount Decimal?  @db.Decimal(14, 2)
-  remunerationWallet String?
-  remunerationTxHash String?
-  remunerationPaidAt DateTime?
-
-  finalizedAt DateTime?
-
-  // Estado de Cuenta / Comprobante de Operación generado al finalizar —
-  // mismo patrón que Statement (PDF real en Google Drive).
-  comprobantePdfDriveFileId   String?
-  comprobantePdfDriveFolderId String?
-  comprobantePdfFileName      String?
-
-  distribution CapitalRescueDistribution?
-
-  @@map("capital_rescue_participations")
-}
-
-// Instrucciones de depósito Y, más adelante, de devolución — mismas
-// cuentas/montos por diseño (el capital principal se retira exactamente de
-// donde se depositó), por eso un solo set de items sirve para ambas.
-model CapitalRescueDistribution {
-  id              String                     @id @default(cuid())
-  participationId String                     @unique
-  participation   CapitalRescueParticipation @relation(fields: [participationId], references: [id], onDelete: Cascade)
-  publishedAt     DateTime?
-  createdAt       DateTime                   @default(now())
-
-  items CapitalRescueDistributionItem[]
-
-  @@map("capital_rescue_distributions")
-}
-
-model CapitalRescueDistributionItem {
-  id              String                    @id @default(cuid())
-  distributionId  String
-  distribution    CapitalRescueDistribution @relation(fields: [distributionId], references: [id], onDelete: Cascade)
-  // Siempre una subcuenta/API REAL del cliente — nunca un nombre ficticio.
-  apiSubaccountId String
-  apiSubaccount   ApiSubaccount             @relation("RescueDistributionItems", fields: [apiSubaccountId], references: [id], onDelete: Cascade)
-  amount          Decimal                   @db.Decimal(14, 2)
-  order           Int                       @default(0)
-
-  @@map("capital_rescue_distribution_items")
 }
 
 // ==========================================================
@@ -777,13 +546,6 @@ model Document {
   periodLabel String?
   month       Int?
 
-  // CORRECCIÓN 5: si este documento es evidencia de un Estado de Cuenta
-  // (no un documento de identidad del cliente), queda referenciado aquí —
-  // reutiliza exactamente el mismo almacenamiento (Google Drive), nunca
-  // una arquitectura paralela.
-  statementId String?
-  statement   Statement? @relation(fields: [statementId], references: [id], onDelete: Cascade)
-
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -814,21 +576,15 @@ model DocumentCorrection {
 // ==========================================================
 
 model PaymentConfiguration {
-  id            String   @id @default(cuid())
+  id               String   @id @default(cuid())
   // Moneda de QLC — valor fijo "USDT", el backend nunca acepta otro valor.
-  currency      String   @default("USDT")
-  // Red de la wallet (ej. TRC20, ERC20, BEP20) — configurable por el admin.
-  network       String?
-  // LEGADO — QR ya subido a Cloudinary antes de esta corrección. Se
-  // conserva sin tocar; un QR nuevo se sube siempre a Drive (qrDrive*).
-  qrUrl         String?
-  qrPublicId    String?
-  qrDriveFileId   String?
-  qrDriveFolderId String?
-  walletAddress String?
-  paymentLink   String?
-  instructions  String?
-  updatedAt     DateTime @updatedAt
+  currency         String   @default("USDT")
+  // TRANSFERENCIA INTERNA BITGET — UID de recepción de QLC. Lo administra
+  // únicamente el ADMIN; el cliente solo lo visualiza/copia para enviar sus
+  // USDT desde su propia cuenta Bitget (transferencia interna, sin comisión).
+  bitgetReceiveUid String?
+  instructions     String?
+  updatedAt        DateTime @updatedAt
 
   @@map("payment_configuration")
 }
@@ -850,25 +606,25 @@ model PaymentConfiguration {
 // "bloqueada" para el resto — solo `configuredByUserId` puede editarla o
 // desconectarla. Al desconectar, vuelve a estar disponible para cualquiera.
 model DriveConfiguration {
-  id                                String    @id @default(cuid())
-  googleOAuthClientId               String?
-  googleOAuthClientSecretEncrypted  String?
-  googleOAuthRefreshTokenEncrypted  String?
+  id                               String    @id @default(cuid())
+  googleOAuthClientId              String?
+  googleOAuthClientSecretEncrypted String?
+  googleOAuthRefreshTokenEncrypted String?
   // Correo que Google confirmó al autorizar — debe ser exactamente
   // sistemaweb.qlc@gmail.com; nunca se guarda un token de una cuenta distinta.
-  oauthConnectedEmail               String?
-  rootFolderId                      String?
-  rootFolderName                    String    @default("QLC")
-  isEnabled                         Boolean   @default(true)
-  lastTestedAt                      DateTime?
-  lastTestStatus                    String? // "OK" | "ERROR"
-  lastTestMessage                   String?
-  configuredByUserId                String?
-  configuredBy                      User?     @relation("DriveConfigConfiguredBy", fields: [configuredByUserId], references: [id])
-  updatedByUserId                   String?
-  updatedBy                         User?     @relation("DriveConfigUpdatedBy", fields: [updatedByUserId], references: [id])
-  updatedAt                         DateTime  @updatedAt
-  createdAt                         DateTime  @default(now())
+  oauthConnectedEmail              String?
+  rootFolderId                     String?
+  rootFolderName                   String    @default("QLC")
+  isEnabled                        Boolean   @default(true)
+  lastTestedAt                     DateTime?
+  lastTestStatus                   String? // "OK" | "ERROR"
+  lastTestMessage                  String?
+  configuredByUserId               String?
+  configuredBy                     User?     @relation("DriveConfigConfiguredBy", fields: [configuredByUserId], references: [id])
+  updatedByUserId                  String?
+  updatedBy                        User?     @relation("DriveConfigUpdatedBy", fields: [updatedByUserId], references: [id])
+  updatedAt                        DateTime  @updatedAt
+  createdAt                        DateTime  @default(now())
 
   @@map("drive_configuration")
 }
@@ -942,8 +698,14 @@ model PaymentReport {
   id                 String              @id @default(cuid())
   apiSubaccountId    String
   apiSubaccount      ApiSubaccount       @relation(fields: [apiSubaccountId], references: [id], onDelete: Cascade)
-  amount             Decimal             @db.Decimal(12, 2)
+  // Opcional: el reporte de transferencia interna Bitget solo pide número
+  // de orden + fecha/hora. Se conserva para reportes históricos con monto.
+  amount             Decimal?            @db.Decimal(12, 2)
   currency           String              @default("USDT")
+  // TRANSFERENCIA INTERNA BITGET — los ÚNICOS dos datos que el cliente
+  // reporta después de transferir al UID de recepción de QLC.
+  bitgetOrderNumber  String?
+  transactionAt      DateTime?
   // Dato libre que el cliente reporta junto al pago (referencia/hash de
   // transacción, últimos dígitos, etc.) — nunca se valida contra el
   // exchange, es solo el dato que el cliente declara para agilizar la
@@ -1015,28 +777,23 @@ model Statement {
   pdfDriveFolderId String?
   pdfFileName      String?
 
-  // CORRECCIÓN 25: ventana de 72h para pagar la comisión antes de
-  // desactivar la conexión API de la subcuenta.
-  commissionDueAt         DateTime?
-  commissionPaid          Boolean   @default(false)
-  commissionPaidAt        DateTime?
-  // Aviso de "quedan pocas horas" antes del vencimiento — se dispara una
-  // sola vez (chequeo perezoso, ver utils/connectionDeadlines.js) para no
-  // repetir la notificación en cada lectura.
-  commissionWarningSentAt DateTime?
+  // ESTADO DE CUENTA SIMPLIFICADO — estado persistido (fuente de verdad en
+  // backend). "NO GENERADO" no es una fila: significa que la subcuenta aún
+  // no tiene ningún estado de cuenta. Al generar nace PENDIENTE_DE_PAGO con
+  // expiresAt = generatedAt + 72 h calculado SIEMPRE en backend; si vence
+  // sin pago confirmado pasa a VENCIDO_SIN_PAGAR (ver utils/statementStatus.js).
+  status        StatementStatus @default(PENDIENTE_DE_PAGO)
+  generatedAt   DateTime        @default(now())
+  expiresAt     DateTime
+  paidAt        DateTime?
+  // Aviso de "quedan pocas horas" — se dispara una sola vez.
+  warningSentAt DateTime?
 
   createdByUserId String
   createdBy       User     @relation("StatementCreatedBy", fields: [createdByUserId], references: [id])
   createdAt       DateTime @default(now())
 
-  // CORREGIR.xlsx ADMIN 08 — el admin puede archivar un estado de cuenta
-  // desde la nueva sección de archivo/historial (nunca se elimina el
-  // registro, solo se marca como archivado).
-  archived   Boolean   @default(false)
-  archivedAt DateTime?
-
-  paymentReports    PaymentReport[]
-  evidenceDocuments Document[]
+  paymentReports PaymentReport[]
 
   // CORRECCIÓN 5: no permitir dos Estados de Cuenta iguales para la misma
   // subcuenta/API + mismo periodo.

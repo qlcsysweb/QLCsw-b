@@ -3,7 +3,7 @@
  * al vuelo a partir de los ChatMessage ya guardados en BD (nunca se sube a
  * Drive ni se guarda un archivo aparte: no hace falta, los mensajes ya
  * persisten y el PDF puede volver a generarse en cualquier momento). Mismo
- * patrón que statementPdf.js/capitalRescuePdf.js (pdfkit).
+ * patrón que statementPdf.js (pdfkit).
  */
 const PDFDocument = require('pdfkit');
 const { formatCdmx } = require('../timezone');

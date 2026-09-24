@@ -2,7 +2,7 @@
  * Seed inicial de Guías de Uso (CORRECCIÓN 1/6/20/21) — contenido HTML
  * estructurado construido a partir de los documentos Word de referencia
  * (Guia_de_Uso_Cliente_QLC, Especificacion_Flujo_Registro_Subcuentas_QLC,
- * Flujo_Invitaciones_Especiales_QLC, Manual_de_Soporte_QLC_Guia_para_Clientes).
+ * Manual_de_Soporte_QLC_Guia_para_Clientes).
  * Se ejecuta una sola vez; usa upsert por título para no duplicar si se
  * vuelve a correr.
  */
@@ -12,8 +12,8 @@ const guides = [
   {
     titleEs: 'Guía de Uso — Cliente',
     titleEn: 'Client Usage Guide',
-    descriptionEs: 'Su cuenta principal, sus 20 subcuentas, wallet y distribución de saldo.',
-    descriptionEn: 'Your main account, your 20 subaccounts, wallet and balance distribution.',
+    descriptionEs: 'Su cuenta principal, sus subcuentas, garantía y estado de cuenta.',
+    descriptionEn: 'Your main account, your subaccounts, guarantee and account statement.',
     audience: 'CLIENT',
     displayOrder: 1,
     contentEs: `
@@ -26,10 +26,7 @@ const guides = [
       <p>Las 20 subcuentas están vinculadas a su cuenta principal y pertenecen exclusivamente a su perfil. Usted no tendrá que registrarse nuevamente para cada subcuenta.</p>
       <p>Su información general — nombre completo, nacionalidad y documentación correspondiente — queda asociada automáticamente a sus 20 subcuentas.</p>
 
-      <h3>2. Wallet del cliente</h3>
-      <p>Desde <strong>Wallet personal</strong> en su panel puede registrar la dirección/enlace de su wallet y la red correspondiente. Esta información le pertenece únicamente a usted, se utiliza únicamente en el supuesto establecido por los Términos y Condiciones del servicio, y QLC nunca ejecuta transferencias automáticas.</p>
-
-      <h3>3. Configuración de API por subcuenta y capital operativo</h3>
+      <h3>2. Configuración de API por subcuenta y capital operativo</h3>
       <p>Cada subcuenta funciona de manera individual y, por seguridad y control operativo, cada una requiere su propia API Key. Aunque todas las subcuentas pertenecen a su mismo perfil, usted deberá configurar la API correspondiente en cada una desde <strong>Subcuentas / API</strong>.</p>
       <table>
         <thead><tr><th>Subcuenta</th><th>API</th></tr></thead>
@@ -43,39 +40,16 @@ const guides = [
       <p>No es necesario volver a proporcionar sus datos personales. Únicamente deberá configurar la API correspondiente a cada subcuenta.</p>
       <p>Cada subcuenta muestra el <strong>capital operativo requerido</strong> (en USDT) que QLC establece para ella — este valor es fijo y usted no puede modificarlo, solo consultarlo para saber cuánto capital necesita tener disponible.</p>
 
-      <h3>4. Garantía, pago y distribución de capital</h3>
-      <p>El depósito en garantía se realiza siempre en <strong>USDT</strong>, nunca en moneda fiat. Una vez transferido, repórtelo desde <strong>Pagos</strong> con "Ya mandé la transferencia"; QLC revisará y confirmará la recepción, y usted verá el cambio de estado sin necesidad de recargar la página.</p>
+      <h3>3. Garantía y pago — Transferencia interna Bitget</h3>
+      <p>El depósito en garantía se realiza siempre en <strong>USDT</strong> mediante <strong>Transferencia interna Bitget</strong> (sin comisión) al UID de recepción de QLC que verá en <strong>Subcuentas / API → (su subcuenta) → Depósito de tu garantía</strong>. Después de transferir, capture únicamente el <strong>número de orden</strong> y la <strong>fecha y hora</strong> de la transacción; QLC lo revisará y usted verá el cambio de estado sin recargar la página.</p>
       <p>Cuando ya haya distribuido su capital en el exchange, repórtelo desde su subcuenta con "Ya realicé la distribución" para que QLC lo verifique.</p>
-      <p>Si QLC le emite una invitación para <strong>Capital Temporal para Rescate</strong>, la verá disponible en el menú de su panel — permanece bloqueada hasta que exista una invitación activa.</p>
-
-      <h3>5. Ingreso y distribución de saldo</h3>
-      <p>Cuando disponga de saldo autorizado, podrá ingresarlo respetando esta regla: <strong>desde 20 USDT, siempre en tramos de 20 USDT</strong> (múltiplos de 20).</p>
-      <table>
-        <thead><tr><th>Permitido</th><th>No permitido</th></tr></thead>
-        <tbody>
-          <tr><td>20, 40, 60, 80, 100 USDT…</td><td>30, 50, 70, 90 USDT…</td></tr>
-        </tbody>
-      </table>
-      <p>Una vez que tenga saldo disponible, usted decide en qué subcuentas distribuirlo. La distribución se realiza en bloques de 20 USDT por subcuenta, siempre desde su propio panel — QLC nunca distribuye el saldo por usted.</p>
-      <table>
-        <thead><tr><th>Saldo</th><th>Subcuentas que puede financiar</th></tr></thead>
-        <tbody>
-          <tr><td>20 USDT</td><td>1</td></tr>
-          <tr><td>40 USDT</td><td>2</td></tr>
-          <tr><td>100 USDT</td><td>5</td></tr>
-          <tr><td>200 USDT</td><td>10</td></tr>
-          <tr><td>400 USDT</td><td>20</td></tr>
-        </tbody>
-      </table>
-      <p>Su panel siempre muestra: saldo disponible, subcuentas seleccionadas, monto asignado a cada una, saldo pendiente y total distribuido.</p>
 
       <h3>Resumen</h3>
       <ol>
         <li>Regístrese una sola vez.</li>
         <li>El sistema genera su cuenta principal y sus 20 subcuentas.</li>
-        <li>Configure su wallet personal.</li>
         <li>Configure la API Key individual de cada subcuenta que vaya a usar.</li>
-        <li>Cuando reciba saldo autorizado, distribúyalo usted mismo entre las subcuentas que desee, en bloques de 20 USDT.</li>
+        <li>Envíe su garantía por Transferencia interna Bitget y reporte número de orden y fecha/hora.</li>
       </ol>
       <p><em>Importante: la información personal no se registra nuevamente por subcuenta — solo la API es independiente.</em></p>
     `,
@@ -83,25 +57,18 @@ const guides = [
       <h3>1. Your main account and your 20 subaccounts</h3>
       <p>When you complete your registration — personal data, acceptance of the <strong>Privacy Notice</strong> and the <strong>Copytrading Service Terms and Conditions</strong> (including API connection authorization, with no withdrawal permission) — the system automatically creates 1 main account and 20 individual subaccounts, linked to your profile only. You never register again per subaccount.</p>
       <p>Your general information — full name, nationality and required documentation — is automatically associated with all 20 subaccounts.</p>
-      <h3>2. Client wallet</h3>
-      <p>From <strong>Personal wallet</strong> in your panel you can register your wallet address/link and network. This information belongs only to you, is used only in the scenario established by the service's Terms and Conditions, and QLC never executes automatic transfers.</p>
-      <h3>3. API configuration per subaccount and operating capital</h3>
+      <h3>2. API configuration per subaccount and operating capital</h3>
       <p>Each subaccount works independently and, for security and operational control, requires its own API Key. Configure it from <strong>Subaccounts / API</strong> for each one you use.</p>
       <p>Each subaccount shows the <strong>required operating capital</strong> (in USDT) QLC sets for it — a fixed value you can only view, not edit, so you know how much capital you need available.</p>
-      <h3>4. Guarantee, payment and capital distribution</h3>
-      <p>The guarantee deposit is always made in <strong>USDT</strong>, never in fiat currency. Once transferred, report it from <strong>Payments</strong> with "I already sent the transfer"; QLC will review and confirm receipt, and you'll see the status change without needing to reload the page.</p>
+      <h3>3. Guarantee and payment — Bitget internal transfer</h3>
+      <p>The guarantee deposit is always made in <strong>USDT</strong> via <strong>Bitget internal transfer</strong> (no fee) to QLC's receiving UID shown in <strong>Subaccounts / API → (your subaccount) → Your guarantee deposit</strong>. After transferring, enter only the <strong>order number</strong> and the transaction <strong>date and time</strong>; QLC will review it and you'll see the status change without reloading the page.</p>
       <p>Once you've distributed your capital on the exchange, report it from your subaccount with "I already distributed my capital" so QLC can verify it.</p>
-      <p>If QLC issues you a <strong>Temporary Capital for Rescue</strong> invitation, you'll find it available in your panel's menu — it stays blocked until an active invitation exists.</p>
-      <h3>5. Depositing and distributing balance</h3>
-      <p>Whenever you have authorized balance, you may enter it following this rule: <strong>from 20 USDT, always in blocks of 20 USDT</strong> (multiples of 20).</p>
-      <p>Once you have available balance, you decide which subaccounts to distribute it to, in 20 USDT blocks, always from your own panel — QLC never distributes it for you. Your panel always shows: available balance, selected subaccounts, amount per subaccount, pending balance and total distributed.</p>
       <h3>Summary</h3>
       <ol>
         <li>Register once.</li>
         <li>The system creates your main account and your 20 subaccounts.</li>
-        <li>Set up your personal wallet.</li>
         <li>Configure the individual API Key for each subaccount you use.</li>
-        <li>When you receive authorized balance, distribute it yourself among the subaccounts you choose, in 20 USDT blocks.</li>
+        <li>Send your guarantee via Bitget internal transfer and report the order number and date/time.</li>
       </ol>
     `,
   },
@@ -149,39 +116,6 @@ const guides = [
     `,
   },
   {
-    titleEs: 'Flujo de Invitaciones Especiales',
-    titleEn: 'Special Invitations Flow',
-    descriptionEs: 'Cómo funciona la invitación para aumento de saldo operativo.',
-    descriptionEn: 'How the operating balance increase invitation works.',
-    audience: 'CLIENT',
-    displayOrder: 3,
-    contentEs: `
-      <h3>Aumento de saldo operativo</h3>
-      <p>Dentro de su panel existe la sección <strong>Aumento de saldo</strong>. Permanece visible en todo momento, pero su estado inicial es <strong>BLOQUEADO</strong> mientras QLC no le emita una invitación.</p>
-      <div class="qlc-guide-notice">Las invitaciones son emitidas directamente por QLC y están disponibles únicamente para clientes seleccionados.</div>
-      <h4>Cuando QLC emite una invitación</h4>
-      <p>Verá su saldo actual, el monto máximo autorizado y la vigencia de la invitación. Puede <strong>ACEPTAR</strong> o <strong>RECHAZAR</strong>.</p>
-      <ul>
-        <li>Si <strong>rechaza</strong>: la invitación se cierra y la sección vuelve a BLOQUEADO. Podrá recibir futuras invitaciones.</li>
-        <li>Si <strong>acepta</strong>: indique el monto que le interesa (desde 20 USDT, en múltiplos de 20) y envíe su solicitud.</li>
-      </ul>
-      <h4>Solicitud en proceso</h4>
-      <p>Su solicitud queda en estado <strong>SOLICITUD EN PROCESO</strong>. QLC dispone de hasta 72 horas para autorizarla.</p>
-      <h4>Distribución del saldo</h4>
-      <p>Una vez autorizada, usted mismo distribuye el monto entre sus subcuentas/API reales, en bloques de 20 USDT, exactamente igual que en la sección de distribución de saldo. QLC nunca realiza esta distribución por usted.</p>
-    `,
-    contentEn: `
-      <h3>Operating balance increase</h3>
-      <p>Your panel has an <strong>Balance increase</strong> section, always visible but <strong>BLOCKED</strong> until QLC issues you an invitation, available only to selected clients.</p>
-      <h4>When QLC issues an invitation</h4>
-      <p>You'll see your current balance, the maximum authorized amount and the validity period. You may <strong>ACCEPT</strong> or <strong>REJECT</strong>.</p>
-      <h4>Request in process</h4>
-      <p>Your request moves to <strong>REQUEST IN PROCESS</strong>. QLC has up to 72 hours to authorize it.</p>
-      <h4>Distributing the balance</h4>
-      <p>Once authorized, you distribute the amount yourself among your real subaccounts/API, in 20 USDT blocks. QLC never does this distribution for you.</p>
-    `,
-  },
-  {
     titleEs: 'Guía de Subcuentas',
     titleEn: 'Subaccounts Guide',
     descriptionEs: 'Estructura de cuenta principal + 20 subcuentas y sus API independientes.',
@@ -222,25 +156,25 @@ const guides = [
     displayOrder: 5,
     contentEs: `
       <h3>Estados de cuenta por subcuenta/API</h3>
-      <p>Cada subcuenta/API tiene su propio historial de estados de cuenta, independiente del resto. Entre a <strong>Subcuentas / API → (su subcuenta)</strong> para consultarlos.</p>
+      <p>Su estado de cuenta actual se muestra en el <strong>Dashboard → Estado de cuenta</strong> y dentro de cada <strong>Subcuenta / API</strong>.</p>
       <h4>Estados posibles</h4>
       <ul>
-        <li><strong>NO DISPONIBLE</strong>: todavía no se ha generado ningún estado de cuenta para el periodo actual.</li>
-        <li><strong>DISPONIBLE</strong>: el estado de cuenta fue generado y no tiene comisión pendiente.</li>
-        <li><strong>PENDIENTE DE PAGO</strong>: el estado de cuenta generó una comisión que todavía no ha sido pagada.</li>
-        <li><strong>PAGADO</strong>: la comisión correspondiente ya fue reportada y validada.</li>
+        <li><strong>⚪ NO GENERADO</strong>: todavía no se ha generado un estado de cuenta.</li>
+        <li><strong>🟡 PENDIENTE DE PAGO</strong>: QLC generó el estado de cuenta; dispone de 72 horas para pagarlo (el contador se muestra en verde y cambia a rojo cuando quedan 12 horas o menos).</li>
+        <li><strong>🟢 PAGADO</strong>: QLC confirmó el pago; el contador desaparece.</li>
+        <li><strong>🔴 VENCIDO / SIN PAGAR</strong>: terminaron las 72 horas sin pago confirmado.</li>
       </ul>
       <p>Cada estado de cuenta incluye el resumen del periodo, las comisiones correspondientes y las notas del equipo de QLC, y puede descargarse en formato PDF generado electrónicamente.</p>
     `,
     contentEn: `
       <h3>Statements per subaccount/API</h3>
-      <p>Each subaccount/API keeps its own independent statement history. Go to <strong>Subaccounts / API → (your subaccount)</strong> to view them.</p>
+      <p>Your current statement is shown in <strong>Dashboard → Account statement</strong> and inside each <strong>Subaccount / API</strong>.</p>
       <h4>Possible statuses</h4>
       <ul>
-        <li><strong>NOT AVAILABLE</strong>: no statement has been generated yet for the current period.</li>
-        <li><strong>AVAILABLE</strong>: the statement was generated with no pending commission.</li>
-        <li><strong>PENDING PAYMENT</strong>: the statement generated a commission not yet paid.</li>
-        <li><strong>PAID</strong>: the corresponding commission was reported and validated.</li>
+        <li><strong>⚪ NOT GENERATED</strong>: no statement has been generated yet.</li>
+        <li><strong>🟡 PENDING PAYMENT</strong>: QLC generated the statement; you have 72 hours to pay it (the countdown is green and turns red when 12 hours or less remain).</li>
+        <li><strong>🟢 PAID</strong>: QLC confirmed the payment; the countdown disappears.</li>
+        <li><strong>🔴 OVERDUE / UNPAID</strong>: the 72 hours ended without a confirmed payment.</li>
       </ul>
     `,
   },

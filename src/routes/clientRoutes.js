@@ -9,16 +9,13 @@ const apiSubaccountController = require('../controllers/client/apiSubaccountCont
 const documentController = require('../controllers/client/documentController');
 const paymentController = require('../controllers/client/paymentController');
 const statementController = require('../controllers/client/statementController');
-const walletController = require('../controllers/client/walletController');
 const processController = require('../controllers/processController');
 const supportController = require('../controllers/client/supportController');
 const chatController = require('../controllers/client/chatController');
 const appointmentController = require('../controllers/client/appointmentController');
 const notificationController = require('../controllers/client/notificationController');
 const platformSettingsController = require('../controllers/platformSettingsController');
-const capitalIncreaseController = require('../controllers/client/capitalIncreaseController');
 const guideController = require('../controllers/client/guideController');
-const capitalRescueController = require('../controllers/client/capitalRescueController');
 const processStepController = require('../controllers/processStepController');
 
 const router = Router();
@@ -29,24 +26,6 @@ router.use(requireAuth, requireRole('CLIENT'), resolveOwnClientProfile);
 // Perfil / Dashboard
 router.get('/me', profileController.getMe);
 router.get('/dashboard', profileController.getDashboard);
-
-// CORRECCIÓN 7/8 — Invitación para aumento de saldo operativo: el cliente
-// acepta/rechaza la invitación y, una vez autorizada por QLC, es el ÚNICO
-// que distribuye el monto entre sus propias subcuentas/API (bloques de 20
-// USDT). Ownership siempre vía req.clientProfile.id, nunca un id enviado.
-router.get('/capital-increase', capitalIncreaseController.getMine);
-router.post('/capital-increase/invitations/:id/accept', capitalIncreaseController.acceptInvitation);
-router.post('/capital-increase/invitations/:id/reject', capitalIncreaseController.rejectInvitation);
-router.post('/capital-increase/requests/:id/distribution/toggle', capitalIncreaseController.toggleDistributionItem);
-router.post('/capital-increase/requests/:id/distribution/confirm', capitalIncreaseController.confirmDistribution);
-
-// CORRECCIÓN 4 — Invitación para Capital Temporal para Rescate: el cliente
-// solo acepta/rechaza y confirma su monto; las instrucciones de depósito y
-// devolución las determina siempre QLC.
-router.get('/capital-rescue', capitalRescueController.getMine);
-router.post('/capital-rescue/invitations/:id/reject', capitalRescueController.rejectInvitation);
-router.post('/capital-rescue/invitations/:id/confirm-participation', capitalRescueController.confirmParticipation);
-router.get('/capital-rescue/participations/:id/comprobante', capitalRescueController.downloadComprobante);
 
 // Modelos de participación (lectura pública, ya activos)
 router.get('/models', modelController.listModelsPublic);
@@ -77,30 +56,17 @@ router.get('/documents/:id/download', documentController.downloadDocument);
 router.delete('/documents/:id', documentController.deleteDocument);
 router.post('/documents/:id/correction', uploadDocumentFile.single('file'), documentController.correctDocument);
 
-// Pagos — por subcuenta
+// Pagos / Garantía — Transferencia interna Bitget, por subcuenta. El
+// cliente solo reporta número de orden + fecha/hora de la transacción.
 router.get('/payment-config', paymentController.getPaymentConfig);
-router.get('/payment-config/qr', paymentController.downloadPaymentQr);
 router.get('/api-subaccounts/:apiSubaccountId/payment-reports', paymentController.listPaymentReports);
-router.post(
-  '/api-subaccounts/:apiSubaccountId/payment-reports',
-  uploadDocumentFile.single('file'),
-  paymentController.createPaymentReport
-);
+router.post('/api-subaccounts/:apiSubaccountId/payment-reports', paymentController.createPaymentReport);
 router.get('/payment-reports/:id/proof', paymentController.downloadPaymentProof);
 
-// Estados de cuenta (CORRECCIÓN 14) — por subcuenta, y (CORREGIR(2).xlsx
-// CLIENTE 39) listado propio agrupable por año/periodo/mes en un solo lugar.
-router.get('/statements', statementController.listAllMine);
+// Estado de cuenta — estado actual por subcuenta (NO GENERADO / PENDIENTE
+// DE PAGO / PAGADO / VENCIDO SIN PAGAR) y descarga del PDF.
 router.get('/api-subaccounts/:apiSubaccountId/statements', statementController.listStatements);
 router.get('/statements/:id/download', statementController.downloadStatementFile);
-// CORRECCIÓN 5: solo lectura — el cliente nunca puede subir/modificar
-// evidencia, solo verla (descarga vía /client/documents/:id/download).
-router.get('/statements/:id/evidence', statementController.listStatementEvidence);
-
-// Wallet personal (CORRECCIÓN 28)
-router.get('/wallet', walletController.getWallet);
-router.patch('/wallet', walletController.updateWallet);
-router.get('/wallet/qr', walletController.downloadWalletQr);
 
 // Liga hacia la plataforma externa (CORRECCIÓN 10) — solo lectura para el cliente
 router.get('/platform-link', platformSettingsController.getPlatformLinkForClient);

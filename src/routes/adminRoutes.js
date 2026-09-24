@@ -1,6 +1,6 @@
 const { Router } = require('express');
 const { requireAuth, requireRole } = require('../middleware/auth');
-const { uploadDocument: uploadDocumentFile, uploadImage, uploadMedia } = require('../middleware/upload');
+const { uploadDocument: uploadDocumentFile, uploadMedia } = require('../middleware/upload');
 
 const dashboardController = require('../controllers/dashboardController');
 const clientController = require('../controllers/clientController');
@@ -22,9 +22,7 @@ const driveConfigController = require('../controllers/driveConfigController');
 const emailConfigController = require('../controllers/emailConfigController');
 const mediaController = require('../controllers/mediaController');
 const platformSettingsController = require('../controllers/platformSettingsController');
-const capitalIncreaseController = require('../controllers/capitalIncreaseController');
 const guideController = require('../controllers/guideController');
-const capitalRescueController = require('../controllers/capitalRescueController');
 const securityConfigController = require('../controllers/securityConfigController');
 const processStepController = require('../controllers/processStepController');
 const adminMessageController = require('../controllers/adminMessageController');
@@ -49,30 +47,7 @@ router.get('/clients/:id', clientController.getClient);
 router.patch('/clients/:id', clientController.updateClient);
 router.post('/clients/:id/assign-username', clientController.assignUsername);
 router.patch('/clients/:id/active', clientController.setClientActive);
-router.get('/clients/:id/wallet', clientController.getWallet);
-router.get('/clients/:id/wallet-qr', clientController.downloadWalletQr);
 router.delete('/clients/:id', clientController.deleteClient);
-
-// CORRECCIÓN 7/8 — Invitación para aumento de saldo operativo (solo ADMIN
-// crea/autoriza; la distribución entre subcuentas la realiza el CLIENTE —
-// ver client/capitalIncreaseController.js).
-router.get('/clients/:clientId/capital-increase', capitalIncreaseController.listForClient);
-router.post('/clients/:clientId/capital-increase/invitations', capitalIncreaseController.createInvitation);
-router.post('/capital-increase/requests/:requestId/authorize', capitalIncreaseController.authorizeRequest);
-
-// CORRECCIÓN 4 — Invitación para Capital Temporal para Rescate (solo
-// ADMIN). Aquí SÍ es el admin quien determina la distribución de
-// depósito/devolución — flujo independiente del de arriba.
-router.get('/clients/:clientId/capital-rescue', capitalRescueController.listForClient);
-router.post('/clients/:clientId/capital-rescue/invitations', capitalRescueController.createInvitation);
-router.post('/capital-rescue/participations/:participationId/distribution', capitalRescueController.startDistribution);
-router.post('/capital-rescue/distributions/:distributionId/items', capitalRescueController.upsertDistributionItem);
-router.delete('/capital-rescue/items/:itemId', capitalRescueController.removeDistributionItem);
-router.post('/capital-rescue/distributions/:distributionId/publish', capitalRescueController.publishDistribution);
-router.post('/capital-rescue/participations/:participationId/confirm-deposit', capitalRescueController.confirmDeposit);
-router.post('/capital-rescue/participations/:participationId/finalize', capitalRescueController.finalizeRescue);
-router.post('/capital-rescue/participations/:participationId/remuneration', capitalRescueController.registerRemuneration);
-router.get('/capital-rescue/participations/:id/comprobante', capitalRescueController.downloadComprobante);
 
 // Subcuentas / API — GESTIÓN DINÁMICA: cada cliente nace con únicamente su
 // cuenta PRINCIPAL; cualquier subcuenta adicional nace de una solicitud del
@@ -149,31 +124,19 @@ router.patch('/documents/:id/unlock', documentController.setDocumentUnlock);
 // CORREGIR.xlsx ADMIN 07 — organización Año/Periodo/Mes tipo Google Drive
 router.patch('/documents/:id/organize', documentController.setDocumentOrganization);
 
-// Estados de cuenta (CORRECCIÓN 14) — por subcuenta
+// Estado de cuenta — se genera desde la subcuenta/API (Generar → PENDIENTE
+// DE PAGO + 72 h). La comunicación al cliente es la mensajería interna +
+// correo, sin un flujo de "envío" separado.
 router.get('/api-subaccounts/:apiSubaccountId/statements', statementController.listStatements);
 router.post('/api-subaccounts/:apiSubaccountId/statements', statementController.createStatement);
 router.get('/statements/:id/download', statementController.downloadStatementFile);
-// CORRECCIÓN 5: reenvío al cliente + evidencia documental (misma
-// arquitectura de almacenamiento que el resto de documentos).
-router.post('/statements/:id/send', statementController.sendStatementToClient);
-router.get('/statements/:id/evidence', statementController.listStatementEvidence);
-router.post(
-  '/statements/:id/evidence',
-  uploadDocumentFile.single('file'),
-  statementController.uploadStatementEvidence
-);
+router.patch('/statements/:id/mark-paid', statementController.markStatementPaid);
 
-// Payments (QR → Cloudinary imagen, comprobante → Google Drive documento)
+// Pagos / Garantía — UID de recepción Bitget (configurable solo por ADMIN)
+// y reportes de transferencia interna Bitget.
 router.get('/payment-config', paymentController.getPaymentConfig);
 router.put('/payment-config', paymentController.updatePaymentConfig);
-router.post('/payment-config/qr', uploadImage.single('file'), paymentController.uploadPaymentQr);
-router.get('/payment-config/qr', paymentController.downloadPaymentQr);
 router.get('/payment-reports', paymentController.listPaymentReports);
-router.post(
-  '/api-subaccounts/:apiSubaccountId/payment-reports',
-  uploadDocumentFile.single('file'),
-  paymentController.createPaymentReport
-);
 router.get('/payment-reports/:id/proof', paymentController.downloadPaymentProof);
 router.patch('/payment-reports/:id/transfer-received', paymentController.markTransferReceived);
 router.patch('/payment-reports/:id/guarantee-reported', paymentController.markGuaranteeReported);
@@ -210,10 +173,6 @@ router.delete('/prospects/:id', prospectController.deleteProspect);
 // CORREGIR.xlsx ADMIN 06 — contraseña de seguridad para eliminar clientes
 router.get('/security-config', securityConfigController.getStatus);
 router.put('/security-config/password', securityConfigController.setPassword);
-
-// CORREGIR.xlsx ADMIN 08 — archivo/historial de estados de cuenta (todos los clientes)
-router.get('/statements', statementController.listAllStatements);
-router.patch('/statements/:id/archive', statementController.setStatementArchived);
 
 // AUDITORÍA FINAL — Pendiente #1: notificaciones del admin.
 router.get('/notifications', notificationController.listNotifications);

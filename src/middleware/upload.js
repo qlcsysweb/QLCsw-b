@@ -1,6 +1,5 @@
 const multer = require('multer');
 
-const IMAGE_MIME = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
 const DOCUMENT_MIME = ['application/pdf', 'image/png', 'image/jpeg', 'image/webp'];
 const MEDIA_MIME = ['image/png', 'image/jpeg', 'image/webp', 'image/gif', 'video/mp4', 'video/webm'];
 
@@ -11,20 +10,6 @@ const uploadDocument = multer({
   fileFilter: (req, file, cb) => {
     if (!DOCUMENT_MIME.includes(file.mimetype)) {
       return cb(new Error('Tipo de archivo no permitido. Solo PDF, PNG, JPG o WEBP.'));
-    }
-    cb(null, true);
-  },
-});
-
-// Parser multipart en memoria para imágenes — el destino final (Cloudinary
-// para recursos visuales del sitio, o Google Drive para QR/archivos
-// operativos) lo decide cada controlador, no este middleware.
-const uploadImage = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 5 * 1024 * 1024 },
-  fileFilter: (req, file, cb) => {
-    if (!IMAGE_MIME.includes(file.mimetype)) {
-      return cb(new Error('Tipo de archivo no permitido. Solo PNG, JPG, WEBP o GIF.'));
     }
     cb(null, true);
   },
@@ -42,4 +27,4 @@ const uploadMedia = multer({
   },
 });
 
-module.exports = { uploadDocument, uploadImage, uploadMedia };
+module.exports = { uploadDocument, uploadMedia };
