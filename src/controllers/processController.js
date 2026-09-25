@@ -16,7 +16,7 @@ const CONDITION_LABELS = {
 const getProcess = asyncHandler(async (req, res) => {
   const process = await prisma.process.findUnique({
     where: { apiSubaccountId: req.params.apiSubaccountId },
-    include: { conditions: true },
+    include: { conditions: { where: { type: { not: 'WALLET' } } } },
   });
   if (!process) throw ApiError.notFound('Proceso no encontrado');
   res.json({ ok: true, process });
@@ -56,7 +56,7 @@ const updateCondition = asyncHandler(async (req, res) => {
 const activateSubaccount = asyncHandler(async (req, res) => {
   const process = await prisma.process.findUnique({
     where: { apiSubaccountId: req.params.apiSubaccountId },
-    include: { conditions: true, apiSubaccount: { select: { clientId: true } } },
+    include: { conditions: { where: { type: { not: 'WALLET' } } }, apiSubaccount: { select: { clientId: true } } },
   });
   if (!process) throw ApiError.notFound('Proceso no encontrado');
 

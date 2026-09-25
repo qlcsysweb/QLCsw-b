@@ -29,26 +29,18 @@ const getSummary = asyncHandler(async (req, res) => {
     prisma.process.count({
       where: {
         isActivated: false,
-        conditions: { every: { status: 'CONFIRMED' }, some: {} },
+        // Las filas legacy WALLET se ignoran (ya no son parte del proceso).
+        conditions: { every: { OR: [{ type: 'WALLET' }, { status: 'CONFIRMED' }] }, some: { type: { not: 'WALLET' } } },
       },
     }),
     prisma.prospect.count({ where: { status: 'NUEVO' } }),
     // "Tiempo agotado": estados de cuenta VENCIDO / SIN PAGAR (incluye los
     // pendientes cuyo plazo de 72 h ya pasó y aún no barrió el servidor).
-    // Métrica secundaria: si SOLO esta consulta falla (p. ej. la BD aún no tiene
-    // la migración de estados de cuenta), se registra el error real en el log
-    // y el indicador llega como null ("sin dato"), nunca como un 0 falso; el
-    // resto del dashboard sigue consultándose normalmente desde NeonDB.
-    prisma.statement
-      .count({
-        where: {
-          OR: [{ status: 'VENCIDO_SIN_PAGAR' }, { status: 'PENDIENTE_DE_PAGO', expiresAt: { lte: new Date() } }],
-        },
-      })
-      .catch((err) => {
-        console.error('[dashboard] No se pudo calcular expiredStatements:', err.code, err.message);
-        return null;
-      }),
+    prisma.statement.count({
+      where: {
+        OR: [{ status: 'VENCIDO_SIN_PAGAR' }, { status: 'PENDIENTE_DE_PAGO', expiresAt: { lte: new Date() } }],
+      },
+    }),
     prisma.appointment.count({ where: { status: 'PENDING' } }),
     prisma.paymentReport.count({ where: { status: { in: ['PENDING', 'EN_REVISION'] } } }),
     prisma.document.findMany({

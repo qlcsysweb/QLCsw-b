@@ -36,7 +36,7 @@ const listMine = asyncHandler(async (req, res) => {
       orderBy: { slotIndex: 'asc' },
       include: {
         clientModel: { include: { model: true } },
-        process: { include: { conditions: true } },
+        process: { include: { conditions: { where: { type: { not: 'WALLET' } } } } },
       },
     }),
     prisma.apiSubaccount.count({ where: { clientId, isPrincipal: false, ...ACTIVE_WHERE } }),
@@ -92,7 +92,7 @@ const getMine = asyncHandler(async (req, res) => {
     where: { id: req.params.id, clientId: req.clientProfile.id },
     include: {
       clientModel: { include: { model: true } },
-      process: { include: { conditions: true } },
+      process: { include: { conditions: { where: { type: { not: 'WALLET' } } } } },
       paymentReports: { orderBy: { reportedAt: 'desc' } },
       statements: { orderBy: { generatedAt: 'desc' } },
       connectionEvents: { orderBy: { occurredAt: 'desc' } },

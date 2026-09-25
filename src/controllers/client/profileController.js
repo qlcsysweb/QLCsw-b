@@ -54,7 +54,7 @@ const getDashboard = asyncHandler(async (req, res) => {
       orderBy: { slotIndex: 'asc' },
       include: {
         clientModel: { include: { model: true } },
-        process: { include: { conditions: true } },
+        process: { include: { conditions: { where: { type: { not: 'WALLET' } } } } },
         statements: { orderBy: { generatedAt: 'desc' }, take: 1 },
       },
     }),

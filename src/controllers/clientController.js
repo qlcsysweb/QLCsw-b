@@ -86,7 +86,7 @@ const listClients = asyncHandler(async (req, res) => {
       include: {
         user: { select: { email: true, isActive: true, lastLoginAt: true } },
         apiSubaccounts: {
-          include: { process: { include: { conditions: true } }, clientModel: { include: { model: true } } },
+          include: { process: { include: { conditions: { where: { type: { not: 'WALLET' } } } } }, clientModel: { include: { model: true } } },
         },
       },
     }),
@@ -116,7 +116,7 @@ const getClient = asyncHandler(async (req, res) => {
         orderBy: { slotIndex: 'asc' },
         include: {
           clientModel: { include: { model: true } },
-          process: { include: { conditions: true } },
+          process: { include: { conditions: { where: { type: { not: 'WALLET' } } } } },
           paymentReports: { orderBy: { reportedAt: 'desc' } },
           statements: { orderBy: { generatedAt: 'desc' } },
           connectionEvents: { orderBy: { occurredAt: 'desc' } },

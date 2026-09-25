@@ -24,6 +24,11 @@ enum ClientStatus {
 }
 
 enum ProcessConditionType {
+  // LEGACY — la condición WALLET ya no forma parte del proceso, pero producción
+  // conserva filas históricas con este valor (no se borran sin autorización
+  // explícita). Se mantiene en el enum solo para que Prisma pueda leerlas; el
+  // backend siempre las excluye (type != WALLET).
+  WALLET
   FUNDS
   PAYMENT
   API

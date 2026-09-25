@@ -56,7 +56,7 @@ const createSubaccount = asyncHandler(async (req, res) => {
         },
       },
     },
-    include: { process: { include: { conditions: true } } },
+    include: { process: { include: { conditions: { where: { type: { not: 'WALLET' } } } } } },
   });
 
   res.status(201).json({ ok: true, subaccount });
