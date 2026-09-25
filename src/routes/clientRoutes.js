@@ -1,7 +1,7 @@
 const { Router } = require('express');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { resolveOwnClientProfile } = require('../middleware/clientAuth');
-const { uploadDocument: uploadDocumentFile } = require('../middleware/upload');
+const { uploadDocument: uploadDocumentFile, singleCaseFile } = require('../middleware/upload');
 
 const modelController = require('../controllers/modelController');
 const profileController = require('../controllers/client/profileController');
@@ -58,7 +58,7 @@ router.post('/documents/:id/correction', uploadDocumentFile.single('file'), docu
 
 // Pagos / Garantía — Transferencia interna Bitget, por subcuenta. El
 // cliente solo reporta número de orden + fecha/hora de la transacción.
-router.get('/payment-config', paymentController.getPaymentConfig);
+router.get('/api-subaccounts/:apiSubaccountId/payment-data', paymentController.getSubaccountPaymentData);
 router.get('/api-subaccounts/:apiSubaccountId/payment-reports', paymentController.listPaymentReports);
 router.post('/api-subaccounts/:apiSubaccountId/payment-reports', paymentController.createPaymentReport);
 router.get('/payment-reports/:id/proof', paymentController.downloadPaymentProof);
@@ -81,6 +81,9 @@ router.get('/support-cases', supportController.listSupportCases);
 router.post('/support-cases', supportController.createSupportCase);
 router.get('/support-cases/:id/messages', supportController.listCaseMessages);
 router.post('/support-cases/:id/messages', supportController.sendCaseMessage);
+router.get('/support-cases/:id/files', supportController.listCaseFiles);
+router.post('/support-cases/:id/files', singleCaseFile, supportController.uploadCaseFile);
+router.get('/support-cases/:id/files/:fileId/download', supportController.downloadCaseFile);
 
 // Chat
 router.get('/chat-sessions', chatController.listChatSessions);

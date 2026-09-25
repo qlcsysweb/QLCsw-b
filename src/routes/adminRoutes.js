@@ -1,6 +1,6 @@
 const { Router } = require('express');
 const { requireAuth, requireRole } = require('../middleware/auth');
-const { uploadDocument: uploadDocumentFile, uploadMedia } = require('../middleware/upload');
+const { uploadDocument: uploadDocumentFile, uploadMedia, singleCaseFile } = require('../middleware/upload');
 
 const dashboardController = require('../controllers/dashboardController');
 const clientController = require('../controllers/clientController');
@@ -134,8 +134,9 @@ router.patch('/statements/:id/mark-paid', statementController.markStatementPaid)
 
 // Pagos / Garantía — UID de recepción Bitget (configurable solo por ADMIN)
 // y reportes de transferencia interna Bitget.
-router.get('/payment-config', paymentController.getPaymentConfig);
-router.put('/payment-config', paymentController.updatePaymentConfig);
+// Datos de pago POR SUBCUENTA/API (no existe configuración general de pagos).
+router.get('/api-subaccounts/:apiSubaccountId/payment-data', paymentController.getSubaccountPaymentData);
+router.put('/api-subaccounts/:apiSubaccountId/payment-data', paymentController.updateSubaccountPaymentData);
 router.get('/payment-reports', paymentController.listPaymentReports);
 router.get('/payment-reports/:id/proof', paymentController.downloadPaymentProof);
 router.patch('/payment-reports/:id/transfer-received', paymentController.markTransferReceived);
@@ -153,6 +154,9 @@ router.get('/support-cases', supportController.listSupportCases);
 router.patch('/support-cases/:id', supportController.updateSupportCase);
 router.get('/support-cases/:id/messages', supportController.listCaseMessages);
 router.post('/support-cases/:id/messages', supportController.sendCaseMessage);
+router.get('/support-cases/:id/files', supportController.listCaseFiles);
+router.post('/support-cases/:id/files', singleCaseFile, supportController.uploadCaseFile);
+router.get('/support-cases/:id/files/:fileId/download', supportController.downloadCaseFile);
 router.get('/chat-sessions', chatController.listSessions);
 // CORREGIR(2).xlsx ADMIN 28 — permite ver/entrar directamente al chat de una
 // cita ya autorizada desde la propia vista de la cita.

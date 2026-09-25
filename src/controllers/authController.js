@@ -3,7 +3,7 @@ const { z } = require('zod');
 const prisma = require('../config/prisma');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
-const { signToken, cookieOptions } = require('../utils/token');
+const { signToken, cookieOptions, clearCookieOptions } = require('../utils/token');
 const { ensurePrincipalSubaccount } = require('../utils/subaccountProvisioning');
 const { notifyAdmins } = require('../utils/notify');
 const {
@@ -97,7 +97,7 @@ const loginWithTwoFactor = asyncHandler(async (req, res) => {
 });
 
 const logout = asyncHandler(async (req, res) => {
-  res.clearCookie(process.env.COOKIE_NAME, { path: '/' });
+  res.clearCookie(process.env.COOKIE_NAME, clearCookieOptions());
   res.json({ ok: true });
 });
 

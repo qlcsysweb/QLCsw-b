@@ -161,6 +161,8 @@ model User {
   securityConfigsUpdated             SecurityConfiguration[]     @relation("SecurityConfigUpdatedBy")
   processStepsUpdated                ProcessStep[]               @relation("ProcessStepUpdatedBy")
   supportCaseMessagesSent            SupportCaseMessage[]        @relation("SupportCaseMessageSender")
+  supportCaseFilesUploaded           SupportCaseFile[]           @relation("SupportCaseFileUploader")
+  subaccountPaymentDataUpdated       SubaccountPaymentData[]     @relation("SubaccountPaymentDataUpdatedBy")
   apiSubaccountsDeactivated          ApiSubaccount[]             @relation("ApiSubaccountDeactivatedBy")
   subaccountRequestsMade             SubaccountRequest[]         @relation("SubaccountRequestRequestedBy")
   subaccountRequestsReviewed         SubaccountRequest[]         @relation("SubaccountRequestReviewedBy")
@@ -348,6 +350,7 @@ model ApiSubaccount {
 
   clientModel                ClientModel?
   process                    Process?
+  paymentData                SubaccountPaymentData?
   paymentReports             PaymentReport[]
   statements                 Statement[]
   connectionEvents           ApiConnectionEvent[]
@@ -864,6 +867,7 @@ model SupportCase {
 
   appointments Appointment[]
   messages     SupportCaseMessage[]
+  files        SupportCaseFile[]
 
   @@map("support_cases")
 }
@@ -1089,8 +1093,48 @@ model SupportCaseMessage {
   sender        User        @relation("SupportCaseMessageSender", fields: [senderUserId], references: [id])
   content       String
   createdAt     DateTime    @default(now())
+  // Lectura por la contraparte: un mensaje del cliente se marca leído cuando
+  // un admin abre el caso; uno del admin, cuando el cliente abre el caso.
+  readAt        DateTime?
 
+  @@index([supportCaseId, readAt])
   @@map("support_case_messages")
+}
+
+// Archivos adjuntos de un caso (cualquier tipo, máx. 5 MB — validado en
+// backend). El binario vive en Google Drive; aquí solo la metadata.
+model SupportCaseFile {
+  id               String      @id @default(cuid())
+  supportCaseId    String
+  supportCase      SupportCase @relation(fields: [supportCaseId], references: [id], onDelete: Cascade)
+  uploadedByUserId String
+  uploadedBy       User        @relation("SupportCaseFileUploader", fields: [uploadedByUserId], references: [id])
+  fileName         String
+  mimeType         String
+  sizeBytes        Int
+  driveFileId      String
+  driveFolderId    String?
+  createdAt        DateTime    @default(now())
+
+  @@map("support_case_files")
+}
+
+// DATOS DE PAGO — pertenecen a CADA subcuenta/API (Client → ApiSubaccount →
+// SubaccountPaymentData → PaymentReport), nunca al cliente en general.
+model SubaccountPaymentData {
+  id               String        @id @default(cuid())
+  apiSubaccountId  String        @unique
+  apiSubaccount    ApiSubaccount @relation(fields: [apiSubaccountId], references: [id], onDelete: Cascade)
+  currency         String        @default("USDT")
+  // UID de recepción Bitget de QLC para los pagos de ESTA subcuenta.
+  bitgetReceiveUid String?
+  instructions     String?
+  updatedByUserId  String?
+  updatedBy        User?         @relation("SubaccountPaymentDataUpdatedBy", fields: [updatedByUserId], references: [id])
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  @@map("subaccount_payment_data")
 }
 
 // CORREGIR.xlsx CLIENTE 07 — "Tu proceso paso a paso" administrable desde

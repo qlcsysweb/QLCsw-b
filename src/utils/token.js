@@ -17,4 +17,12 @@ function cookieOptions() {
   };
 }
 
-module.exports = { signToken, cookieOptions };
+// Para borrar la cookie el navegador exige los MISMOS atributos con los que
+// se creó (Secure/SameSite/Path); sin ellos en producción la cookie no se
+// elimina y la sesión "revive" tras cerrar sesión.
+function clearCookieOptions() {
+  const { maxAge, ...rest } = cookieOptions();
+  return rest;
+}
+
+module.exports = { signToken, cookieOptions, clearCookieOptions };

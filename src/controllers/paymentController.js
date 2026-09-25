@@ -14,14 +14,10 @@ async function assertDriveReady() {
   }
 }
 
-const getPaymentConfig = asyncHandler(async (req, res) => {
-  const config = await prisma.paymentConfiguration.findFirst();
-  res.json({ ok: true, config });
-});
-
-// TRANSFERENCIA INTERNA BITGET — el ADMIN es el único que configura el UID
-// de recepción de QLC; el cliente solo lo visualiza/copia.
-const updatePaymentConfigSchema = z.object({
+// DATOS DE PAGO POR SUBCUENTA/API — el ADMIN configura el UID de recepción
+// Bitget de QLC para CADA subcuenta (Client → ApiSubaccount →
+// SubaccountPaymentData → PaymentReport); nunca un dato general del cliente.
+const updatePaymentDataSchema = z.object({
   bitgetReceiveUid: z
     .string()
     .trim()
@@ -29,26 +25,39 @@ const updatePaymentConfigSchema = z.object({
     .regex(/^[0-9]*$/, 'El UID de Bitget solo puede contener números')
     .optional(),
   instructions: z.string().max(2000).optional(),
-  // "currency" se acepta si viene en el body pero SIEMPRE se ignora.
-  currency: z.string().optional(),
 });
 
-const updatePaymentConfig = asyncHandler(async (req, res) => {
-  const data = updatePaymentConfigSchema.parse(req.body);
-  let config = await prisma.paymentConfiguration.findFirst();
-  if (!config) config = await prisma.paymentConfiguration.create({ data: {} });
+async function loadSubaccountOr404(id) {
+  const subaccount = await prisma.apiSubaccount.findUnique({ where: { id }, select: { id: true } });
+  if (!subaccount) throw ApiError.notFound('Subcuenta no encontrada');
+  return subaccount;
+}
 
-  // La moneda de QLC es fija: USDT. Nunca se acepta un valor distinto,
-  // sin importar lo que envíe el frontend — se fuerza siempre en backend.
-  const updated = await prisma.paymentConfiguration.update({
-    where: { id: config.id },
-    data: {
-      ...(data.bitgetReceiveUid !== undefined ? { bitgetReceiveUid: data.bitgetReceiveUid || null } : {}),
-      ...(data.instructions !== undefined ? { instructions: data.instructions || null } : {}),
-      currency: 'USDT',
-    },
+const getSubaccountPaymentData = asyncHandler(async (req, res) => {
+  await loadSubaccountOr404(req.params.apiSubaccountId);
+  const paymentData = await prisma.subaccountPaymentData.findUnique({
+    where: { apiSubaccountId: req.params.apiSubaccountId },
   });
-  res.json({ ok: true, config: updated });
+  res.json({ ok: true, paymentData });
+});
+
+const updateSubaccountPaymentData = asyncHandler(async (req, res) => {
+  const data = updatePaymentDataSchema.parse(req.body);
+  await loadSubaccountOr404(req.params.apiSubaccountId);
+
+  // La moneda de QLC es fija: USDT — nunca se acepta otro valor.
+  const values = {
+    ...(data.bitgetReceiveUid !== undefined ? { bitgetReceiveUid: data.bitgetReceiveUid || null } : {}),
+    ...(data.instructions !== undefined ? { instructions: data.instructions || null } : {}),
+    currency: 'USDT',
+    updatedByUserId: req.user.id,
+  };
+  const paymentData = await prisma.subaccountPaymentData.upsert({
+    where: { apiSubaccountId: req.params.apiSubaccountId },
+    update: values,
+    create: { apiSubaccountId: req.params.apiSubaccountId, ...values },
+  });
+  res.json({ ok: true, paymentData });
 });
 
 const listPaymentReports = asyncHandler(async (req, res) => {
@@ -204,8 +213,8 @@ const reviewPaymentReport = asyncHandler(async (req, res) => {
 });
 
 module.exports = {
-  getPaymentConfig,
-  updatePaymentConfig,
+  getSubaccountPaymentData,
+  updateSubaccountPaymentData,
   listPaymentReports,
   downloadPaymentProof,
   markTransferReceived,

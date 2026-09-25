@@ -27,4 +27,24 @@ const uploadMedia = multer({
   },
 });
 
-module.exports = { uploadDocument, uploadMedia };
+// Archivos de un CASO de soporte: cualquier tipo de archivo, con un único
+// límite real de servidor de 5 MB (multer corta la subida al rebasarlo, no
+// depende de la validación del navegador).
+const ApiError = require('../utils/ApiError');
+const MAX_CASE_FILE_BYTES = 5 * 1024 * 1024;
+const caseFileUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_CASE_FILE_BYTES, files: 1 },
+});
+
+function singleCaseFile(req, res, next) {
+  caseFileUpload.single('file')(req, res, (err) => {
+    if (!err) return next();
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return next(ApiError.badRequest('El archivo supera el límite permitido de 5 MB.'));
+    }
+    return next(ApiError.badRequest('No se pudo procesar el archivo adjunto.'));
+  });
+}
+
+module.exports = { uploadDocument, uploadMedia, singleCaseFile, MAX_CASE_FILE_BYTES };
