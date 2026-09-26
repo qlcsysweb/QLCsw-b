@@ -24,12 +24,70 @@ const listForClient = asyncHandler(async (req, res) => {
   });
   if (!client) throw ApiError.notFound('Cliente no encontrado');
 
+  // El hilo completo con este cliente: todo lo que el ADMIN le envió
+  // (userId=cliente, senderUserId=algún admin) y todo lo que el CLIENTE
+  // envió (el cliente guarda su propia copia con userId=él mismo también).
   const messages = await prisma.notification.findMany({
     where: { userId: client.userId, kind: 'MANUAL' },
     orderBy: { createdAt: 'desc' },
-    include: { sender: { select: { adminProfile: { select: { firstName: true, lastName: true } } } } },
+    include: {
+      sender: {
+        select: {
+          role: true,
+          adminProfile: { select: { firstName: true, lastName: true } },
+        },
+      },
+    },
   });
+
+  // Al abrir el hilo, este admin marca como leídos SUS propios avisos de
+  // mensajes recibidos de este cliente (cada admin tiene su propia copia y
+  // su propio estado de lectura — ver notifyAdmins).
+  await prisma.notification.updateMany({
+    where: { userId: req.user.id, kind: 'MANUAL', senderUserId: client.userId, isRead: false },
+    data: { isRead: true },
+  });
+
   res.json({ ok: true, messages });
+});
+
+// BANDEJA DE ENTRADA — un renglón por cliente que le haya escrito a este
+// admin (su propia copia de cada mensaje MANUAL recibido), con el mensaje
+// más reciente y cuántos de esos siguen sin leer. Cada admin ve su propio
+// estado de lectura (igual que el resto de las notificaciones).
+const listInbox = asyncHandler(async (req, res) => {
+  const received = await prisma.notification.findMany({
+    where: { userId: req.user.id, kind: 'MANUAL', senderUserId: { not: null } },
+    orderBy: { createdAt: 'desc' },
+    include: {
+      sender: {
+        select: {
+          clientProfile: { select: { id: true, firstName: true, lastName: true, username: true } },
+        },
+      },
+    },
+  });
+
+  const bySender = new Map();
+  for (const m of received) {
+    // Un admin nunca aparece como remitente de sí mismo aquí (esto es
+    // exclusivamente "lo que me escribieron los clientes").
+    if (!m.sender?.clientProfile) continue;
+    const key = m.senderUserId;
+    if (!bySender.has(key)) {
+      bySender.set(key, {
+        client: m.sender.clientProfile,
+        lastTitle: m.title,
+        lastMessage: m.message,
+        lastAt: m.createdAt,
+        unreadCount: 0,
+      });
+    }
+    if (!m.isRead) bySender.get(key).unreadCount += 1;
+  }
+
+  const inbox = Array.from(bySender.values()).sort((a, b) => new Date(b.lastAt) - new Date(a.lastAt));
+  res.json({ ok: true, inbox });
 });
 
 const sendMessageSchema = z.object({
@@ -58,4 +116,4 @@ const sendMessage = asyncHandler(async (req, res) => {
   res.status(201).json({ ok: true, message: notification });
 });
 
-module.exports = { listForClient, sendMessage };
+module.exports = { listForClient, listInbox, sendMessage };

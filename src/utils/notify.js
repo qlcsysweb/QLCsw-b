@@ -1,5 +1,5 @@
 const prisma = require('../config/prisma');
-const { sendNotificationEmail } = require('../services/emailService');
+const { sendNotificationEmail, sendManualMessageEmail } = require('../services/emailService');
 
 /*
  * AUDITORÍA QLC PARTE 12 — cada notificación interna intenta además enviar
@@ -12,9 +12,18 @@ const { sendNotificationEmail } = require('../services/emailService');
 // Devuelve la notificación con el resultado del correo ya registrado
 // (emailSent/emailError) para que el admin sepa si salió o falló. El motivo
 // se recorta — nunca se guarda un stack trace.
+// AUDITORÍA MENSAJERÍA INTERNA — un mensaje MANUAL (buzón admin↔cliente)
+// nunca envía su contenido real por correo: el correo es solo un aviso
+// genérico ("tienes un nuevo mensaje, entra a tu panel"), nunca el asunto ni
+// el cuerpo redactado por la otra persona. Las notificaciones SYSTEM (todo
+// el resto: pagos, estados de cuenta, citas, etc.) siguen enviando su propio
+// título/mensaje tal cual, sin cambios.
 async function dispatchEmail(notification, email) {
   try {
-    const result = await sendNotificationEmail({ email }, { title: notification.title, message: notification.message });
+    const result =
+      notification.kind === 'MANUAL'
+        ? await sendManualMessageEmail({ email })
+        : await sendNotificationEmail({ email }, { title: notification.title, message: notification.message });
     return await prisma.notification.update({
       where: { id: notification.id },
       data: result.sent
@@ -73,6 +82,8 @@ async function notifyAdmins({
   templateParams = null,
   skipEmail = false,
   excludeUserId = null,
+  kind,
+  senderUserId,
 }) {
   const admins = await prisma.user.findMany({
     where: { role: 'ADMIN', isActive: true, ...(excludeUserId ? { id: { not: excludeUserId } } : {}) },
@@ -80,7 +91,18 @@ async function notifyAdmins({
   });
   const notifications = await Promise.all(
     admins.map((admin) =>
-      prisma.notification.create({ data: { userId: admin.id, title, message, type, templateKey, templateParams } })
+      prisma.notification.create({
+        data: {
+          userId: admin.id,
+          title,
+          message,
+          type,
+          templateKey,
+          templateParams,
+          ...(kind ? { kind } : {}),
+          ...(senderUserId ? { senderUserId } : {}),
+        },
+      })
     )
   );
   if (!skipEmail) {

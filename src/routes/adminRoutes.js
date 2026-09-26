@@ -184,6 +184,7 @@ router.patch('/notifications/:id/read', notificationController.markAsRead);
 router.post('/notifications/read-all', notificationController.markAllAsRead);
 
 // CORREGIR.xlsx ADMIN 14 — mensajería manual admin→cliente
+router.get('/messages', adminMessageController.listInbox);
 router.get('/clients/:clientId/messages', adminMessageController.listForClient);
 router.post('/clients/:clientId/messages', adminMessageController.sendMessage);
 

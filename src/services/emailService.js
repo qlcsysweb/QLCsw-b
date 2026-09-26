@@ -60,4 +60,21 @@ async function sendNotificationEmail(user, { title, message }) {
   return { sent: true };
 }
 
-module.exports = { sendProspectWelcomeEmail, sendNotificationEmail };
+// MENSAJERÍA INTERNA (buzón admin↔cliente) — el correo NUNCA lleva el
+// asunto ni el contenido real del mensaje (podría ser información sensible
+// redactada por la otra persona): es solo un aviso genérico que empuja al
+// destinatario a entrar a su panel de QLC para leer y responder ahí.
+async function sendManualMessageEmail(user) {
+  if (!user?.email) return { sent: false, reason: 'El usuario no tiene correo registrado' };
+  const creds = await resolveCredentials();
+  if (!creds) return { sent: false, reason: 'Credenciales de Gmail no configuradas' };
+
+  await sendMailUnified(creds, {
+    to: user.email,
+    subject: 'QLC — Tienes un nuevo mensaje',
+    text: 'Tienes un nuevo mensaje dentro de QLC.\n\nIngresa a tu panel para consultarlo y responder.\n\n— Quantum Liquidity Capital (QLC)',
+  });
+  return { sent: true };
+}
+
+module.exports = { sendProspectWelcomeEmail, sendNotificationEmail, sendManualMessageEmail };

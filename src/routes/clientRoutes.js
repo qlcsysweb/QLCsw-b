@@ -14,6 +14,7 @@ const supportController = require('../controllers/client/supportController');
 const chatController = require('../controllers/client/chatController');
 const appointmentController = require('../controllers/client/appointmentController');
 const notificationController = require('../controllers/client/notificationController');
+const messageController = require('../controllers/client/messageController');
 const platformSettingsController = require('../controllers/platformSettingsController');
 const guideController = require('../controllers/client/guideController');
 const processStepController = require('../controllers/processStepController');
@@ -109,5 +110,11 @@ router.get('/process-steps', processStepController.listStepsPublic);
 router.get('/notifications', notificationController.listNotifications);
 router.patch('/notifications/:id/read', notificationController.markAsRead);
 router.post('/notifications/read-all', notificationController.markAllAsRead);
+
+// Mensajería interna (buzón admin↔cliente) — distinta del chat de citas y
+// de los casos de soporte.
+router.get('/messages', messageController.listMyMessages);
+router.post('/messages', messageController.sendMessage);
+router.post('/messages/read-all', messageController.markAllRead);
 
 module.exports = router;

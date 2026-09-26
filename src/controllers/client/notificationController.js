@@ -18,7 +18,11 @@ async function cleanupExpiredNotifications(userId) {
 const listNotifications = asyncHandler(async (req, res) => {
   await cleanupExpiredNotifications(req.user.id);
   const notifications = await prisma.notification.findMany({
-    where: { userId: req.user.id },
+    // kind=MANUAL (mensajería interna admin↔cliente) tiene su propia sección
+    // dedicada — nunca se mezcla con las notificaciones automáticas del
+    // sistema, para que "Mensajes" y "Notificaciones" sean cosas claramente
+    // distintas (igual para admin y cliente, mismo controlador).
+    where: { userId: req.user.id, kind: 'SYSTEM' },
     orderBy: { createdAt: 'desc' },
     take: 50,
     // El resultado técnico del envío de correo es solo para administración.
