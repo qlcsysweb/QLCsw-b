@@ -18,12 +18,12 @@ const { sendNotificationEmail, sendManualMessageEmail } = require('../services/e
 // el cuerpo redactado por la otra persona. Las notificaciones SYSTEM (todo
 // el resto: pagos, estados de cuenta, citas, etc.) siguen enviando su propio
 // título/mensaje tal cual, sin cambios.
-async function dispatchEmail(notification, email) {
+async function dispatchEmail(notification, email, attachments) {
   try {
     const result =
       notification.kind === 'MANUAL'
         ? await sendManualMessageEmail({ email })
-        : await sendNotificationEmail({ email }, { title: notification.title, message: notification.message });
+        : await sendNotificationEmail({ email }, { title: notification.title, message: notification.message, attachments });
     return await prisma.notification.update({
       where: { id: notification.id },
       data: result.sent
@@ -49,10 +49,14 @@ async function dispatchEmail(notification, email) {
  * `skipEmail`: solo para los pocos eventos que YA disparan un correo propio
  * y más detallado por su cuenta (ej. estado de cuenta generado) — evita
  * duplicar el envío para la misma acción.
+ *
+ * `attachments`: archivos adjuntos SOLO para el correo (formato nodemailer),
+ * p. ej. el PDF del estado de cuenta. La notificación interna no los guarda:
+ * el archivo queda disponible en el panel del cliente por su propia vía.
  */
 async function notifyClient(
   clientProfileId,
-  { title, message, type = 'info', templateKey = null, templateParams = null, skipEmail = false }
+  { title, message, type = 'info', templateKey = null, templateParams = null, skipEmail = false, attachments }
 ) {
   const client = await prisma.clientProfile.findUnique({
     where: { id: clientProfileId },
@@ -63,7 +67,7 @@ async function notifyClient(
     data: { userId: client.userId, title, message, type, templateKey, templateParams },
   });
   if (!skipEmail && client.user?.isActive && client.user.email) {
-    await dispatchEmail(notification, client.user.email);
+    return dispatchEmail(notification, client.user.email, attachments);
   }
   return notification;
 }

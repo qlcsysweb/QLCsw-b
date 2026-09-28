@@ -61,6 +61,16 @@ const createStatementSchema = z
 
 const createStatement = asyncHandler(async (req, res) => {
   const data = createStatementSchema.parse(req.body);
+  // PDF del estado de cuenta cargado por el admin (multipart, campo "file").
+  // Si viene, ES el estado de cuenta: se guarda en Drive, se adjunta al
+  // correo del cliente y queda descargable en su panel. Sin archivo se
+  // conserva el PDF generado automáticamente por el sistema.
+  const uploadedPdf = req.file || null;
+  if (uploadedPdf && !(await driveStorage.isConfigured())) {
+    throw ApiError.serviceUnavailable(
+      'No pudimos conectar con Google Drive para guardar el PDF. Ve a Configuración → Google Drive en el panel administrativo.'
+    );
+  }
   const subaccount = await prisma.apiSubaccount.findUnique({
     where: { id: req.params.apiSubaccountId },
     include: {
@@ -124,7 +134,28 @@ const createStatement = asyncHandler(async (req, res) => {
   }
 
   let updatedStatement = statement;
-  if (await driveStorage.isConfigured()) {
+  let pdfAttachment = null;
+  const fileName = `Estado_de_cuenta_${subaccount.identifier || subaccount.id}_${periodStart.toISOString().slice(0, 7)}.pdf`;
+  if (uploadedPdf) {
+    // El PDF del admin es obligatorio que quede guardado: si Drive falla, no
+    // se deja un estado de cuenta "generado" sin su documento.
+    try {
+      const statementsFolderId = await driveStorage.getOrCreateSubfolder(subaccount.client, 'statements');
+      const uploaded = await driveStorage.uploadFileToDrive(uploadedPdf.buffer, {
+        folderId: statementsFolderId,
+        fileName,
+        mimeType: 'application/pdf',
+      });
+      updatedStatement = await prisma.statement.update({
+        where: { id: statement.id },
+        data: { pdfDriveFileId: uploaded.id, pdfDriveFolderId: statementsFolderId, pdfFileName: fileName },
+      });
+      pdfAttachment = { filename: fileName, content: uploadedPdf.buffer, contentType: 'application/pdf' };
+    } catch {
+      await prisma.statement.delete({ where: { id: statement.id } }).catch(() => {});
+      throw ApiError.serviceUnavailable('No se pudo guardar el PDF del estado de cuenta en Google Drive. Intenta nuevamente.');
+    }
+  } else if (await driveStorage.isConfigured()) {
     try {
       const pdfBuffer = await generateStatementPdf({
         client: subaccount.client,
@@ -133,9 +164,6 @@ const createStatement = asyncHandler(async (req, res) => {
         statement,
       });
       const statementsFolderId = await driveStorage.getOrCreateSubfolder(subaccount.client, 'statements');
-      const fileName = `Estado_de_cuenta_${subaccount.identifier || subaccount.id}_${periodStart
-        .toISOString()
-        .slice(0, 7)}.pdf`;
       const uploaded = await driveStorage.uploadFileToDrive(pdfBuffer, {
         folderId: statementsFolderId,
         fileName,
@@ -145,18 +173,21 @@ const createStatement = asyncHandler(async (req, res) => {
         where: { id: statement.id },
         data: { pdfDriveFileId: uploaded.id, pdfDriveFolderId: statementsFolderId, pdfFileName: fileName },
       });
+      pdfAttachment = { filename: fileName, content: pdfBuffer, contentType: 'application/pdf' };
     } catch {
-      // El estado de cuenta queda generado aunque el PDF falle.
+      // El estado de cuenta queda generado aunque el PDF automático falle.
     }
   }
 
   // Mensajería interna + correo (notifyClient crea la notificación y envía
-  // el email al correo real del cliente en la misma acción).
+  // el email al correo real del cliente en la misma acción). El PDF va
+  // ADJUNTO al correo y queda descargable dentro de la subcuenta del cliente.
   const month = monthLabel(data.periodEnd);
   const identifier = subaccount.identifier || (subaccount.isPrincipal ? 'PRINCIPAL' : '');
-  await notifyClient(subaccount.clientId, {
+  const notification = await notifyClient(subaccount.clientId, {
     title: 'Estado de cuenta generado — pendiente de pago',
-    message: `Tu estado de cuenta de ${month}${identifier ? ` (subcuenta/API ${identifier})` : ''} fue generado y está PENDIENTE DE PAGO. Dispones de ${STATEMENT_DUE_HOURS} horas para pagarlo mediante Transferencia interna Bitget desde Pagos / Garantía. Si el plazo vence sin pago, la conexión API será desactivada.`,
+    message: `Tu estado de cuenta de ${month}${identifier ? ` (subcuenta/API ${identifier})` : ''} fue generado y está PENDIENTE DE PAGO.${pdfAttachment ? ' El PDF del estado de cuenta va adjunto a este correo y también puedes descargarlo desde tu subcuenta en el panel de QLC.' : ''} Dispones de ${STATEMENT_DUE_HOURS} horas para pagarlo mediante Transferencia interna Bitget desde Pagos / Garantía. Si el plazo vence sin pago, la conexión API será desactivada.`,
+    attachments: pdfAttachment ? [pdfAttachment] : undefined,
     type: 'info',
     templateKey: 'statement_generated',
     templateParams: {
@@ -168,7 +199,13 @@ const createStatement = asyncHandler(async (req, res) => {
     },
   });
 
-  res.status(201).json({ ok: true, statement: shapeStatement(updatedStatement) });
+  res.status(201).json({
+    ok: true,
+    statement: shapeStatement(updatedStatement),
+    // Para que el admin sepa si el correo (con el PDF) realmente salió.
+    emailSent: Boolean(notification?.emailSent),
+    emailError: notification?.emailError || null,
+  });
 });
 
 async function markPaid(statementId) {

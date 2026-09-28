@@ -47,4 +47,29 @@ function singleCaseFile(req, res, next) {
   });
 }
 
-module.exports = { uploadDocument, uploadMedia, singleCaseFile, MAX_CASE_FILE_BYTES };
+// PDF del ESTADO DE CUENTA cargado por el admin (se guarda en Drive y se
+// adjunta al correo del cliente). Solo PDF, hasta 15 MB.
+const MAX_STATEMENT_PDF_BYTES = 15 * 1024 * 1024;
+const statementPdfUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_STATEMENT_PDF_BYTES, files: 1 },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype !== 'application/pdf') {
+      return cb(ApiError.badRequest('El estado de cuenta debe ser un archivo PDF.'));
+    }
+    cb(null, true);
+  },
+});
+
+function singleStatementPdf(req, res, next) {
+  statementPdfUpload.single('file')(req, res, (err) => {
+    if (!err) return next();
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return next(ApiError.badRequest('El PDF del estado de cuenta supera el límite de 15 MB.'));
+    }
+    if (err instanceof ApiError) return next(err);
+    return next(ApiError.badRequest('No se pudo procesar el PDF adjunto.'));
+  });
+}
+
+module.exports = { uploadDocument, uploadMedia, singleCaseFile, singleStatementPdf, MAX_CASE_FILE_BYTES };

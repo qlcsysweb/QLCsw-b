@@ -1,4 +1,5 @@
 const { google } = require('googleapis');
+const MailComposer = require('nodemailer/lib/mail-composer');
 const prisma = require('./prisma');
 const { decrypt } = require('../utils/crypto');
 
@@ -252,12 +253,21 @@ function buildRawMimeMessage({ from, to, subject, text }) {
   return raw.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-async function sendViaGmailApi(creds, { to, subject, text }) {
+// Con adjuntos (ej. PDF del estado de cuenta) el mensaje MIME multipart lo
+// arma el MailComposer de nodemailer — mismo formato que usa el envío SMTP.
+async function buildRawMimeWithAttachments({ from, to, subject, text, attachments }) {
+  const message = await new MailComposer({ from, to, subject, text, attachments }).compile().build();
+  return message.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+async function sendViaGmailApi(creds, { to, subject, text, attachments }) {
   const client = createOAuth2Client(creds.clientId, creds.clientSecret);
   client.setCredentials({ refresh_token: creds.refreshToken });
   const gmail = google.gmail({ version: 'v1', auth: client });
   const from = `"${creds.senderName}" <${creds.user}>`;
-  const raw = buildRawMimeMessage({ from, to, subject, text });
+  const raw = attachments?.length
+    ? await buildRawMimeWithAttachments({ from, to, subject, text, attachments })
+    : buildRawMimeMessage({ from, to, subject, text });
   const res = await gmail.users.messages.send({ userId: 'me', requestBody: { raw } });
   return res.data;
 }
@@ -266,13 +276,14 @@ async function sendViaGmailApi(creds, { to, subject, text }) {
 // emailService.js (notificaciones, bienvenida, estados de cuenta) — así
 // "Guardar/Probar" y el envío real de la plataforma NUNCA pueden divergir,
 // sin importar cuál de los dos métodos (SMTP u OAuth2) esté activo.
-async function sendMailUnified(creds, { to, subject, text }) {
+// `attachments` (opcional): formato de nodemailer [{ filename, content, contentType }].
+async function sendMailUnified(creds, { to, subject, text, attachments }) {
   if (creds.method === 'oauth2') {
-    return sendViaGmailApi(creds, { to, subject, text });
+    return sendViaGmailApi(creds, { to, subject, text, attachments });
   }
   const transport = createGmailTransport(creds);
   const from = `"${creds.senderName}" <${creds.user}>`;
-  return transport.sendMail({ from, to, subject, text });
+  return transport.sendMail({ from, to, subject, text, ...(attachments?.length ? { attachments } : {}) });
 }
 
 // Equivalente a transport.verify() sin importar el método activo.

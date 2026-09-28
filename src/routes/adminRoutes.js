@@ -1,6 +1,6 @@
 const { Router } = require('express');
 const { requireAuth, requireRole } = require('../middleware/auth');
-const { uploadDocument: uploadDocumentFile, uploadMedia, singleCaseFile } = require('../middleware/upload');
+const { uploadDocument: uploadDocumentFile, uploadMedia, singleCaseFile, singleStatementPdf } = require('../middleware/upload');
 
 const dashboardController = require('../controllers/dashboardController');
 const clientController = require('../controllers/clientController');
@@ -128,15 +128,18 @@ router.patch('/documents/:id/organize', documentController.setDocumentOrganizati
 // DE PAGO + 72 h). La comunicación al cliente es la mensajería interna +
 // correo, sin un flujo de "envío" separado.
 router.get('/api-subaccounts/:apiSubaccountId/statements', statementController.listStatements);
-router.post('/api-subaccounts/:apiSubaccountId/statements', statementController.createStatement);
+// multipart/form-data: campos del estado de cuenta + "file" (PDF cargado por
+// el admin, se envía al cliente por correo y mensajería interna).
+router.post('/api-subaccounts/:apiSubaccountId/statements', singleStatementPdf, statementController.createStatement);
 router.get('/statements/:id/download', statementController.downloadStatementFile);
 router.patch('/statements/:id/mark-paid', statementController.markStatementPaid);
 
 // Pagos / Garantía — UID de recepción Bitget (configurable solo por ADMIN)
 // y reportes de transferencia interna Bitget.
-// Datos de pago POR SUBCUENTA/API (no existe configuración general de pagos).
-router.get('/api-subaccounts/:apiSubaccountId/payment-data', paymentController.getSubaccountPaymentData);
-router.put('/api-subaccounts/:apiSubaccountId/payment-data', paymentController.updateSubaccountPaymentData);
+// Datos de pago GENERALES: se configuran una sola vez y aplican a todos los
+// clientes y todas sus subcuentas.
+router.get('/payment-configuration', paymentController.getPaymentConfiguration);
+router.put('/payment-configuration', paymentController.updatePaymentConfiguration);
 router.get('/payment-reports', paymentController.listPaymentReports);
 router.get('/payment-reports/:id/proof', paymentController.downloadPaymentProof);
 router.patch('/payment-reports/:id/transfer-received', paymentController.markTransferReceived);

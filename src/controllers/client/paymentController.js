@@ -12,13 +12,14 @@ async function assertOwnsSubaccount(clientId, apiSubaccountId) {
   return subaccount;
 }
 
-// DATOS DE PAGO de UNA subcuenta/API (UID de recepción Bitget de QLC). El
-// cliente solo ve/copia los de SU propia subcuenta — nunca los de otra, ni
-// un dato general — y nunca puede modificarlos.
+// DATOS DE PAGO (UID de recepción Bitget de QLC) — son GENERALES: el admin
+// los configura una sola vez y son los mismos para todos los clientes y
+// todas sus subcuentas. Se siguen pidiendo desde la subcuenta (se valida
+// que sea propia) y el cliente nunca puede modificarlos.
 const getSubaccountPaymentData = asyncHandler(async (req, res) => {
   await assertOwnsSubaccount(req.clientProfile.id, req.params.apiSubaccountId);
-  const paymentData = await prisma.subaccountPaymentData.findUnique({
-    where: { apiSubaccountId: req.params.apiSubaccountId },
+  const paymentData = await prisma.paymentConfiguration.findFirst({
+    orderBy: { updatedAt: 'desc' },
     select: { currency: true, bitgetReceiveUid: true, instructions: true },
   });
   res.json({ ok: true, paymentData });

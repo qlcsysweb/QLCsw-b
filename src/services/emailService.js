@@ -47,7 +47,9 @@ async function sendProspectWelcomeEmail(prospect, language) {
 // (nunca en copia/CC a otros administradores o clientes). El asunto y
 // cuerpo son el título/mensaje que YA se le muestra al usuario dentro de la
 // plataforma — nunca se inventa contenido adicional.
-async function sendNotificationEmail(user, { title, message }) {
+// `attachments` (opcional): archivos que acompañan al aviso — p. ej. el PDF
+// del estado de cuenta, que así llega completo al correo del cliente.
+async function sendNotificationEmail(user, { title, message, attachments }) {
   if (!user?.email) return { sent: false, reason: 'El usuario no tiene correo registrado' };
   const creds = await resolveCredentials();
   if (!creds) return { sent: false, reason: 'Credenciales de Gmail no configuradas' };
@@ -56,6 +58,7 @@ async function sendNotificationEmail(user, { title, message }) {
     to: user.email,
     subject: `QLC — ${title}`,
     text: `${message}\n\n— Quantum Liquidity Capital (QLC)\nEste es un aviso automático, generado también como notificación dentro de tu panel de QLC.`,
+    attachments,
   });
   return { sent: true };
 }
