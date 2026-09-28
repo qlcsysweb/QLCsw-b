@@ -30,7 +30,7 @@ const listAppointments = asyncHandler(async (req, res) => {
     orderBy: { requestedDate: 'desc' },
     include: {
       apiSubaccount: { select: { id: true, identifier: true, isPrincipal: true } },
-      supportCase: { select: { caseNumber: true } },
+      supportCase: { select: { id: true, caseNumber: true, subject: true } },
     },
   });
   res.json({ ok: true, appointments });
@@ -57,6 +57,10 @@ const createAppointment = asyncHandler(async (req, res) => {
   });
   if (!supportCase) {
     throw ApiError.badRequest('El número de caso indicado no existe o no pertenece a tu cuenta.');
+  }
+  // Solo casos vigentes: un caso cerrado ya no admite nuevas citas.
+  if (supportCase.status === 'CLOSED') {
+    throw ApiError.badRequest('El caso indicado está cerrado y ya no admite nuevas citas.');
   }
 
   const subaccount = await prisma.apiSubaccount.findFirst({

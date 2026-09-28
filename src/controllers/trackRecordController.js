@@ -16,6 +16,25 @@ const getTrackRecordAdmin = asyncHandler(async (req, res) => {
   res.json({ ok: true, trackRecord });
 });
 
+// ROI 30D / Tasa de éxito: porcentaje opcional. '' o null = sin configurar
+// (el sitio público muestra "—"). Se acepta "12.5", "+12.5", "12,5" o "12.5%".
+const percentField = (min, max) =>
+  z
+    .union([z.number(), z.string(), z.null()])
+    .optional()
+    .transform((v, ctx) => {
+      if (v === undefined) return undefined;
+      if (v === null) return null;
+      const raw = String(v).trim().replace('%', '').replace(',', '.').replace(/^\+/, '');
+      if (raw === '') return null;
+      const n = Number(raw);
+      if (!Number.isFinite(n) || n < min || n > max) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: `Valor porcentual inválido (entre ${min} y ${max}).` });
+        return z.NEVER;
+      }
+      return Math.round(n * 100) / 100;
+    });
+
 const updateSchema = z.object({
   title: z.string().min(1).optional(),
   titleEn: z.string().nullable().optional(),
@@ -24,6 +43,8 @@ const updateSchema = z.object({
   platformName: z.string().min(1).optional(),
   profileLink: z.string().url().optional().or(z.literal('')),
   ranking: z.string().min(1).optional(),
+  roi30d: percentField(-100, 99999999),
+  winRate: percentField(0, 100),
   isActive: z.boolean().optional(),
 });
 

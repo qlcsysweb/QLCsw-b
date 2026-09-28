@@ -206,7 +206,7 @@ const PUBLIC_CONTENT = [
   [
     'resultados',
     'lead_1',
-    'No te pedimos que confíes ciegamente en nosotros. Te damos acceso a una referencia externa para que puedas verificar nuestro track record directamente en Bitget.',
+    'No te pedimos que confíes ciegamente en nosotros. Te damos acceso a una referencia externa para que puedas consultar directamente en Bitget los indicadores de rendimiento del perfil.',
   ],
   [
     'resultados',
@@ -285,7 +285,7 @@ async function main() {
       data: {
         title: 'Una referencia externa y verificable.',
         description:
-          'De esta manera, el rendimiento que puedes verificar corresponde a una fuente pública e independiente de QLC.',
+          'Los indicadores de rendimiento pueden consultarse directamente en Bitget, incluyendo el ROI de 30 días y la tasa de éxito. Son datos históricos de carácter informativo y no constituyen una garantía de resultados futuros.',
         platformName: 'Bitget',
         profileLink: null,
         ranking: '#XXX',

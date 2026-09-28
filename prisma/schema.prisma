@@ -1006,6 +1006,11 @@ model TrackRecord {
   platformName  String   @default("Bitget")
   profileLink   String?
   ranking       String   @default("#XXX")
+  // Indicadores públicos de Bitget mostrados en el hero y en Resultados
+  // (ROI de 30 días y tasa de éxito, en %). Null = no configurado → el
+  // sitio muestra "—"; nunca se inventa una cifra.
+  roi30d        Decimal? @db.Decimal(10, 2)
+  winRate       Decimal? @db.Decimal(5, 2)
   isActive      Boolean  @default(true)
   updatedAt     DateTime @updatedAt
 

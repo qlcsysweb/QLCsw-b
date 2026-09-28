@@ -49,7 +49,7 @@ const CONTENT_EN = {
     note: 'Performance references are targets or model parameters and do not constitute a guarantee of future results.',
   },
   resultados: {
-    lead_1: "We don't ask you to blindly trust us. We give you access to an external reference so you can verify our track record directly on Bitget.",
+    lead_1: 'We do not ask you to trust us blindly. We give you access to an external reference so you can review the profile performance indicators directly on Bitget.',
     lead_2: 'This trading profile is connected via API to our technology infrastructure.',
   },
   seguridad: {
@@ -136,7 +136,7 @@ const MODEL_EN = {
 const TRACK_RECORD_EN = {
   titleEn: 'An external, verifiable reference.',
   descriptionEn:
-    'This way, the performance you can verify comes from a source that is public and independent of QLC.',
+    'Performance indicators can be reviewed directly on Bitget, including the 30-day ROI and the win rate. They are historical, informational data and do not constitute a guarantee of future results.',
 };
 
 async function main() {
