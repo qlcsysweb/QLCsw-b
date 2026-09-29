@@ -242,58 +242,6 @@ const listCapitalDistributionReports = asyncHandler(async (req, res) => {
   res.json({ ok: true, reports });
 });
 
-const selectModelSchema = z.object({ modelId: z.string().min(1) });
-
-const selectModel = asyncHandler(async (req, res) => {
-  const { modelId } = selectModelSchema.parse(req.body);
-  const subaccount = await prisma.apiSubaccount.findFirst({
-    where: { id: req.params.id, clientId: req.clientProfile.id, ...ACTIVE_WHERE },
-  });
-  if (!subaccount) throw ApiError.notFound('Subcuenta no encontrada');
-
-  const model = await prisma.model.findUnique({ where: { id: modelId } });
-  if (!model || !model.isActive) throw ApiError.badRequest('Modelo no válido');
-
-  const existing = await prisma.clientModel.findUnique({ where: { apiSubaccountId: subaccount.id } });
-  if (existing?.confirmedAt) {
-    throw ApiError.conflict('Ya confirmaste un modelo para esta subcuenta. Contacta con QLC para cambiarlo.');
-  }
-
-  const clientModel = await prisma.clientModel.upsert({
-    where: { apiSubaccountId: subaccount.id },
-    update: { modelId: model.id },
-    create: { apiSubaccountId: subaccount.id, modelId: model.id },
-    include: { model: true },
-  });
-
-  res.json({ ok: true, clientModel });
-});
-
-// El contrato ya no forma parte del flujo: confirmar el modelo únicamente
-// marca clientModel.confirmedAt. La autorización legal de la operación ya
-// se obtuvo en el registro (Aviso de Privacidad + Términos y Condiciones).
-const confirmModel = asyncHandler(async (req, res) => {
-  const subaccount = await prisma.apiSubaccount.findFirst({
-    where: { id: req.params.id, clientId: req.clientProfile.id, ...ACTIVE_WHERE },
-  });
-  if (!subaccount) throw ApiError.notFound('Subcuenta no encontrada');
-
-  const clientModel = await prisma.clientModel.findUnique({
-    where: { apiSubaccountId: subaccount.id },
-    include: { model: true },
-  });
-  if (!clientModel) throw ApiError.badRequest('Todavía no has seleccionado un modelo.');
-  if (clientModel.confirmedAt) throw ApiError.conflict('Ya confirmaste este modelo.');
-
-  const confirmed = await prisma.clientModel.update({
-    where: { id: clientModel.id },
-    data: { confirmedAt: new Date() },
-    include: { model: true },
-  });
-
-  res.json({ ok: true, clientModel: confirmed });
-});
-
 const listMyRequests = asyncHandler(async (req, res) => {
   const requests = await subaccountRequestService.listRequestsForClient(req.clientProfile.id);
   res.json({ ok: true, requests });
@@ -309,6 +257,4 @@ module.exports = {
   reportCapitalReady,
   reportCapitalDistribution,
   listCapitalDistributionReports,
-  selectModel,
-  confirmModel,
 };

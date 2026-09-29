@@ -107,29 +107,12 @@ const FAQ_EN = [
   },
 ];
 
+// Modelo único de participación (QLC 70% / Cliente 30%).
 const MODEL_EN = {
-  FLEXIBLE: {
-    nameEn: 'Flexible',
-    taglineEn: 'Flexibility and liquidity.',
-    descriptionEn:
-      'A model designed for those who prioritize availability and flexibility. Performance depends on market volatility conditions.',
-    conditionsEn: null,
-    periodEn: null,
-  },
   PERFORMANCE: {
-    nameEn: 'Performance',
-    taglineEn: 'Results-based participation.',
-    descriptionEn: "QLC's share is tied to the profit actually generated: 70% QLC / 30% Client.",
-    conditionsEn: '70% QLC / 30% Client',
+    nameEn: 'Participation model',
+    conditionsEn: 'QLC: 70% · Client: 30%',
     periodEn: null,
-  },
-  COMPOUND: {
-    nameEn: 'Compound',
-    taglineEn: 'Commitment and compounding.',
-    descriptionEn:
-      'A model oriented toward commitment and reinvestment, under a 40% annual target and the applicable contractual terms.',
-    conditionsEn: 'Applicable contractual terms',
-    periodEn: 'Annual',
   },
 };
 

@@ -31,7 +31,11 @@ function generateStatementPdf({ client, identifier, model, statement }) {
     doc.text(`Cliente: ${client.firstName} ${client.lastName}`);
     doc.text(`ID de cliente: ${client.id}`);
     if (identifier) doc.text(`Subcuenta/API: ${identifier}`);
-    if (model) doc.text(`Modelo: ${model.name || model.key}`);
+    // Modelo único de participación: QLC 70% · Cliente 30% (desde Model.percentage).
+    if (model) {
+      const [qlc = '70', client = '30'] = String(model.percentage || '70/30').split('/').map((v) => v.trim());
+      doc.text(`Modelo de participación: QLC ${qlc}% · Cliente ${client}%`);
+    }
     doc.text(`Periodo: ${formatDate(statement.periodStart)} – ${formatDate(statement.periodEnd)}`);
     doc.text(`Fecha de emisión: ${formatCdmx(new Date())}`);
     doc.moveDown(1);

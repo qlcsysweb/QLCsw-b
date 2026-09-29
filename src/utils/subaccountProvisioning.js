@@ -9,11 +9,24 @@ const prisma = require('../config/prisma');
 
 // CORREGIR(2).xlsx — el contrato ya NO es un requisito de activación (se
 // sustituyó por la aceptación de Términos y Condiciones en el registro).
-// Orden alineado al flujo real del cliente: Garantía (PAYMENT, mínimo 10%
-// del capital, vía transferencia interna Bitget) → Capital distribuido en el
+// Orden alineado al flujo real del cliente: Garantía (PAYMENT, 25% sobre
+// capital, vía transferencia interna Bitget) → Capital distribuido en el
 // exchange (FUNDS) → API → Activación.
 const PROCESS_CONDITION_TYPES = ['PAYMENT', 'FUNDS', 'API', 'ACTIVATION'];
 const MAX_SUBACCOUNTS_PER_CLIENT = 20;
+
+// MODELO ÚNICO DE PARTICIPACIÓN (70% QLC / 30% Cliente): ya no existe
+// selector — cada subcuenta queda asignada (y confirmada) automáticamente
+// al único modelo activo en cuanto se crea.
+async function ensureParticipationModel(apiSubaccountId) {
+  const existing = await prisma.clientModel.findUnique({ where: { apiSubaccountId } });
+  if (existing) return existing;
+  const model = await prisma.model.findFirst({ where: { isActive: true }, orderBy: { displayOrder: 'asc' } });
+  if (!model) return null;
+  return prisma.clientModel.create({
+    data: { apiSubaccountId, modelId: model.id, confirmedAt: new Date() },
+  });
+}
 
 function buildProcessCreateData() {
   return {
@@ -35,9 +48,12 @@ async function ensurePrincipalSubaccount(clientId) {
   const existingPrincipal = await prisma.apiSubaccount.findUnique({
     where: { clientId_slotIndex: { clientId, slotIndex: 0 } },
   });
-  if (existingPrincipal) return existingPrincipal;
+  if (existingPrincipal) {
+    await ensureParticipationModel(existingPrincipal.id);
+    return existingPrincipal;
+  }
 
-  return prisma.apiSubaccount.create({
+  const principal = await prisma.apiSubaccount.create({
     data: {
       clientId,
       slotIndex: 0,
@@ -45,6 +61,8 @@ async function ensurePrincipalSubaccount(clientId) {
       process: buildProcessCreateData(),
     },
   });
+  await ensureParticipationModel(principal.id);
+  return principal;
 }
 
 // Próximo slotIndex disponible para una subcuenta NUMERADA (1..20) nueva de
@@ -80,6 +98,7 @@ async function hasPendingStatements(apiSubaccountId) {
 
 module.exports = {
   ensurePrincipalSubaccount,
+  ensureParticipationModel,
   getNextSlotIndex,
   countActiveSubaccounts,
   hasPendingStatements,

@@ -1,0 +1,127 @@
+{
+  "takenAt": "2026-09-29T16:35:20.894Z",
+  "deletedModels": [
+    {
+      "id": "cmtswub1l00027kqgk2dqmjow",
+      "key": "FLEXIBLE",
+      "name": "Flexible",
+      "tagline": "Libertad para tu capital",
+      "description": "El modelo Flexible está diseñado para clientes que desean mantener una mayor flexibilidad sobre su capital y, al mismo tiempo, participar en una estrategia cuyo rendimiento depende de las condiciones del mercado. El resultado no se establece como una rentabilidad fija: el comportamiento del mercado y las oportunidades disponibles durante el periodo influyen directamente en el rendimiento obtenido.",
+      "conditions": "Volatilidad baja: hasta 1% · Volatilidad media: hasta 2.5% · Volatilidad alta: hasta 5% (mensual, objetivo)",
+      "period": "Mensual",
+      "percentage": null,
+      "objective": "Hasta 1% / 2.5% / 5% mensual según volatilidad",
+      "isActive": true,
+      "displayOrder": 1,
+      "createdAt": "2026-09-08T22:55:12.489Z",
+      "updatedAt": "2026-09-12T00:26:35.336Z",
+      "conditionsEn": "Low volatility: up to 1% · Medium volatility: up to 2.5% · High volatility: up to 5% (monthly, target)",
+      "descriptionEn": "The Flexible model is designed for clients who want to keep greater flexibility over their capital while participating in a strategy whose return depends on market conditions. The result is not set as a fixed return: market behavior and the opportunities available during the period directly influence the return obtained.",
+      "nameEn": "Flexible",
+      "periodEn": "Monthly",
+      "taglineEn": "Freedom for your capital",
+      "detailsContent": "¿Cómo funciona?\nQLC aplica su estrategia de gestión de acuerdo con las condiciones existentes en el mercado. Por ello, el rendimiento puede variar dependiendo del nivel de volatilidad y de las oportunidades disponibles durante el periodo.\n\nIMPORTANTE: los porcentajes son objetivos/máximos operativos de referencia y no representan una rentabilidad garantizada.\n\nCaracterísticas principales\n• El capital permanece asignado al cliente.\n• El rendimiento depende de las condiciones del mercado.\n• No existe una rentabilidad garantizada.\n• El porcentaje es un objetivo/máximo operativo, no una promesa de rendimiento.\n• El cliente mantiene exposición al modelo de gestión establecido por QLC.\n\n¿Para quién está pensado?\n\"Quiero mantener mayor flexibilidad sobre mi capital y estoy dispuesto a aceptar que el rendimiento dependa de las condiciones del mercado.\"",
+      "detailsContentEn": "How does it work?\nQLC applies its management strategy according to existing market conditions. Because of this, the return may vary depending on the volatility level and the opportunities available during the period.\n\nIMPORTANT: the percentages are reference operating targets/maximums and do not represent a guaranteed return.\n\nMain characteristics\n• Capital remains assigned to the client.\n• Return depends on market conditions.\n• There is no guaranteed return.\n• The percentage is an operating target/maximum, not a promise of return.\n• The client remains exposed to the management model established by QLC.\n\nWho is it designed for?\n\"I want to keep greater flexibility over my capital and I am willing to accept that the return depends on market conditions.\""
+    },
+    {
+      "id": "cmtswub5100047kqglrdbkdzz",
+      "key": "COMPOUND",
+      "name": "Compound",
+      "tagline": "Capitaliza tu futuro",
+      "description": "El modelo Compound está diseñado para clientes que tienen una visión de permanencia y desean permitir que las ganancias permanezcan dentro del esquema para favorecer una estrategia de capitalización. A diferencia del modelo Flexible, aquí la prioridad es la permanencia, la reinversión y el crecimiento compuesto.",
+      "conditions": "Términos contractuales aplicables",
+      "period": "Anual",
+      "percentage": null,
+      "objective": "40% (Anual)",
+      "isActive": true,
+      "displayOrder": 3,
+      "createdAt": "2026-09-08T22:55:12.614Z",
+      "updatedAt": "2026-09-12T00:26:35.605Z",
+      "conditionsEn": "Applicable contractual terms",
+      "descriptionEn": "The Compound model is designed for clients with a long-term view who want to let profits remain within the scheme to favor a capitalization strategy. Unlike the Flexible model, here the priority is permanence, reinvestment, and compound growth.",
+      "nameEn": "Compound",
+      "periodEn": "Annual",
+      "taglineEn": "Capitalize your future",
+      "detailsContent": "¿Cómo funciona?\nEl cliente acepta mantener el capital durante la anualidad establecida y transferir las ganancias generadas en su cuenta para que sean reinvertidas internamente por QLC en cuentas propias. Al finalizar la anualidad, se entrega al cliente el objetivo correspondiente al modelo (40% anual), conforme a los términos contractuales aplicables.\n\nEjemplo conceptual — Capital de 100 USDT\nObjetivo anual: 40% → Incremento objetivo: 40 USDT → Resultado objetivo al finalizar la anualidad: 140 USDT\n\nCaracterísticas principales\n• Objetivo anual: 40%.\n• Permanencia durante la anualidad establecida.\n• Las ganancias generadas se transfieren para su reinversión interna por QLC.\n• Menor flexibilidad durante el compromiso frente al modelo Flexible.\n• Al finalizar la anualidad, se entrega el objetivo correspondiente conforme a los términos contractuales.\n\n¿Para quién está pensado?\n\"No necesito retirar mis ganancias periódicamente. Estoy dispuesto a mantener mi participación durante una anualidad para permitir una estrategia de reinversión y capitalización, con un objetivo anual del 40%.\"",
+      "detailsContentEn": "How does it work?\nThe client agrees to keep the capital during the established annual period and transfer the profits generated in their account so QLC can reinvest them internally in its own accounts. At the end of the annual period, the client receives the model's target (40% annual), per the applicable contractual terms.\n\nConceptual example — 100 USDT capital\nAnnual target: 40% → Target increase: 40 USDT → Target result at year end: 140 USDT\n\nMain characteristics\n• Annual target: 40%.\n• Permanence during the established annual period.\n• Profits generated are transferred for internal reinvestment by QLC.\n• Lower flexibility during the commitment compared to the Flexible model.\n• At the end of the annual period, the corresponding target is delivered per the contractual terms.\n\nWho is it designed for?\n\"I don't need to withdraw my profits periodically. I am willing to maintain my participation during an annual period to allow a reinvestment and capitalization strategy, with a 40% annual target.\""
+    }
+  ],
+  "clientModelAssignments": [
+    {
+      "id": "cmttazhgj000a7k74oeoze2tx",
+      "modelId": "cmtswub3g00037kqgu10ew01q",
+      "selectedAt": "2026-09-09T05:31:08.707Z",
+      "confirmedAt": "2026-09-09T05:31:08.705Z",
+      "apiSubaccountId": "9d891ee1-1286-46dd-ba18-32fb7e909153",
+      "modelKey": "PERFORMANCE"
+    },
+    {
+      "id": "cmttazk6z001k7k74wnfyy9lk",
+      "modelId": "cmtswub5100047kqglrdbkdzz",
+      "selectedAt": "2026-09-09T05:31:12.251Z",
+      "confirmedAt": "2026-09-09T05:31:12.250Z",
+      "apiSubaccountId": "827dd119-57ad-419a-bffc-c96f4d0bb59f",
+      "modelKey": "COMPOUND"
+    },
+    {
+      "id": "cmttazizu000x7k74p5r8iq3x",
+      "modelId": "cmtswub1l00027kqgk2dqmjow",
+      "selectedAt": "2026-09-09T05:31:10.699Z",
+      "confirmedAt": "2026-09-09T05:31:10.698Z",
+      "apiSubaccountId": "8d5614b3-2d16-4cf5-a63e-98ca709ec58e",
+      "modelKey": "FLEXIBLE"
+    },
+    {
+      "id": "cmtz45tj80005gc1grnrrfgsc",
+      "modelId": "cmtswub1l00027kqgk2dqmjow",
+      "selectedAt": "2026-09-13T07:06:44.036Z",
+      "confirmedAt": null,
+      "apiSubaccountId": "cmtw5ibt8000a7kxse6c3k6w1",
+      "modelKey": "FLEXIBLE"
+    },
+    {
+      "id": "cmuezx4zu000teb1gvs2c2ly8",
+      "modelId": "cmtswub1l00027kqgk2dqmjow",
+      "selectedAt": "2026-09-24T09:52:19.338Z",
+      "confirmedAt": "2026-09-24T09:52:27.438Z",
+      "apiSubaccountId": "cmtxcybrl00017khwhkng8rnm",
+      "modelKey": "FLEXIBLE"
+    },
+    {
+      "id": "cmtx8vd4g0009ih1gdk8v9e7b",
+      "modelId": "cmtswub1l00027kqgk2dqmjow",
+      "selectedAt": "2026-09-11T23:43:01.937Z",
+      "confirmedAt": "2026-09-28T09:23:32.673Z",
+      "apiSubaccountId": "cmtw5ibf700017kxs9smetnf7",
+      "modelKey": "FLEXIBLE"
+    }
+  ],
+  "processStepsBefore": [
+    {
+      "id": "cmtxccx7q00037kxgc19gqptn",
+      "stepNumber": 2,
+      "titleEs": "Seleccionar el modelo de participación",
+      "titleEn": "Select the participation model",
+      "descriptionEs": "Selecciona el modelo que deseas utilizar y revisa sus condiciones antes de continuar.",
+      "descriptionEn": "Select the model you want to use and review its conditions before continuing.",
+      "displayOrder": 2,
+      "isActive": true,
+      "updatedByUserId": null,
+      "createdAt": "2026-09-12T01:20:39.974Z",
+      "updatedAt": "2026-09-18T21:56:37.206Z"
+    },
+    {
+      "id": "cmtxccxd500067kxguvstw5pd",
+      "stepNumber": 4,
+      "titleEs": "Realizar el depósito en garantía",
+      "titleEn": "Make your guarantee deposit",
+      "descriptionEs": "Desde Pagos, realiza el depósito en garantía (mínimo 10% del monto de inversión) según el modelo seleccionado.",
+      "descriptionEn": "From Payments, make the guarantee deposit (minimum 10% of the invested amount) according to the selected model.",
+      "displayOrder": 4,
+      "isActive": true,
+      "updatedByUserId": null,
+      "createdAt": "2026-09-12T01:20:40.170Z",
+      "updatedAt": "2026-09-18T21:57:29.633Z"
+    }
+  ]
+}

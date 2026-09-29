@@ -173,7 +173,7 @@ async function main() {
     email: 'demo02@example.com',
     username: 'demo02',
     phone: '+1 555 0102',
-    modelKey: 'FLEXIBLE',
+    modelKey: 'PERFORMANCE',
     clientStatus: 'REVIEW',
   });
   await setCondition(demo02.process.id, 'FUNDS', 'CONFIRMED');
@@ -213,7 +213,7 @@ async function main() {
   await prisma.supportCase.create({
     data: {
       clientId: demo02.id,
-      subject: 'Consulta sobre el modelo Flexible',
+      subject: 'Consulta sobre el modelo de participación',
       message: '¿Cuándo comienza a aplicarse el modelo una vez confirmado?',
       status: 'OPEN',
     },
@@ -226,7 +226,7 @@ async function main() {
     email: 'demo03@example.com',
     username: 'demo03',
     phone: '+1 555 0103',
-    modelKey: 'COMPOUND',
+    modelKey: 'PERFORMANCE',
     clientStatus: 'PENDING',
   });
   const demo03User = await prisma.clientProfile.findUnique({ where: { id: demo03.id }, select: { userId: true } });

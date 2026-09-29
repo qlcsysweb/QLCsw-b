@@ -30,42 +30,26 @@ function scrubBootstrapPasswordFromEnv() {
   );
 }
 
+// MODELO ÚNICO DE PARTICIPACIÓN: QLC 70% / Cliente 30%. No existen otros
+// modelos (Flexible/Compound fueron retirados — migración
+// 20260929180000_modelo_unico_y_garantia_25).
 const MODELS = [
   {
-    key: 'FLEXIBLE',
-    name: 'Flexible',
-    tagline: 'Flexibilidad y liquidez.',
-    description:
-      'Modelo orientado a quienes priorizan disponibilidad y flexibilidad. El rendimiento depende de las condiciones de volatilidad del mercado.',
-    conditions: null,
-    period: null,
-    percentage: null,
-    objective: null,
-    displayOrder: 1,
-  },
-  {
     key: 'PERFORMANCE',
-    name: 'Performance',
-    tagline: 'Participación en resultados.',
+    name: 'Modelo de participación',
+    nameEn: 'Participation model',
+    tagline: 'Ganamos juntos',
+    taglineEn: 'We win together',
     description:
-      'La participación de QLC está vinculada a la ganancia efectivamente generada: 70% QLC / 30% Cliente.',
-    conditions: '70% QLC / 30% Cliente',
+      'La participación de QLC está vinculada a la ganancia efectivamente generada: QLC 70% · Cliente 30%.',
+    descriptionEn: "QLC's participation is tied to the profit effectively generated: QLC 70% · Client 30%.",
+    conditions: 'QLC: 70% · Cliente: 30%',
+    conditionsEn: 'QLC: 70% · Client: 30%',
     period: null,
     percentage: '70/30',
     objective: null,
-    displayOrder: 2,
-  },
-  {
-    key: 'COMPOUND',
-    name: 'Compound',
-    tagline: 'Permanencia y capitalización.',
-    description:
-      'Modelo orientado a permanencia y reinversión, bajo un objetivo anual del 40% y los términos contractuales aplicables.',
-    conditions: 'Términos contractuales aplicables',
-    period: 'Anual',
-    percentage: null,
-    objective: '40%',
-    displayOrder: 3,
+    isActive: true,
+    displayOrder: 1,
   },
 ];
 
@@ -259,15 +243,16 @@ async function main() {
     console.log('SEED_ADMIN_* no configurado en .env — no se creó administrador inicial.');
   }
 
-  // --- Modelos de participación ---
+  // --- Modelo de participación (único) ---
+  // Solo se crea si no existe: nunca pisa los textos que el admin ya editó.
   for (const model of MODELS) {
     await prisma.model.upsert({
       where: { key: model.key },
-      update: model,
+      update: {},
       create: model,
     });
   }
-  console.log(`Modelos sincronizados: ${MODELS.length}`);
+  console.log(`Modelo de participación sincronizado: ${MODELS.length}`);
 
   // --- FAQ ---
   const faqCount = await prisma.fAQ.count();

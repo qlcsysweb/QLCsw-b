@@ -12,6 +12,7 @@ const prisma = require('../config/prisma');
 const ApiError = require('../utils/ApiError');
 const { notifyAdmins, notifyClient } = require('../utils/notify');
 const {
+  ensureParticipationModel,
   getNextSlotIndex,
   countActiveSubaccounts,
   hasPendingStatements,
@@ -154,6 +155,8 @@ async function approveCreateRequest({ requestId, identifier, requiredCapital, re
       },
     },
   });
+  // Modelo único de participación (70% QLC / 30% Cliente), asignado automáticamente.
+  await ensureParticipationModel(subaccount.id);
 
   const updatedRequest = await prisma.subaccountRequest.update({
     where: { id: requestId },

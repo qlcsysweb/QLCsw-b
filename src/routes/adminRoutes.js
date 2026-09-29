@@ -79,7 +79,6 @@ router.post('/api-subaccounts/:apiSubaccountId/deactivate', processController.de
 
 // Models (CORRECCIÓN 30 — CRUD completo, sin límite artificial)
 router.get('/models', modelController.listModelsAdmin);
-router.post('/models', modelController.createModel);
 router.patch('/models/:id', modelController.updateModel);
 
 // Public content

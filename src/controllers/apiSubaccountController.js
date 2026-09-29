@@ -6,6 +6,7 @@ const { encrypt, decrypt } = require('../utils/crypto');
 const { notifyClient } = require('../utils/notify');
 const { isValidIp } = require('../utils/ipValidation');
 const {
+  ensureParticipationModel,
   getNextSlotIndex,
   countActiveSubaccounts,
   MAX_SUBACCOUNTS_PER_CLIENT,
@@ -58,6 +59,8 @@ const createSubaccount = asyncHandler(async (req, res) => {
     },
     include: { process: { include: { conditions: { where: { type: { not: 'WALLET' } } } } } },
   });
+  // Modelo único de participación (70% QLC / 30% Cliente), asignado automáticamente.
+  await ensureParticipationModel(subaccount.id);
 
   res.status(201).json({ ok: true, subaccount });
 });

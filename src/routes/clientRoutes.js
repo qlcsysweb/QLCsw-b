@@ -28,7 +28,7 @@ router.use(requireAuth, requireRole('CLIENT'), resolveOwnClientProfile);
 router.get('/me', profileController.getMe);
 router.get('/dashboard', profileController.getDashboard);
 
-// Modelos de participación (lectura pública, ya activos)
+// Modelo de participación (lectura, único modelo activo)
 router.get('/models', modelController.listModelsPublic);
 
 // Subcuentas / API — GESTIÓN DINÁMICA: el cliente nace con solo su cuenta
@@ -44,8 +44,8 @@ router.post('/api-subaccounts/:id/report-capital-ready', apiSubaccountController
 // CORREGIR.xlsx CLIENTE 13 — reporte real de distribución de capital
 router.get('/api-subaccounts/:id/capital-distribution-reports', apiSubaccountController.listCapitalDistributionReports);
 router.post('/api-subaccounts/:id/capital-distribution-reports', apiSubaccountController.reportCapitalDistribution);
-router.post('/api-subaccounts/:id/model', apiSubaccountController.selectModel);
-router.post('/api-subaccounts/:id/model/confirm', apiSubaccountController.confirmModel);
+// Modelo de participación: único (70% QLC / 30% Cliente) y asignado
+// automáticamente — ya no hay rutas para elegir ni confirmar modelo.
 
 // Proceso de activación (solo lectura) — por subcuenta
 router.get('/api-subaccounts/:apiSubaccountId/process', processController.getProcess);
