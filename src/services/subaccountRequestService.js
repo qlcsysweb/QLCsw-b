@@ -155,7 +155,7 @@ async function approveCreateRequest({ requestId, identifier, requiredCapital, re
       },
     },
   });
-  // Modelo único de participación (70% QLC / 30% Cliente), asignado automáticamente.
+  // Modelo único de participación (50% QLC / 50% Cliente), asignado automáticamente.
   await ensureParticipationModel(subaccount.id);
 
   const updatedRequest = await prisma.subaccountRequest.update({

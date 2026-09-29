@@ -16,7 +16,7 @@ const CONTENT_EN = {
   hero: {
     eyebrow: 'Institutional Copytrading Infrastructure',
     title_line1: 'Institutional Copytrading.',
-    title_line2: 'Accessible from 20 USDT.',
+    title_line2: 'Accessible from 100 USDT.',
     lead: "QLC is an institutional copytrading system that executes our strategy directly on the client's account through proprietary technology and an authorized API connection.",
     mini_platform_label: 'BITGET',
     mini_platform_value: 'Elite Trader',
@@ -42,7 +42,7 @@ const CONTENT_EN = {
     sub: 'The technological complexity belongs to QLC. For the client, the product comes down to a connection, a strategy, and direct execution on their account.',
   },
   microposiciones: {
-    range: '20–400 USDT',
+    range: '100–2,000 USDT',
     lead: 'QLC adapts an institutional trading architecture to individual accounts through a methodology based on micro-positions and systematic execution.',
   },
   modelos: {
@@ -69,7 +69,7 @@ const CONTENT_EN = {
     sub: 'Quantitative trading · Algorithms · API Execution · Micro-positions',
   },
   footer: {
-    tagline: 'Institutional trading. Accessible from 20 USDT.',
+    tagline: 'Institutional trading. Accessible from 100 USDT.',
     disclaimer: 'Digital assets and leveraged trading involve significant risks. Past performance does not guarantee future results. The information presented is for informational purposes and is subject to applicable terms and conditions.',
   },
 };
@@ -97,7 +97,7 @@ const FAQ_EN = [
     question: '¿Qué tamaño de cuenta está contemplado?',
     questionEn: 'What account size is supported?',
     answerEn:
-      "QLC's commercial architecture is designed to operate with individual accounts ranging from 20 USDT to 400 USDT.",
+      "QLC's commercial architecture is designed to operate with individual accounts ranging from 100 USDT to 2,000 USDT.",
   },
   {
     question: '¿QLC utiliza el copytrading nativo del exchange?',
@@ -107,11 +107,11 @@ const FAQ_EN = [
   },
 ];
 
-// Modelo único de participación (QLC 70% / Cliente 30%).
+// Modelo único de participación (QLC 50% / Cliente 50%).
 const MODEL_EN = {
   PERFORMANCE: {
     nameEn: 'Participation model',
-    conditionsEn: 'QLC: 70% · Client: 30%',
+    conditionsEn: 'QLC: 50% · Client: 50%',
     periodEn: null,
   },
 };

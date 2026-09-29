@@ -1,6 +1,8 @@
 const { z } = require('zod');
 const prisma = require('../../config/prisma');
 const asyncHandler = require('../../utils/asyncHandler');
+const ApiError = require('../../utils/ApiError');
+const { streamEvidenceFile } = require('../../utils/paymentEvidence');
 const { notifyAdmins, notifyUser } = require('../../utils/notify');
 
 /*
@@ -26,9 +28,23 @@ const listMyMessages = asyncHandler(async (req, res) => {
   const messages = await prisma.notification.findMany({
     where: { userId: req.user.id, kind: 'MANUAL' },
     orderBy: { createdAt: 'asc' },
-    include: { sender: { select: { role: true, adminProfile: { select: { firstName: true, lastName: true } } } } },
+    include: {
+      sender: { select: { role: true, adminProfile: { select: { firstName: true, lastName: true } } } },
+      attachments: { select: { id: true, fileName: true, mimeType: true, sizeBytes: true } },
+    },
   });
   res.json({ ok: true, messages });
+});
+
+// Adjunto de un mensaje recibido: solo si el mensaje pertenece al propio
+// cliente autenticado (nunca el de otro usuario). Se sirve por el backend,
+// nunca con el enlace de Drive.
+const downloadAttachment = asyncHandler(async (req, res) => {
+  const attachment = await prisma.notificationAttachment.findFirst({
+    where: { id: req.params.fileId, notificationId: req.params.id, notification: { userId: req.user.id, kind: 'MANUAL' } },
+  });
+  if (!attachment) throw ApiError.notFound('Archivo adjunto no encontrado');
+  await streamEvidenceFile(res, attachment);
 });
 
 // Se llama explícitamente cuando el cliente ABRE la sección de Mensajes
@@ -71,4 +87,4 @@ const sendMessage = asyncHandler(async (req, res) => {
   res.status(201).json({ ok: true, message: own });
 });
 
-module.exports = { listMyMessages, markAllRead, sendMessage };
+module.exports = { listMyMessages, markAllRead, sendMessage, downloadAttachment };

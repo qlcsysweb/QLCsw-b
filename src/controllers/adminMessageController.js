@@ -3,6 +3,13 @@ const prisma = require('../config/prisma');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const { notifyUser } = require('../utils/notify');
+const driveStorage = require('../services/driveStorageService');
+const { assertSafeFiles } = require('../utils/fileSignature');
+const { safeFileName } = require('../utils/supportCaseFiles');
+const { streamEvidenceFile } = require('../utils/paymentEvidence');
+const { MAX_MESSAGE_FILE_BYTES } = require('../middleware/upload');
+
+const ATTACHMENT_SELECT = { id: true, fileName: true, mimeType: true, sizeBytes: true };
 
 /*
  * CORREGIR.xlsx ADMIN 14 — mensajería manual admin→cliente. Reutiliza
@@ -31,6 +38,7 @@ const listForClient = asyncHandler(async (req, res) => {
     where: { userId: client.userId, kind: 'MANUAL' },
     orderBy: { createdAt: 'desc' },
     include: {
+      attachments: { select: ATTACHMENT_SELECT },
       sender: {
         select: {
           role: true,
@@ -97,11 +105,31 @@ const sendMessageSchema = z.object({
 
 const sendMessage = asyncHandler(async (req, res) => {
   const { title, message } = sendMessageSchema.parse(req.body);
-  const client = await prisma.clientProfile.findUnique({
-    where: { id: req.params.clientId },
-    select: { userId: true },
-  });
+  const files = req.files || [];
+  assertSafeFiles(files, { maxBytes: MAX_MESSAGE_FILE_BYTES, maxLabel: '10 MB' });
+  const client = await prisma.clientProfile.findUnique({ where: { id: req.params.clientId } });
   if (!client) throw ApiError.notFound('Cliente no encontrado');
+
+  // ADJUNTOS (opcionales): primero a Google Drive (subcarpeta "Otros" del
+  // cliente) — si algo falla no se envía un mensaje incompleto. NeonDB solo
+  // guarda metadata + ID de Drive.
+  const uploaded = [];
+  if (files.length) {
+    if (!(await driveStorage.isConfigured())) {
+      throw ApiError.serviceUnavailable('No pudimos conectar con el almacenamiento de documentos para guardar los adjuntos.');
+    }
+    try {
+      const folderId = await driveStorage.getOrCreateSubfolder(client, 'other');
+      for (const file of files) {
+        const fileName = safeFileName(file.originalname);
+        const up = await driveStorage.uploadFileToDrive(file.buffer, { folderId, fileName, mimeType: file.mimetype });
+        uploaded.push({ fileName, mimeType: file.mimetype, sizeBytes: file.size, driveFileId: up.id, driveFolderId: folderId });
+      }
+    } catch {
+      await Promise.all(uploaded.map((f) => driveStorage.deleteDriveFileOnlyWhenAuthorized(f.driveFileId, { authorized: true }).catch(() => {})));
+      throw ApiError.serviceUnavailable('No se pudieron guardar los archivos adjuntos. Intenta nuevamente.');
+    }
+  }
 
   // notifyUser: guarda el mensaje + notificación interna y envía el correo
   // al email real del cliente dentro de la misma petición.
@@ -112,8 +140,29 @@ const sendMessage = asyncHandler(async (req, res) => {
     kind: 'MANUAL',
     senderUserId: req.user.id,
   });
+  if (uploaded.length) {
+    await prisma.notificationAttachment.createMany({
+      data: uploaded.map((f) => ({ ...f, notificationId: notification.id })),
+    });
+  }
 
-  res.status(201).json({ ok: true, message: notification });
+  const saved = await prisma.notification.findUnique({
+    where: { id: notification.id },
+    include: { attachments: { select: ATTACHMENT_SELECT } },
+  });
+  res.status(201).json({ ok: true, message: saved });
 });
 
-module.exports = { listForClient, listInbox, sendMessage };
+// Descarga/visualización de un adjunto desde el panel admin: el mensaje debe
+// pertenecer al hilo de ESE cliente. Nunca se expone el enlace de Drive.
+const downloadAttachment = asyncHandler(async (req, res) => {
+  const client = await prisma.clientProfile.findUnique({ where: { id: req.params.clientId }, select: { userId: true } });
+  if (!client) throw ApiError.notFound('Cliente no encontrado');
+  const attachment = await prisma.notificationAttachment.findFirst({
+    where: { id: req.params.fileId, notificationId: req.params.id, notification: { userId: client.userId, kind: 'MANUAL' } },
+  });
+  if (!attachment) throw ApiError.notFound('Archivo adjunto no encontrado');
+  await streamEvidenceFile(res, attachment);
+});
+
+module.exports = { listForClient, listInbox, sendMessage, downloadAttachment };

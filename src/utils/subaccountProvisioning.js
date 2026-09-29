@@ -15,7 +15,7 @@ const prisma = require('../config/prisma');
 const PROCESS_CONDITION_TYPES = ['PAYMENT', 'FUNDS', 'API', 'ACTIVATION'];
 const MAX_SUBACCOUNTS_PER_CLIENT = 20;
 
-// MODELO ÚNICO DE PARTICIPACIÓN (70% QLC / 30% Cliente): ya no existe
+// MODELO ÚNICO DE PARTICIPACIÓN (50% QLC / 50% Cliente): ya no existe
 // selector — cada subcuenta queda asignada (y confirmada) automáticamente
 // al único modelo activo en cuanto se crea.
 async function ensureParticipationModel(apiSubaccountId) {

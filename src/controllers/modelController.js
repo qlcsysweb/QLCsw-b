@@ -4,7 +4,7 @@ const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 
 /*
- * MODELO ÚNICO DE PARTICIPACIÓN — QLC 70% / Cliente 30%. Ya no existen
+ * MODELO ÚNICO DE PARTICIPACIÓN — QLC 50% / Cliente 50%. Ya no existen
  * otros modelos ni selector: cada subcuenta queda asignada automáticamente
  * a este modelo (ver utils/subaccountProvisioning.ensureParticipationModel).
  * El admin solo puede editar sus textos; no se pueden crear modelos nuevos

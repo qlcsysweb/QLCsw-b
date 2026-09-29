@@ -30,7 +30,7 @@ function scrubBootstrapPasswordFromEnv() {
   );
 }
 
-// MODELO ÚNICO DE PARTICIPACIÓN: QLC 70% / Cliente 30%. No existen otros
+// MODELO ÚNICO DE PARTICIPACIÓN: QLC 50% / Cliente 50%. No existen otros
 // modelos (Flexible/Compound fueron retirados — migración
 // 20260929180000_modelo_unico_y_garantia_25).
 const MODELS = [
@@ -41,12 +41,12 @@ const MODELS = [
     tagline: 'Ganamos juntos',
     taglineEn: 'We win together',
     description:
-      'La participación de QLC está vinculada a la ganancia efectivamente generada: QLC 70% · Cliente 30%.',
-    descriptionEn: "QLC's participation is tied to the profit effectively generated: QLC 70% · Client 30%.",
-    conditions: 'QLC: 70% · Cliente: 30%',
-    conditionsEn: 'QLC: 70% · Client: 30%',
+      'La participación de QLC está vinculada a la ganancia efectivamente generada: QLC 50% · Cliente 50%.',
+    descriptionEn: "QLC's participation is tied to the profit effectively generated: QLC 50% · Client 50%.",
+    conditions: 'QLC: 50% · Cliente: 50%',
+    conditionsEn: 'QLC: 50% · Client: 50%',
     period: null,
-    percentage: '70/30',
+    percentage: '50/50',
     objective: null,
     isActive: true,
     displayOrder: 1,
@@ -84,7 +84,7 @@ const FAQS = [
   {
     question: '¿Qué tamaño de cuenta está contemplado?',
     answer:
-      'La arquitectura comercial de QLC está diseñada para operar con cuentas individuales desde 20 USDT hasta 400 USDT.',
+      'La arquitectura comercial de QLC está diseñada para operar con cuentas individuales desde 100 USDT hasta 2,000 USDT.',
     displayOrder: 5,
   },
   {
@@ -98,7 +98,7 @@ const FAQS = [
 const PUBLIC_CONTENT = [
   ['hero', 'eyebrow', 'Institutional Copytrading Infrastructure'],
   ['hero', 'title_line1', 'Trading institucional.'],
-  ['hero', 'title_line2', 'Accesible desde 20 USDT.'],
+  ['hero', 'title_line2', 'Accesible desde 100 USDT.'],
   [
     'hero',
     'lead',
@@ -107,7 +107,7 @@ const PUBLIC_CONTENT = [
   ['hero', 'mini_platform_label', 'BITGET'],
   ['hero', 'mini_platform_value', 'Elite Trader'],
 
-  ['microposiciones', 'range', '20–400 USDT'],
+  ['microposiciones', 'range', '100–2,000 USDT'],
   [
     'microposiciones',
     'lead',
@@ -144,7 +144,7 @@ const PUBLIC_CONTENT = [
     'Ponemos al alcance de inversores individuales una infraestructura de Copytrading Institucional, basada en nuestra propia estrategia, tecnología y sistemas de ejecución.',
     'We put an institutional Copytrading infrastructure within reach of individual investors, built on our own strategy, technology and execution systems.',
   ],
-  ['problema', 'body_6', 'Desde 20 USDT.', 'Starting from 20 USDT.'],
+  ['problema', 'body_6', 'Desde 100 USDT.', 'Starting from 100 USDT.'],
   [
     'problema', 'body_7',
     'Tu cuenta sigue siendo individual. Nuestra gestión es global.',
@@ -207,7 +207,7 @@ const PUBLIC_CONTENT = [
     'disclaimer',
     'Los activos digitales y el trading apalancado implican riesgos significativos. Los resultados históricos no garantizan resultados futuros. La información presentada es de carácter informativo y está sujeta a los términos y condiciones aplicables.',
   ],
-  ['footer', 'tagline', 'Copytrading Institucional. Accesible desde 20 USDT.'],
+  ['footer', 'tagline', 'Copytrading Institucional. Accesible desde 100 USDT.'],
 ];
 
 async function main() {

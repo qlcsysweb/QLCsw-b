@@ -189,24 +189,58 @@ const reportCapitalReady = asyncHandler(async (req, res) => {
 // CORRECCIÓN (monto no editable por el cliente) — el monto reportado ya NO
 // lo escribe el cliente: siempre es el capital operativo requerido que fijó
 // el admin (requiredCapital). El cliente solo confirma + agrega una nota.
+//
+// CONFIRMACIÓN ESCRITA OBLIGATORIA — el cliente debe escribir exactamente
+// "CONFIRMO QUE EL SALDO DE MI CUENTA ES DE {capital} USDT", donde {capital}
+// es el capital operativo requerido que fijó el ADMIN (se lee SIEMPRE de la
+// BD, nunca del body). Es una DECLARACIÓN del cliente: QLC no consulta el
+// exchange. Solo se toleran espacios extra y mayúsculas/minúsculas.
 const reportCapitalDistributionSchema = z.object({
+  confirmation: z.string({ required_error: 'Escribe la frase de confirmación.' }).max(200),
   note: z.string().max(500).optional(),
 });
 
+// "100" / "250" / "1000.5" — mismo formato que muestra el panel del cliente.
+function formatCapital(value) {
+  return String(Number(value));
+}
+
+function capitalDeclaration(requiredCapital) {
+  return `CONFIRMO QUE EL SALDO DE MI CUENTA ES DE ${formatCapital(requiredCapital)} USDT`;
+}
+
+const normalizePhrase = (s) => String(s || '').trim().replace(/\s+/g, ' ').toUpperCase();
+
 const reportCapitalDistribution = asyncHandler(async (req, res) => {
-  const { note } = reportCapitalDistributionSchema.parse(req.body);
+  const { confirmation, note } = reportCapitalDistributionSchema.parse(req.body);
+  // Subcuenta del cliente autenticado (protección IDOR: nunca la de otro).
   const subaccount = await prisma.apiSubaccount.findFirst({
     where: { id: req.params.id, clientId: req.clientProfile.id, ...ACTIVE_WHERE },
   });
   if (!subaccount) throw ApiError.notFound('Subcuenta no encontrada');
-  if (subaccount.requiredCapital == null) {
+  if (subaccount.requiredCapital == null || Number(subaccount.requiredCapital) <= 0) {
     throw ApiError.badRequest('QLC todavía no configuró el capital operativo requerido para esta subcuenta.');
   }
+
+  const expected = capitalDeclaration(subaccount.requiredCapital);
+  if (normalizePhrase(confirmation) !== normalizePhrase(expected)) {
+    throw ApiError.badRequest('La frase de confirmación no coincide con el capital operativo requerido.');
+  }
+
+  // Una confirmación vigente (en revisión o aprobada) para ESTE mismo capital
+  // no se duplica. Si el admin cambia el capital requerido, sí se puede
+  // confirmar de nuevo con el monto nuevo.
+  const active = await prisma.capitalDistributionReport.findFirst({
+    where: { apiSubaccountId: subaccount.id, status: { not: 'RECHAZADO' }, amount: subaccount.requiredCapital },
+    select: { id: true },
+  });
+  if (active) throw ApiError.conflict('Ya confirmaste tu capital operativo para esta subcuenta.');
 
   const report = await prisma.capitalDistributionReport.create({
     data: {
       apiSubaccountId: subaccount.id,
       amount: subaccount.requiredCapital,
+      declaration: expected,
       note: note || null,
       status: 'PENDING',
     },

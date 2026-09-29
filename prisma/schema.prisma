@@ -1114,7 +1114,27 @@ model Notification {
   emailSentAt DateTime?
   emailError  String?
 
+  // Archivos adjuntos de un mensaje MANUAL admin→cliente.
+  attachments NotificationAttachment[]
+
   @@map("notifications")
+}
+
+// Adjunto (imagen/PDF) de un mensaje manual admin→cliente. El binario vive en
+// Google Drive (subcarpeta "Otros" del cliente); NeonDB guarda solo metadata.
+model NotificationAttachment {
+  id             String       @id @default(cuid())
+  notificationId String
+  notification   Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  fileName       String
+  mimeType       String
+  sizeBytes      Int
+  driveFileId    String
+  driveFolderId  String?
+  createdAt      DateTime     @default(now())
+
+  @@index([notificationId])
+  @@map("notification_attachments")
 }
 
 // AUDITORÍA QLC PARTE 7 — mensajería interna de un caso de soporte, previa
@@ -1202,7 +1222,12 @@ model CapitalDistributionReport {
   id               String              @id @default(cuid())
   apiSubaccountId  String
   apiSubaccount    ApiSubaccount       @relation(fields: [apiSubaccountId], references: [id], onDelete: Cascade)
+  // Capital operativo requerido (fijado por el ADMIN) al momento de confirmar.
   amount           Decimal             @db.Decimal(14, 2)
+  // Declaración escrita del cliente, validada en backend contra el capital
+  // requerido: "CONFIRMO QUE EL SALDO DE MI CUENTA ES DE {amount} USDT".
+  // Es una DECLARACIÓN del cliente — QLC nunca consulta el exchange.
+  declaration      String?
   note             String?
   status           PaymentReportStatus @default(PENDING)
   reviewNote       String?

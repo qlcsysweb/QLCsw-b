@@ -44,7 +44,7 @@ router.post('/api-subaccounts/:id/report-capital-ready', apiSubaccountController
 // CORREGIR.xlsx CLIENTE 13 — reporte real de distribución de capital
 router.get('/api-subaccounts/:id/capital-distribution-reports', apiSubaccountController.listCapitalDistributionReports);
 router.post('/api-subaccounts/:id/capital-distribution-reports', apiSubaccountController.reportCapitalDistribution);
-// Modelo de participación: único (70% QLC / 30% Cliente) y asignado
+// Modelo de participación: único (50% QLC / 50% Cliente) y asignado
 // automáticamente — ya no hay rutas para elegir ni confirmar modelo.
 
 // Proceso de activación (solo lectura) — por subcuenta
@@ -65,6 +65,8 @@ router.get('/api-subaccounts/:apiSubaccountId/payment-reports', paymentControlle
 router.post('/api-subaccounts/:apiSubaccountId/payment-reports', evidenceFiles, paymentController.createPaymentReport);
 router.get('/payment-reports/:id/proof', paymentController.downloadPaymentProof);
 router.get('/payment-reports/:id/files/:fileId', paymentController.downloadEvidenceFile);
+// Corregir un reporte RECHAZADO (mismo registro, vuelve a revisión) — multipart.
+router.put('/payment-reports/:id', evidenceFiles, paymentController.correctPaymentReport);
 
 // Estado de cuenta — estado actual por subcuenta (NO GENERADO / PENDIENTE
 // DE PAGO / PAGADO / VENCIDO SIN PAGAR) y descarga del PDF.
@@ -118,5 +120,6 @@ router.post('/notifications/read-all', notificationController.markAllAsRead);
 router.get('/messages', messageController.listMyMessages);
 router.post('/messages', messageController.sendMessage);
 router.post('/messages/read-all', messageController.markAllRead);
+router.get('/messages/:id/files/:fileId', messageController.downloadAttachment);
 
 module.exports = router;

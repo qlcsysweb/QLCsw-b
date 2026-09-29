@@ -59,7 +59,7 @@ const createSubaccount = asyncHandler(async (req, res) => {
     },
     include: { process: { include: { conditions: { where: { type: { not: 'WALLET' } } } } } },
   });
-  // Modelo único de participación (70% QLC / 30% Cliente), asignado automáticamente.
+  // Modelo único de participación (50% QLC / 50% Cliente), asignado automáticamente.
   await ensureParticipationModel(subaccount.id);
 
   res.status(201).json({ ok: true, subaccount });

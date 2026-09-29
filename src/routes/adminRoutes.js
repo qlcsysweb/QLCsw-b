@@ -1,6 +1,6 @@
 const { Router } = require('express');
 const { requireAuth, requireRole } = require('../middleware/auth');
-const { uploadDocument: uploadDocumentFile, uploadMedia, singleCaseFile, singleStatementPdf } = require('../middleware/upload');
+const { uploadDocument: uploadDocumentFile, uploadMedia, singleCaseFile, singleStatementPdf, messageFiles } = require('../middleware/upload');
 
 const dashboardController = require('../controllers/dashboardController');
 const clientController = require('../controllers/clientController');
@@ -186,7 +186,9 @@ router.post('/notifications/read-all', notificationController.markAllAsRead);
 // CORREGIR.xlsx ADMIN 14 — mensajería manual admin→cliente
 router.get('/messages', adminMessageController.listInbox);
 router.get('/clients/:clientId/messages', adminMessageController.listForClient);
-router.post('/clients/:clientId/messages', adminMessageController.sendMessage);
+// multipart/form-data: title + message + "files" (0–5 adjuntos, imágenes o PDF).
+router.post('/clients/:clientId/messages', messageFiles, adminMessageController.sendMessage);
+router.get('/clients/:clientId/messages/:id/files/:fileId', adminMessageController.downloadAttachment);
 
 // CORREGIR.xlsx CLIENTE 07 — "Tu proceso paso a paso" editable (CMS)
 router.get('/process-steps', processStepController.listStepsAdmin);

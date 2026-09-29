@@ -101,7 +101,36 @@ function evidenceFiles(req, res, next) {
   });
 }
 
+// ADJUNTOS de mensajes admin→cliente: hasta 5 archivos (imágenes o PDF),
+// 10 MB cada uno. Campo multipart: "files". Nunca ejecutables.
+const MAX_MESSAGE_FILES = 5;
+const MAX_MESSAGE_FILE_BYTES = 10 * 1024 * 1024;
+const messageUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_MESSAGE_FILE_BYTES, files: MAX_MESSAGE_FILES },
+  fileFilter: (req, file, cb) => {
+    if (!EVIDENCE_MIME.includes(file.mimetype)) {
+      return cb(ApiError.badRequest('Formato de archivo no permitido. Solo JPG, PNG, WEBP o PDF.'));
+    }
+    cb(null, true);
+  },
+});
+
+function messageFiles(req, res, next) {
+  messageUpload.array('files', MAX_MESSAGE_FILES)(req, res, (err) => {
+    if (!err) return next();
+    if (err.code === 'LIMIT_FILE_SIZE') return next(ApiError.badRequest('Cada archivo puede pesar como máximo 10 MB.'));
+    if (err.code === 'LIMIT_FILE_COUNT' || err.code === 'LIMIT_UNEXPECTED_FILE') {
+      return next(ApiError.badRequest('Puedes adjuntar como máximo 5 archivos.'));
+    }
+    if (err instanceof ApiError) return next(err);
+    return next(ApiError.badRequest('No se pudieron procesar los archivos adjuntos.'));
+  });
+}
+
 module.exports = {
+  messageFiles,
+  MAX_MESSAGE_FILE_BYTES,
   uploadDocument,
   uploadMedia,
   singleCaseFile,
