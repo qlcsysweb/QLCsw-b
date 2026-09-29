@@ -7,6 +7,8 @@
  */
 const TIME_ZONE = 'America/Mexico_City';
 
+// Formato visible: "DD/MM/YYYY, HH:mm" — sin sufijo de zona horaria (a
+// pedido de QLC); la hora sigue calculándose en America/Mexico_City.
 function formatCdmx(date, options = {}) {
   const d = date instanceof Date ? date : new Date(date);
   return new Intl.DateTimeFormat('es-MX', {
@@ -16,10 +18,9 @@ function formatCdmx(date, options = {}) {
     day: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
-    second: '2-digit',
     hour12: false,
     ...options,
-  }).format(d) + ' CDMX';
+  }).format(d);
 }
 
 module.exports = { TIME_ZONE, formatCdmx };

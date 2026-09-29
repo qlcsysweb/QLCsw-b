@@ -79,7 +79,7 @@ function generateStatementPdf({ client, identifier, model, statement }) {
     doc.moveDown(0.5);
 
     doc.fontSize(8).fillColor('#5b6b7a').text(
-      `Documento generado electrónicamente por QLC a partir de la información capturada por el equipo administrativo. Fecha y hora de generación: ${formatCdmx(new Date())} (CDMX).`,
+      `Documento generado electrónicamente por QLC a partir de la información capturada por el equipo administrativo. Fecha y hora de generación: ${formatCdmx(new Date())}.`,
       { align: 'center' }
     );
 

@@ -151,6 +151,11 @@ const createPaymentReport = asyncHandler(async (req, res) => {
     orderBy: { updatedAt: 'desc' },
     select: { bitgetReceiveUid: true },
   });
+  // UID ≠ N.º de orden: si el cliente escribió el UID de QLC en lugar del
+  // número de orden que le dio Bitget, se rechaza con un mensaje claro.
+  if (paymentConfig?.bitgetReceiveUid && bitgetOrderNumber === paymentConfig.bitgetReceiveUid.trim()) {
+    throw ApiError.badRequest('Ese número es el UID de recepción de QLC, no el N.º de orden. Ingresa el número de orden que te dio Bitget.');
+  }
 
   // 1) Evidencias a Drive (subcarpeta "Pagos" del cliente). Si alguna falla,
   //    se retiran las ya subidas y no se crea el reporte.
