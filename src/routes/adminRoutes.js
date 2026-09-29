@@ -23,7 +23,6 @@ const emailConfigController = require('../controllers/emailConfigController');
 const mediaController = require('../controllers/mediaController');
 const platformSettingsController = require('../controllers/platformSettingsController');
 const guideController = require('../controllers/guideController');
-const securityConfigController = require('../controllers/securityConfigController');
 const processStepController = require('../controllers/processStepController');
 const adminMessageController = require('../controllers/adminMessageController');
 // AUDITORÍA FINAL — Pendiente #1: el controlador de notificaciones ya es
@@ -47,6 +46,8 @@ router.get('/clients/:id', clientController.getClient);
 router.patch('/clients/:id', clientController.updateClient);
 router.post('/clients/:id/assign-username', clientController.assignUsername);
 router.patch('/clients/:id/active', clientController.setClientActive);
+// Eliminación de cliente: sesión válida + rol ADMIN (middleware de arriba)
+// + permiso de administrador general (en el controlador). Sin contraseña extra.
 router.delete('/clients/:id', clientController.deleteClient);
 
 // Subcuentas / API — GESTIÓN DINÁMICA: cada cliente nace con únicamente su
@@ -142,6 +143,7 @@ router.get('/payment-configuration', paymentController.getPaymentConfiguration);
 router.put('/payment-configuration', paymentController.updatePaymentConfiguration);
 router.get('/payment-reports', paymentController.listPaymentReports);
 router.get('/payment-reports/:id/proof', paymentController.downloadPaymentProof);
+router.get('/payment-reports/:id/files/:fileId', paymentController.downloadEvidenceFile);
 router.patch('/payment-reports/:id/transfer-received', paymentController.markTransferReceived);
 router.patch('/payment-reports/:id/guarantee-reported', paymentController.markGuaranteeReported);
 router.patch('/payment-reports/:id', paymentController.reviewPaymentReport);
@@ -176,10 +178,6 @@ router.patch('/prospects/:id', prospectController.updateProspectStatus);
 // CORREGIR.xlsx ADMIN 05: borrado manual (además de la limpieza automática
 // a los 5 días de DESCARTADO, ejecutada de forma perezosa en listProspects).
 router.delete('/prospects/:id', prospectController.deleteProspect);
-
-// CORREGIR.xlsx ADMIN 06 — contraseña de seguridad para eliminar clientes
-router.get('/security-config', securityConfigController.getStatus);
-router.put('/security-config/password', securityConfigController.setPassword);
 
 // AUDITORÍA FINAL — Pendiente #1: notificaciones del admin.
 router.get('/notifications', notificationController.listNotifications);

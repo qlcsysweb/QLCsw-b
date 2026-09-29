@@ -6,7 +6,6 @@ const asyncHandler = require('../utils/asyncHandler');
 const driveStorage = require('../services/driveStorageService');
 const { enforceCommissionDeadline, currentStatementSummary } = require('../utils/connectionDeadlines');
 const { ensurePrincipalSubaccount } = require('../utils/subaccountProvisioning');
-const { verifyClientDeletionPassword } = require('./securityConfigController');
 
 // Resumen de avance de UNA subcuenta/API — para el indicador de "lista
 // para activar" (una subcuenta está lista cuando todas sus condiciones
@@ -317,12 +316,21 @@ const setClientActive = asyncHandler(async (req, res) => {
 // para una cuenta ADMIN, así que es estructuralmente imposible borrar un
 // administrador desde aquí. El :id de la ruta es la única fuente del
 // cliente objetivo — nunca se toma un ID de otro lado del body.
-// CORREGIR.xlsx ADMIN 06: solo el administrador general puede eliminar
-// clientes, y siempre con la contraseña de seguridad exclusiva — validado
-// en backend, nunca solo en frontend, e imposible de sortear vía API
-// directa porque la verificación ocurre aquí mismo antes de tocar la BD.
+// AUTORIZACIÓN: la ruta ya exige sesión válida + rol ADMIN (requireAuth +
+// requireRole en adminRoutes; identidad y rol salen del token verificado,
+// nunca del body). Además, SOLO el administrador general puede eliminar
+// clientes — permiso comprobado aquí contra la BD. Ya NO se pide una
+// contraseña adicional: la confirmación contra clics accidentales es el
+// modal del panel.
+async function assertCanDeleteClients(userId) {
+  const profile = await prisma.adminProfile.findUnique({ where: { userId }, select: { isGeneralAdmin: true } });
+  if (!profile?.isGeneralAdmin) {
+    throw ApiError.forbidden('Solo el administrador general puede eliminar clientes.');
+  }
+}
+
 const deleteClient = asyncHandler(async (req, res) => {
-  await verifyClientDeletionPassword(req.user.id, req.body?.securityPassword);
+  await assertCanDeleteClients(req.user.id);
 
   const client = await prisma.clientProfile.findUnique({
     where: { id: req.params.id },
@@ -354,9 +362,9 @@ const deleteClient = asyncHandler(async (req, res) => {
   if (await driveStorage.isConfigured()) {
     if (client.driveClientFolderId) {
       try {
-        // Autorizado: ruta exclusiva de ADMIN GENERAL con contraseña de
-        // seguridad ya verificada arriba antes de llegar aquí. Borrar la
-        // carpeta borra en cascada TODO su contenido en Drive.
+        // Autorizado: ruta exclusiva de ADMIN GENERAL con sesión válida,
+        // verificada arriba antes de llegar aquí. Borrar la carpeta borra en
+        // cascada TODO su contenido en Drive.
         await driveStorage.deleteDriveFileOnlyWhenAuthorized(client.driveClientFolderId, { authorized: true });
         driveDeletionStatus = 'deleted';
       } catch (err) {

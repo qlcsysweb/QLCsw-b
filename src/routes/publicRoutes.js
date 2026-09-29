@@ -8,6 +8,7 @@ const prospectController = require('../controllers/prospectController');
 const appointmentController = require('../controllers/appointmentController');
 const emailConfigController = require('../controllers/emailConfigController');
 const driveConfigController = require('../controllers/driveConfigController');
+const paymentController = require('../controllers/paymentController');
 
 const router = Router();
 
@@ -24,6 +25,9 @@ router.get('/media', contentController.listMediaPublic);
 router.get('/media/logo', contentController.getActiveLogo);
 router.get('/faq', faqController.listFaqPublic);
 router.get('/track-record', trackRecordController.getTrackRecordPublic);
+// UID de recepción Bitget de QLC para el modal informativo de ingreso — solo
+// ese dato (el mismo que QLC publica a sus clientes), nada más de la config.
+router.get('/payment-info', paymentController.getPublicReceiveUid);
 
 // Formulario "Solicitar información" / Registro
 router.post('/prospects', publicFormLimiter, prospectController.createProspect);

@@ -1,7 +1,7 @@
 const { Router } = require('express');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { resolveOwnClientProfile } = require('../middleware/clientAuth');
-const { uploadDocument: uploadDocumentFile, singleCaseFile } = require('../middleware/upload');
+const { uploadDocument: uploadDocumentFile, singleCaseFile, evidenceFiles } = require('../middleware/upload');
 
 const modelController = require('../controllers/modelController');
 const profileController = require('../controllers/client/profileController');
@@ -61,8 +61,10 @@ router.post('/documents/:id/correction', uploadDocumentFile.single('file'), docu
 // cliente solo reporta número de orden + fecha/hora de la transacción.
 router.get('/api-subaccounts/:apiSubaccountId/payment-data', paymentController.getSubaccountPaymentData);
 router.get('/api-subaccounts/:apiSubaccountId/payment-reports', paymentController.listPaymentReports);
-router.post('/api-subaccounts/:apiSubaccountId/payment-reports', paymentController.createPaymentReport);
+// multipart/form-data: bitgetOrderNumber + transactionAt + "files" (1–5 evidencias).
+router.post('/api-subaccounts/:apiSubaccountId/payment-reports', evidenceFiles, paymentController.createPaymentReport);
 router.get('/payment-reports/:id/proof', paymentController.downloadPaymentProof);
+router.get('/payment-reports/:id/files/:fileId', paymentController.downloadEvidenceFile);
 
 // Estado de cuenta — estado actual por subcuenta (NO GENERADO / PENDIENTE
 // DE PAGO / PAGADO / VENCIDO SIN PAGAR) y descarga del PDF.

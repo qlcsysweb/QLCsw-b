@@ -5,6 +5,9 @@ const ApiError = require('../../utils/ApiError');
 const asyncHandler = require('../../utils/asyncHandler');
 const { notifyAdmins } = require('../../utils/notify');
 const { enforceCommissionDeadline } = require('../../utils/connectionDeadlines');
+const { EVIDENCE_MIME, MAX_EVIDENCE_FILES, MAX_EVIDENCE_BYTES } = require('../../middleware/upload');
+const { safeFileName } = require('../../utils/supportCaseFiles');
+const { EVIDENCE_FILE_SELECT, streamEvidenceFile } = require('../../utils/paymentEvidence');
 
 async function assertOwnsSubaccount(clientId, apiSubaccountId) {
   const subaccount = await prisma.apiSubaccount.findFirst({ where: { id: apiSubaccountId, clientId } });
@@ -44,13 +47,27 @@ const listPaymentReports = asyncHandler(async (req, res) => {
       statementId: true,
       proofDriveFileId: true,
       proofFileName: true,
+      evidenceFiles: { select: EVIDENCE_FILE_SELECT, orderBy: { createdAt: 'asc' } },
     },
   });
   res.json({ ok: true, reports });
 });
 
-// El cliente reporta SOLO dos datos: número de orden y fecha/hora de la
-// transacción. Nada de wallet, red, dirección, hash ni capturas.
+// Evidencia propia: se valida que el reporte pertenezca a una subcuenta del
+// cliente autenticado antes de servir el archivo desde Drive.
+const downloadEvidenceFile = asyncHandler(async (req, res) => {
+  const file = await prisma.paymentReportFile.findFirst({
+    where: { id: req.params.fileId, paymentReportId: req.params.id },
+    include: { paymentReport: { select: { apiSubaccountId: true } } },
+  });
+  if (!file) throw ApiError.notFound('Archivo de evidencia no encontrado');
+  await assertOwnsSubaccount(req.clientProfile.id, file.paymentReport.apiSubaccountId);
+  await streamEvidenceFile(res, file);
+});
+
+// CONFIRMACIÓN DE TRANSFERENCIA INTERNA BITGET — el cliente reporta:
+// número de orden/transacción de Bitget + fecha/hora + evidencias (1 a 5
+// archivos JPG/PNG/WEBP/PDF). Llega como multipart/form-data.
 const createPaymentReportSchema = z.object({
   bitgetOrderNumber: z
     .string({ required_error: 'El número de orden es obligatorio' })
@@ -61,10 +78,48 @@ const createPaymentReportSchema = z.object({
   transactionAt: z.coerce.date({ invalid_type_error: 'La fecha y hora de la transacción no es válida' }),
 });
 
+// Firma real del contenido (no se confía solo en el Content-Type que manda
+// el navegador): JPEG, PNG, WEBP o PDF.
+function matchesSignature(file) {
+  const b = file.buffer;
+  if (!b || b.length < 12) return false;
+  switch (file.mimetype) {
+    case 'image/jpeg':
+      return b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff;
+    case 'image/png':
+      return b.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+    case 'image/webp':
+      return b.toString('ascii', 0, 4) === 'RIFF' && b.toString('ascii', 8, 12) === 'WEBP';
+    case 'application/pdf':
+      return b.toString('ascii', 0, 5) === '%PDF-';
+    default:
+      return false;
+  }
+}
+
+function validateEvidence(files) {
+  if (!files || files.length === 0) {
+    throw ApiError.badRequest('Adjunta al menos un archivo de evidencia de la transferencia.');
+  }
+  if (files.length > MAX_EVIDENCE_FILES) throw ApiError.badRequest('Puedes adjuntar como máximo 5 archivos de evidencia.');
+  for (const file of files) {
+    if (!EVIDENCE_MIME.includes(file.mimetype)) {
+      throw ApiError.badRequest('Formato de evidencia no permitido. Solo JPG, PNG, WEBP o PDF.');
+    }
+    if (file.size === 0) throw ApiError.badRequest('Uno de los archivos de evidencia está vacío.');
+    if (file.size > MAX_EVIDENCE_BYTES) throw ApiError.badRequest('Cada archivo de evidencia puede pesar como máximo 5 MB.');
+    if (!matchesSignature(file)) {
+      throw ApiError.badRequest('Uno de los archivos no es una imagen o PDF válido.');
+    }
+  }
+}
+
 const createPaymentReport = asyncHandler(async (req, res) => {
   const subaccount = await assertOwnsSubaccount(req.clientProfile.id, req.params.apiSubaccountId);
   if (subaccount.deactivatedAt) throw ApiError.badRequest('Esta subcuenta fue desactivada.');
   const { bitgetOrderNumber, transactionAt } = createPaymentReportSchema.parse(req.body);
+  const files = req.files || [];
+  validateEvidence(files);
 
   // Tolerancia de 10 min por diferencias de reloj; nunca una fecha futura.
   if (transactionAt.getTime() > Date.now() + 10 * 60 * 1000) {
@@ -86,21 +141,54 @@ const createPaymentReport = asyncHandler(async (req, res) => {
     select: { id: true },
   });
 
+  if (!(await driveStorage.isConfigured())) {
+    throw ApiError.serviceUnavailable('No pudimos conectar con el almacenamiento de documentos. Contacta al equipo de QLC.');
+  }
+
+  // UID de recepción vigente al momento del reporte (mismo dato que el
+  // cliente ve en su subcuenta) — se guarda para la revisión del admin.
+  const paymentConfig = await prisma.paymentConfiguration.findFirst({
+    orderBy: { updatedAt: 'desc' },
+    select: { bitgetReceiveUid: true },
+  });
+
+  // 1) Evidencias a Drive (subcarpeta "Pagos" del cliente). Si alguna falla,
+  //    se retiran las ya subidas y no se crea el reporte.
+  const client = await prisma.clientProfile.findUnique({ where: { id: req.clientProfile.id } });
+  const uploadedFiles = [];
+  try {
+    const folderId = await driveStorage.getOrCreateSubfolder(client, 'payments');
+    for (const file of files) {
+      const fileName = safeFileName(`Evidencia_${bitgetOrderNumber}_${file.originalname}`);
+      const uploaded = await driveStorage.uploadFileToDrive(file.buffer, { folderId, fileName, mimeType: file.mimetype });
+      uploadedFiles.push({ fileName, mimeType: file.mimetype, sizeBytes: file.size, driveFileId: uploaded.id, driveFolderId: folderId });
+    }
+  } catch {
+    await Promise.all(
+      uploadedFiles.map((f) => driveStorage.deleteDriveFileOnlyWhenAuthorized(f.driveFileId, { authorized: true }).catch(() => {}))
+    );
+    throw ApiError.serviceUnavailable('No se pudo guardar la evidencia en el almacenamiento de documentos. Intenta nuevamente.');
+  }
+
+  // 2) Reporte + metadata de evidencias en NeonDB (sin binarios).
   const report = await prisma.paymentReport.create({
     data: {
       apiSubaccountId: subaccount.id,
       currency: 'USDT',
       bitgetOrderNumber,
       transactionAt,
+      receiveUid: paymentConfig?.bitgetReceiveUid || null,
       statementId: unpaidStatement?.id || null,
       status: 'PENDING',
+      evidenceFiles: { create: uploadedFiles },
     },
+    include: { evidenceFiles: { select: EVIDENCE_FILE_SELECT } },
   });
 
   const clientName = `${req.clientProfile.firstName} ${req.clientProfile.lastName}`;
   await notifyAdmins({
     title: 'Transferencia interna Bitget reportada',
-    message: `${clientName} reportó una transferencia interna Bitget (orden ${bitgetOrderNumber}).`,
+    message: `${clientName} reportó una transferencia interna Bitget (orden ${bitgetOrderNumber}) con ${uploadedFiles.length} archivo(s) de evidencia.`,
     type: 'info',
     templateKey: 'payment_reported',
     templateParams: {
@@ -135,4 +223,4 @@ const downloadPaymentProof = asyncHandler(async (req, res) => {
   stream.pipe(res);
 });
 
-module.exports = { getSubaccountPaymentData, listPaymentReports, createPaymentReport, downloadPaymentProof };
+module.exports = { getSubaccountPaymentData, listPaymentReports, createPaymentReport, downloadPaymentProof, downloadEvidenceFile };

@@ -124,8 +124,8 @@ const updateAdmin = asyncHandler(async (req, res) => {
 });
 
 // CORREGIR(2).xlsx ADMIN 36 — designar/quitar al "administrador general"
-// (único que puede eliminar clientes con la contraseña de seguridad, ver
-// securityConfigController.js). Regla: si ya existe al menos un admin
+// (único que puede eliminar clientes, ver clientController.deleteClient).
+// Regla: si ya existe al menos un admin
 // general, solo otro admin general puede otorgar/quitar el rol, y nunca se
 // puede dejar el sistema sin ninguno. Si todavía no existe ninguno (arranque
 // del sistema), se permite auto-nombrarse una sola vez — nunca nombrar a

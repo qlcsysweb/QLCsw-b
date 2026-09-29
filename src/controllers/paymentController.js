@@ -5,6 +5,7 @@ const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const { notifyClient } = require('../utils/notify');
 const { markPaid } = require('./statementController');
+const { EVIDENCE_FILE_SELECT, streamEvidenceFile } = require('../utils/paymentEvidence');
 
 async function assertDriveReady() {
   if (!(await driveStorage.isConfigured())) {
@@ -37,6 +38,16 @@ async function getOrCreatePaymentConfiguration() {
 const getPaymentConfiguration = asyncHandler(async (req, res) => {
   const paymentData = await getOrCreatePaymentConfiguration();
   res.json({ ok: true, paymentData });
+});
+
+// Público (sin sesión): SOLO el UID de recepción, para el modal informativo
+// "Transferencia interna Bitget". Nunca crea filas ni expone instrucciones.
+const getPublicReceiveUid = asyncHandler(async (req, res) => {
+  const config = await prisma.paymentConfiguration.findFirst({
+    orderBy: { updatedAt: 'desc' },
+    select: { bitgetReceiveUid: true },
+  });
+  res.json({ ok: true, bitgetReceiveUid: config?.bitgetReceiveUid || null });
 });
 
 const updatePaymentConfiguration = asyncHandler(async (req, res) => {
@@ -74,9 +85,18 @@ const listPaymentReports = asyncHandler(async (req, res) => {
         },
       },
       statement: { select: { id: true, status: true, periodEnd: true } },
+      evidenceFiles: { select: EVIDENCE_FILE_SELECT, orderBy: { createdAt: 'asc' } },
     },
   });
   res.json({ ok: true, reports });
+});
+
+// Evidencia de un reporte (ver/descargar desde el panel admin) — se sirve
+// a través del backend, nunca con el enlace de Drive.
+const downloadEvidenceFile = asyncHandler(async (req, res) => {
+  const file = await prisma.paymentReportFile.findFirst({ where: { id: req.params.fileId, paymentReportId: req.params.id } });
+  if (!file) throw ApiError.notFound('Archivo de evidencia no encontrado');
+  await streamEvidenceFile(res, file);
 });
 
 const downloadPaymentProof = asyncHandler(async (req, res) => {
@@ -209,9 +229,11 @@ const reviewPaymentReport = asyncHandler(async (req, res) => {
 
 module.exports = {
   getPaymentConfiguration,
+  getPublicReceiveUid,
   updatePaymentConfiguration,
   listPaymentReports,
   downloadPaymentProof,
+  downloadEvidenceFile,
   markTransferReceived,
   markGuaranteeReported,
   reviewPaymentReport,

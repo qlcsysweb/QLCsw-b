@@ -714,6 +714,12 @@ model PaymentReport {
   // reporta después de transferir al UID de recepción de QLC.
   bitgetOrderNumber  String?
   transactionAt      DateTime?
+  // UID de recepción de QLC que el cliente tenía a la vista al reportar
+  // (copia del dato configurado en ese momento, para la revisión del admin).
+  receiveUid         String?
+  // Evidencias de la transferencia (varias por reporte) — binarios en
+  // Google Drive; aquí solo metadata. Ver PaymentReportFile.
+  evidenceFiles      PaymentReportFile[]
   // Dato libre que el cliente reporta junto al pago (referencia/hash de
   // transacción, últimos dígitos, etc.) — nunca se valida contra el
   // exchange, es solo el dato que el cliente declara para agilizar la
@@ -754,6 +760,26 @@ model PaymentReport {
   statement   Statement? @relation(fields: [statementId], references: [id], onDelete: SetNull)
 
   @@map("payment_reports")
+}
+
+// EVIDENCIA de una transferencia interna Bitget reportada por el cliente
+// (capturas/fotos/PDF). El binario vive en Google Drive (subcarpeta "Pagos"
+// del cliente); NeonDB guarda solo metadata + el ID de Drive. La relación
+// con el cliente/subcuenta se obtiene del reporte (PaymentReport →
+// ApiSubaccount → ClientProfile).
+model PaymentReportFile {
+  id              String        @id @default(cuid())
+  paymentReportId String
+  paymentReport   PaymentReport @relation(fields: [paymentReportId], references: [id], onDelete: Cascade)
+  fileName        String
+  mimeType        String
+  sizeBytes       Int
+  driveFileId     String
+  driveFolderId   String?
+  createdAt       DateTime      @default(now())
+
+  @@index([paymentReportId])
+  @@map("payment_report_files")
 }
 
 // ==========================================================

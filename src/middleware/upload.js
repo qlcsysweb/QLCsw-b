@@ -72,4 +72,43 @@ function singleStatementPdf(req, res, next) {
   });
 }
 
-module.exports = { uploadDocument, uploadMedia, singleCaseFile, singleStatementPdf, MAX_CASE_FILE_BYTES };
+// EVIDENCIA de transferencia interna Bitget: hasta 5 archivos por reporte,
+// solo imágenes (JPG/PNG/WEBP) o PDF, 5 MB cada uno (mismo límite que los
+// archivos de casos). Campo multipart: "files".
+const EVIDENCE_MIME = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
+const MAX_EVIDENCE_FILES = 5;
+const MAX_EVIDENCE_BYTES = 5 * 1024 * 1024;
+const evidenceUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_EVIDENCE_BYTES, files: MAX_EVIDENCE_FILES },
+  fileFilter: (req, file, cb) => {
+    if (!EVIDENCE_MIME.includes(file.mimetype)) {
+      return cb(ApiError.badRequest('Formato de evidencia no permitido. Solo JPG, PNG, WEBP o PDF.'));
+    }
+    cb(null, true);
+  },
+});
+
+function evidenceFiles(req, res, next) {
+  evidenceUpload.array('files', MAX_EVIDENCE_FILES)(req, res, (err) => {
+    if (!err) return next();
+    if (err.code === 'LIMIT_FILE_SIZE') return next(ApiError.badRequest('Cada archivo de evidencia puede pesar como máximo 5 MB.'));
+    if (err.code === 'LIMIT_FILE_COUNT' || err.code === 'LIMIT_UNEXPECTED_FILE') {
+      return next(ApiError.badRequest('Puedes adjuntar como máximo 5 archivos de evidencia.'));
+    }
+    if (err instanceof ApiError) return next(err);
+    return next(ApiError.badRequest('No se pudo procesar la evidencia adjunta.'));
+  });
+}
+
+module.exports = {
+  uploadDocument,
+  uploadMedia,
+  singleCaseFile,
+  singleStatementPdf,
+  evidenceFiles,
+  EVIDENCE_MIME,
+  MAX_EVIDENCE_FILES,
+  MAX_EVIDENCE_BYTES,
+  MAX_CASE_FILE_BYTES,
+};
