@@ -114,6 +114,7 @@ router.get('/process-steps', processStepController.listStepsPublic);
 router.get('/notifications', notificationController.listNotifications);
 router.patch('/notifications/:id/read', notificationController.markAsRead);
 router.post('/notifications/read-all', notificationController.markAllAsRead);
+router.post('/notifications/delete', notificationController.deleteNotifications);
 
 // Mensajería interna (buzón admin↔cliente) — distinta del chat de citas y
 // de los casos de soporte.

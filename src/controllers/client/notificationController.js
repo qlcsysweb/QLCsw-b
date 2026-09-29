@@ -1,3 +1,4 @@
+const { z } = require('zod');
 const prisma = require('../../config/prisma');
 const asyncHandler = require('../../utils/asyncHandler');
 
@@ -47,4 +48,20 @@ const markAllAsRead = asyncHandler(async (req, res) => {
   res.json({ ok: true });
 });
 
-module.exports = { listNotifications, markAsRead, markAllAsRead };
+// ELIMINACIÓN de notificaciones (una, varias o todas las seleccionadas).
+// Siempre acotada al usuario autenticado (protección IDOR: los ids ajenos
+// simplemente no coinciden) y solo a notificaciones del sistema — los
+// mensajes manuales (kind MANUAL) tienen historial permanente propio.
+const deleteNotificationsSchema = z.object({
+  ids: z.array(z.string().min(1).max(64)).min(1, 'Selecciona al menos una notificación.').max(200),
+});
+
+const deleteNotifications = asyncHandler(async (req, res) => {
+  const { ids } = deleteNotificationsSchema.parse(req.body);
+  const { count } = await prisma.notification.deleteMany({
+    where: { id: { in: ids }, userId: req.user.id, kind: 'SYSTEM' },
+  });
+  res.json({ ok: true, deleted: count });
+});
+
+module.exports = { listNotifications, markAsRead, markAllAsRead, deleteNotifications };

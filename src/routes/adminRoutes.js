@@ -182,6 +182,7 @@ router.delete('/prospects/:id', prospectController.deleteProspect);
 router.get('/notifications', notificationController.listNotifications);
 router.patch('/notifications/:id/read', notificationController.markAsRead);
 router.post('/notifications/read-all', notificationController.markAllAsRead);
+router.post('/notifications/delete', notificationController.deleteNotifications);
 
 // CORREGIR.xlsx ADMIN 14 — mensajería manual admin→cliente
 router.get('/messages', adminMessageController.listInbox);
