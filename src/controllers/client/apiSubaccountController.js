@@ -190,26 +190,30 @@ const reportCapitalReady = asyncHandler(async (req, res) => {
 // lo escribe el cliente: siempre es el capital operativo requerido que fijó
 // el admin (requiredCapital). El cliente solo confirma + agrega una nota.
 //
-// CONFIRMACIÓN ESCRITA OBLIGATORIA — el cliente debe escribir exactamente
-// "CONFIRMO QUE EL SALDO DE MI CUENTA ES DE {capital} USDT", donde {capital}
-// es el capital operativo requerido que fijó el ADMIN (se lee SIEMPRE de la
-// BD, nunca del body). Es una DECLARACIÓN del cliente: QLC no consulta el
+// CONFIRMACIÓN ESCRITA OBLIGATORIA — el cliente escribe UNA de las dos
+// declaraciones FIJAS autorizadas (ES o EN). El monto NO va en la frase: el
+// capital operativo requerido lo fija el ADMIN y se lee SIEMPRE de la BD
+// (nunca del body). Es una DECLARACIÓN del cliente: QLC no consulta el
 // exchange. Solo se toleran espacios extra y mayúsculas/minúsculas.
 const reportCapitalDistributionSchema = z.object({
   confirmation: z.string({ required_error: 'Escribe la frase de confirmación.' }).max(200),
   note: z.string().max(500).optional(),
 });
 
-// "100" / "250" / "1000.5" — mismo formato que muestra el panel del cliente.
-function formatCapital(value) {
-  return String(Number(value));
-}
-
-function capitalDeclaration(requiredCapital) {
-  return `CONFIRMO QUE EL SALDO DE MI CUENTA ES DE ${formatCapital(requiredCapital)} USDT`;
-}
+// Frases autorizadas — idénticas a las que muestra el panel del cliente
+// (frontend/src/modules/client/CapitalConfirmation.jsx).
+const CAPITAL_DECLARATIONS = {
+  ES: 'CONFIRMO QUE DISPONGO DEL SALDO REQUERIDO EN MI CUENTA',
+  EN: 'I CONFIRM THAT I HAVE THE REQUIRED BALANCE IN MY ACCOUNT',
+};
 
 const normalizePhrase = (s) => String(s || '').trim().replace(/\s+/g, ' ').toUpperCase();
+
+// 'ES' | 'EN' según la declaración escrita, o null si no es ninguna de las dos.
+function declarationLanguage(text) {
+  const normalized = normalizePhrase(text);
+  return Object.keys(CAPITAL_DECLARATIONS).find((lang) => CAPITAL_DECLARATIONS[lang] === normalized) || null;
+}
 
 const reportCapitalDistribution = asyncHandler(async (req, res) => {
   const { confirmation, note } = reportCapitalDistributionSchema.parse(req.body);
@@ -222,9 +226,9 @@ const reportCapitalDistribution = asyncHandler(async (req, res) => {
     throw ApiError.badRequest('QLC todavía no configuró el capital operativo requerido para esta subcuenta.');
   }
 
-  const expected = capitalDeclaration(subaccount.requiredCapital);
-  if (normalizePhrase(confirmation) !== normalizePhrase(expected)) {
-    throw ApiError.badRequest('La frase de confirmación no coincide con el capital operativo requerido.');
+  const confirmationLanguage = declarationLanguage(confirmation);
+  if (!confirmationLanguage) {
+    throw ApiError.badRequest('La frase de confirmación no coincide con ninguna de las declaraciones indicadas.');
   }
 
   // Una confirmación vigente (en revisión o aprobada) para ESTE mismo capital
@@ -240,7 +244,9 @@ const reportCapitalDistribution = asyncHandler(async (req, res) => {
     data: {
       apiSubaccountId: subaccount.id,
       amount: subaccount.requiredCapital,
-      declaration: expected,
+      // Declaración autorizada (forma canónica) + idioma que usó el cliente.
+      declaration: CAPITAL_DECLARATIONS[confirmationLanguage],
+      confirmationLanguage,
       note: note || null,
       status: 'PENDING',
     },

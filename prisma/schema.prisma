@@ -1219,22 +1219,25 @@ model ProcessStep {
 // el saldo: solo administra el reporte/revisión — la validación real la
 // hace QLC externamente.
 model CapitalDistributionReport {
-  id               String              @id @default(cuid())
-  apiSubaccountId  String
-  apiSubaccount    ApiSubaccount       @relation(fields: [apiSubaccountId], references: [id], onDelete: Cascade)
+  id                   String              @id @default(cuid())
+  apiSubaccountId      String
+  apiSubaccount        ApiSubaccount       @relation(fields: [apiSubaccountId], references: [id], onDelete: Cascade)
   // Capital operativo requerido (fijado por el ADMIN) al momento de confirmar.
-  amount           Decimal             @db.Decimal(14, 2)
-  // Declaración escrita del cliente, validada en backend contra el capital
-  // requerido: "CONFIRMO QUE EL SALDO DE MI CUENTA ES DE {amount} USDT".
-  // Es una DECLARACIÓN del cliente — QLC nunca consulta el exchange.
-  declaration      String?
-  note             String?
-  status           PaymentReportStatus @default(PENDING)
-  reviewNote       String?
-  reviewedByUserId String?
-  reviewedBy       User?               @relation("CapitalDistReportReviewedBy", fields: [reviewedByUserId], references: [id])
-  reviewedAt       DateTime?
-  reportedAt       DateTime            @default(now())
+  amount               Decimal             @db.Decimal(14, 2)
+  // Declaración escrita del cliente, validada en backend: una de las dos
+  // frases fijas autorizadas (ES "CONFIRMO QUE DISPONGO DEL SALDO REQUERIDO EN
+  // MI CUENTA" / EN "I CONFIRM THAT I HAVE THE REQUIRED BALANCE IN MY
+  // ACCOUNT"). Es una DECLARACIÓN del cliente — QLC nunca consulta el exchange.
+  declaration          String?
+  // Idioma de la declaración usada: 'ES' | 'EN'.
+  confirmationLanguage String?
+  note                 String?
+  status               PaymentReportStatus @default(PENDING)
+  reviewNote           String?
+  reviewedByUserId     String?
+  reviewedBy           User?               @relation("CapitalDistReportReviewedBy", fields: [reviewedByUserId], references: [id])
+  reviewedAt           DateTime?
+  reportedAt           DateTime            @default(now())
 
   @@map("capital_distribution_reports")
 }
