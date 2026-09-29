@@ -12,11 +12,8 @@ const {
 } = require('../utils/twoFactor');
 
 /*
- * CORRECCIÓN 19 — Toda esta infraestructura queda PREPARADA pero cada
- * endpoint rechaza la petición (403) mientras TWO_FA_ENABLED no sea
- * "true" en el backend. Así el código real de activación/verificación
- * existe y puede probarse, pero no cambia el comportamiento de login de
- * nadie hasta que se decida activarlo explícitamente.
+ * Registro del 2FA (Google Authenticator). Solo responde 403 si el
+ * interruptor de emergencia TWO_FA_DISABLED=true lo apagó por completo.
  */
 function assertTwoFactorFeatureOn() {
   if (!isTwoFactorGloballyEnabled()) {
@@ -34,6 +31,11 @@ const getStatus = asyncHandler(async (req, res) => {
 // falta confirmar con un código válido (ver /confirm).
 const startSetup = asyncHandler(async (req, res) => {
   assertTwoFactorFeatureOn();
+  // Con el 2FA ya activo no se puede reemplazar el Authenticator desde la
+  // sesión (una sesión robada no debe poder cambiarlo). Si el cliente perdió
+  // su teléfono, un ADMIN restablece su 2FA y lo vuelve a configurar.
+  const current = await prisma.user.findUnique({ where: { id: req.user.id }, select: { twoFactorEnabled: true } });
+  if (current.twoFactorEnabled) throw ApiError.conflict('La verificación en dos pasos ya está activa.');
   const secret = generateSecret();
   const qrCodeDataUrl = await buildQrCodeDataUrl(req.user.email, secret);
 
@@ -57,7 +59,9 @@ const confirmSetup = asyncHandler(async (req, res) => {
   }
 
   const pendingSecret = decryptSecret(user.twoFactorPendingSecretEncrypted);
-  if (!verifyToken(pendingSecret, code)) throw ApiError.unauthorized('Código incorrecto');
+  // 400 (no 401): el usuario SÍ tiene sesión; un 401 haría que el frontend
+  // la cerrara como si hubiera expirado.
+  if (!verifyToken(pendingSecret, code)) throw ApiError.badRequest('Código incorrecto');
 
   await prisma.user.update({
     where: { id: user.id },
@@ -75,12 +79,17 @@ const disableSchema = z.object({ password: z.string().min(1) });
 
 const disable = asyncHandler(async (req, res) => {
   assertTwoFactorFeatureOn();
+  // El 2FA es OBLIGATORIO: nadie puede desactivarlo
+  // por su cuenta (solo un ADMIN lo restablece para reconfigurarlo).
+  if (isTwoFactorGloballyEnabled()) {
+    throw ApiError.forbidden('La verificación en dos pasos es obligatoria y no se puede desactivar.');
+  }
   const bcrypt = require('bcryptjs');
   const { password } = disableSchema.parse(req.body);
 
   const user = await prisma.user.findUnique({ where: { id: req.user.id } });
   const validPassword = await bcrypt.compare(password, user.passwordHash);
-  if (!validPassword) throw ApiError.unauthorized('Contraseña incorrecta');
+  if (!validPassword) throw ApiError.badRequest('Contraseña incorrecta');
 
   await prisma.user.update({
     where: { id: user.id },
@@ -90,4 +99,17 @@ const disable = asyncHandler(async (req, res) => {
   res.json({ ok: true, enabled: false });
 });
 
-module.exports = { getStatus, startSetup, confirmSetup, disable };
+// ADMIN — restablece el 2FA de un cliente (p. ej. perdió su teléfono). La
+// próxima vez que inicie sesión deberá configurar Google Authenticator de
+// nuevo. Nunca expone ni devuelve el secreto.
+const adminResetClientTwoFactor = asyncHandler(async (req, res) => {
+  const client = await prisma.clientProfile.findUnique({ where: { id: req.params.clientId }, select: { userId: true } });
+  if (!client) throw ApiError.notFound('Cliente no encontrado');
+  await prisma.user.update({
+    where: { id: client.userId },
+    data: { twoFactorEnabled: false, twoFactorSecretEncrypted: null, twoFactorPendingSecretEncrypted: null },
+  });
+  res.json({ ok: true });
+});
+
+module.exports = { getStatus, startSetup, confirmSetup, disable, adminResetClientTwoFactor };

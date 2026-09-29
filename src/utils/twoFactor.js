@@ -1,18 +1,22 @@
 /*
- * CORRECCIÓN 19 — Infraestructura de 2FA (Google Authenticator / TOTP),
- * PREPARADA pero DESACTIVADA globalmente. Mientras TWO_FA_ENABLED no sea
- * literalmente "true" en el backend, ningún endpoint de esta utilidad es
- * alcanzable y el login funciona exactamente igual que hoy (solo correo +
- * contraseña). Esto permite activar 2FA en el futuro sin escribir código
- * nuevo — solo cambiando la variable de entorno y desplegando la UI.
+ * 2FA con Google Authenticator (TOTP) — OBLIGATORIO para todos los usuarios:
+ * cada cuenta lo registra en su primer inicio de sesión y no puede omitirlo
+ * (ver middleware/auth.js). Después puede entrar con su contraseña O con el
+ * código de Authenticator. Ya no depende de TWO_FA_ENABLED: solo existe un
+ * interruptor de EMERGENCIA, TWO_FA_DISABLED=true, que lo apaga por completo.
  */
+const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const { authenticator } = require('otplib');
 const QRCode = require('qrcode');
 const { encrypt, decrypt } = require('./crypto');
 
+// Tolerancia de ±1 intervalo (30 s) por desfase de reloj del teléfono o por
+// escribir el código justo cuando cambia — práctica estándar en TOTP.
+authenticator.options = { window: 1 };
+
 function isTwoFactorGloballyEnabled() {
-  return process.env.TWO_FA_ENABLED === 'true';
+  return process.env.TWO_FA_DISABLED !== 'true';
 }
 
 function generateSecret() {
@@ -54,6 +58,28 @@ function verifyTwoFactorChallenge(token) {
   return payload.sub;
 }
 
+// RESTABLECER CONTRASEÑA — token de un solo propósito emitido SOLO después
+// de validar correo + código de Google Authenticator. Lleva una huella del
+// hash de contraseña actual: en cuanto la contraseña cambia, el token deja de
+// servir (uso único), y caduca a los 10 minutos.
+function passwordFingerprint(passwordHash) {
+  return crypto.createHash('sha256').update(String(passwordHash)).digest('hex').slice(0, 16);
+}
+
+function signPasswordResetToken(user) {
+  return jwt.sign(
+    { sub: user.id, purpose: 'password_reset', pwf: passwordFingerprint(user.passwordHash) },
+    process.env.JWT_SECRET,
+    { expiresIn: '10m' }
+  );
+}
+
+function verifyPasswordResetToken(token) {
+  const payload = jwt.verify(token, process.env.JWT_SECRET);
+  if (payload.purpose !== 'password_reset') throw new Error('Token de restablecimiento inválido');
+  return payload;
+}
+
 module.exports = {
   isTwoFactorGloballyEnabled,
   generateSecret,
@@ -63,4 +89,7 @@ module.exports = {
   decryptSecret,
   signTwoFactorChallenge,
   verifyTwoFactorChallenge,
+  passwordFingerprint,
+  signPasswordResetToken,
+  verifyPasswordResetToken,
 };

@@ -107,7 +107,7 @@ const getClient = asyncHandler(async (req, res) => {
   const client = await prisma.clientProfile.findUnique({
     where: { id: req.params.id },
     include: {
-      user: { select: { email: true, isActive: true, lastLoginAt: true, createdAt: true } },
+      user: { select: { email: true, isActive: true, lastLoginAt: true, createdAt: true, twoFactorEnabled: true } },
       documents: { orderBy: { createdAt: 'desc' }, include: { _count: { select: { corrections: true } } } },
       appointments: { orderBy: { requestedDate: 'desc' } },
       supportCases: { orderBy: { createdAt: 'desc' } },

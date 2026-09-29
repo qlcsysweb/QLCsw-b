@@ -31,6 +31,7 @@ const adminMessageController = require('../controllers/adminMessageController');
 // ninguna ruta/interfaz para verlas, por lo que la alerta de vencimiento de
 // contrato quedaba invisible aunque se generara en BD).
 const notificationController = require('../controllers/client/notificationController');
+const twoFactorController = require('../controllers/twoFactorController');
 
 const router = Router();
 
@@ -146,6 +147,7 @@ router.get('/payment-reports/:id/files/:fileId', paymentController.downloadEvide
 router.patch('/payment-reports/:id/transfer-received', paymentController.markTransferReceived);
 router.patch('/payment-reports/:id/guarantee-reported', paymentController.markGuaranteeReported);
 router.patch('/payment-reports/:id', paymentController.reviewPaymentReport);
+router.delete('/payment-reports/:id', paymentController.deletePaymentReport);
 
 // Appointments
 router.get('/availability', appointmentController.listAvailability);
@@ -183,6 +185,7 @@ router.get('/notifications', notificationController.listNotifications);
 router.patch('/notifications/:id/read', notificationController.markAsRead);
 router.post('/notifications/read-all', notificationController.markAllAsRead);
 router.post('/notifications/delete', notificationController.deleteNotifications);
+router.post('/clients/:clientId/2fa/reset', twoFactorController.adminResetClientTwoFactor);
 
 // CORREGIR.xlsx ADMIN 14 — mensajería manual admin→cliente
 router.get('/messages', adminMessageController.listInbox);

@@ -73,7 +73,7 @@ const createProspectSchema = z.object({
   firstName: z.string().min(1),
   lastName: z.string().optional(),
   email: z.string().email(),
-  message: z.string().optional(),
+  message: z.string().max(2000).optional(),
   source: z.string().optional(),
   // Idioma que el visitante tenía seleccionado al enviar el formulario
   // (cookie qlc_language del frontend) — solo se usa para redactar el
@@ -99,12 +99,17 @@ const createProspect = asyncHandler(async (req, res) => {
     data: emailResult.sent ? { emailSentAt: new Date() } : {},
   });
 
+  // El mensaje que escribió la persona viaja en la notificación (recortado)
+  // y completo en Prospectos — antes solo llegaba el aviso sin el texto.
+  const prospectName = `${prospect.firstName}${prospect.lastName ? ` ${prospect.lastName}` : ''}`;
+  const text = (prospect.message || '').trim();
+  const excerpt = text.length > 400 ? `${text.slice(0, 400)}…` : text;
   await notifyAdmins({
     title: 'Nuevo prospecto',
-    message: `${prospect.firstName}${prospect.lastName ? ` ${prospect.lastName}` : ''} (${prospect.email}) solicitó información sobre QLC.`,
+    message: `${prospectName} (${prospect.email}) solicitó información sobre QLC.${excerpt ? ` Mensaje: “${excerpt}”` : ''}`,
     type: 'info',
-    templateKey: 'new_prospect_admin',
-    templateParams: { prospectName: `${prospect.firstName}${prospect.lastName ? ` ${prospect.lastName}` : ''}`, email: prospect.email },
+    templateKey: excerpt ? 'new_prospect_admin_message' : 'new_prospect_admin',
+    templateParams: { prospectName, email: prospect.email, ...(excerpt ? { message: excerpt } : {}) },
   });
 
   res.status(201).json({ ok: true, prospect: updated, email: emailResult });

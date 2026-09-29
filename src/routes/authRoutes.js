@@ -1,7 +1,17 @@
 const { Router } = require('express');
 const rateLimit = require('express-rate-limit');
 const { requireAuth } = require('../middleware/auth');
-const { login, loginWithTwoFactor, logout, me, changePassword, register } = require('../controllers/authController');
+const {
+  login,
+  loginWithTwoFactor,
+  loginWithCode,
+  logout,
+  me,
+  changePassword,
+  register,
+  verifyPasswordReset,
+  completePasswordReset,
+} = require('../controllers/authController');
 const twoFactorController = require('../controllers/twoFactorController');
 
 const router = Router();
@@ -22,14 +32,27 @@ const registerLimiter = rateLimit({
   message: { ok: false, message: 'Demasiados registros desde este origen. Intenta más tarde.' },
 });
 
+// Restablecer contraseña con Google Authenticator: límite estricto para que
+// el código de 6 dígitos no pueda adivinarse por fuerza bruta.
+const passwordResetLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 8,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { ok: false, message: 'Demasiados intentos de restablecimiento. Intenta más tarde.' },
+});
+
 router.post('/login', loginLimiter, login);
+router.post('/password-reset/verify', passwordResetLimiter, verifyPasswordReset);
+router.post('/password-reset/complete', passwordResetLimiter, completePasswordReset);
 router.post('/login/2fa', loginLimiter, loginWithTwoFactor);
+router.post('/login/code', loginLimiter, loginWithCode);
 router.post('/register', registerLimiter, register);
 router.post('/logout', requireAuth, logout);
 router.get('/me', requireAuth, me);
 router.post('/change-password', requireAuth, changePassword);
 
-// CORRECCIÓN 19 — preparado pero inactivo mientras TWO_FA_ENABLED != "true"
+// 2FA (Google Authenticator) — obligatorio (ver utils/twoFactor.js).
 router.get('/2fa/status', requireAuth, twoFactorController.getStatus);
 router.post('/2fa/setup', requireAuth, twoFactorController.startSetup);
 router.post('/2fa/confirm', requireAuth, twoFactorController.confirmSetup);

@@ -10,8 +10,10 @@ const {
   isTwoFactorGloballyEnabled,
   verifyToken,
   decryptSecret,
-  signTwoFactorChallenge,
   verifyTwoFactorChallenge,
+  passwordFingerprint,
+  signPasswordResetToken,
+  verifyPasswordResetToken,
 } = require('../utils/twoFactor');
 
 // CORRECCIÓN 17/18: no existe username global — el correo es el
@@ -27,6 +29,10 @@ function shapeUser(user) {
     email: user.email,
     role: user.role,
     profile: user.role === 'ADMIN' ? user.adminProfile : user.clientProfile,
+    twoFactorEnabled: Boolean(user.twoFactorEnabled),
+    // 2FA obligatorio: true = debe configurar Google Authenticator antes de
+    // usar el panel (el backend ya bloquea el resto de rutas, ver auth.js).
+    twoFactorSetupRequired: isTwoFactorGloballyEnabled() && !user.twoFactorEnabled,
   };
 }
 
@@ -43,15 +49,11 @@ const login = asyncHandler(async (req, res) => {
   const validPassword = await bcrypt.compare(password, user.passwordHash);
   if (!validPassword) throw ApiError.unauthorized('Correo o contraseña incorrectos');
 
-  // CORRECCIÓN 19: mientras TWO_FA_ENABLED no esté activo globalmente, este
-  // bloque nunca se alcanza aunque el usuario tenga twoFactorEnabled=true
-  // (no debería poder tenerlo, porque el endpoint de activación también
-  // está bloqueado por la misma bandera) — el login sigue igual que hoy.
-  if (isTwoFactorGloballyEnabled() && user.twoFactorEnabled) {
-    const tempToken = signTwoFactorChallenge(user.id);
-    return res.json({ ok: true, twoFactorRequired: true, tempToken });
-  }
-
+  // ACCESO CON CONTRASEÑA **O** CON GOOGLE AUTHENTICATOR (decisión de QLC):
+  // la contraseña correcta basta para entrar; el código de Authenticator es
+  // la vía alternativa (ver loginWithCode). Si la cuenta todavía no registró
+  // su Authenticator, la sesión queda limitada a registrarlo
+  // (twoFactorSetupRequired + middleware/auth.js) y no puede omitirlo.
   await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
 
   const token = signToken(user);
@@ -91,6 +93,43 @@ const loginWithTwoFactor = asyncHandler(async (req, res) => {
 
   await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
 
+  const token = signToken(user);
+  res.cookie(process.env.COOKIE_NAME, token, cookieOptions());
+  res.json({ ok: true, token, user: shapeUser(user) });
+});
+
+// INICIO DE SESIÓN CON GOOGLE AUTHENTICATOR (sin contraseña) — correo +
+// código de 6 dígitos. Solo para cuentas que ya registraron su Authenticator.
+// Mismo error genérico para correo inexistente, cuenta sin Authenticator o
+// código incorrecto. Un código ya usado no se acepta otra vez (anti-replay
+// en memoria durante su ventana de validez).
+const loginCodeSchema = z.object({
+  email: z.string().email('Email inválido'),
+  code: z.string().regex(/^\d{6}$/, 'El código debe tener 6 dígitos.'),
+});
+const usedLoginCodes = new Map();
+function consumeLoginCode(userId, code) {
+  const now = Date.now();
+  for (const [key, expires] of usedLoginCodes) if (expires < now) usedLoginCodes.delete(key);
+  const key = `${userId}:${code}`;
+  if (usedLoginCodes.has(key)) return false;
+  usedLoginCodes.set(key, now + 2 * 60 * 1000);
+  return true;
+}
+
+const loginWithCode = asyncHandler(async (req, res) => {
+  if (!isTwoFactorGloballyEnabled()) throw ApiError.forbidden('2FA no está disponible');
+  const { email, code } = loginCodeSchema.parse(req.body);
+  const user = await prisma.user.findUnique({
+    where: { email },
+    include: { adminProfile: true, clientProfile: true },
+  });
+  const secret = user?.isActive && user.twoFactorEnabled ? decryptSecret(user.twoFactorSecretEncrypted) : null;
+  if (!secret || !verifyToken(secret, code) || !consumeLoginCode(user.id, code)) {
+    throw ApiError.unauthorized('Correo o código de Google Authenticator incorrectos.');
+  }
+
+  await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
   const token = signToken(user);
   res.cookie(process.env.COOKIE_NAME, token, cookieOptions());
   res.json({ ok: true, token, user: shapeUser(user) });
@@ -220,4 +259,56 @@ const register = asyncHandler(async (req, res) => {
   res.status(201).json({ ok: true, token, user: shapeUser(user) });
 });
 
-module.exports = { login, loginWithTwoFactor, logout, me, changePassword, register };
+// RESTABLECER CONTRASEÑA DESDE EL LOGIN (sin sesión) — correo + código de
+// Google Authenticator. Mismo error genérico para correo inexistente, cuenta
+// inactiva, cuenta sin Authenticator o código incorrecto: nunca revela si un
+// correo está registrado. Con el código válido se emite un token temporal
+// de un solo uso para fijar la contraseña nueva.
+const resetVerifySchema = z.object({
+  email: z.string().email('Email inválido'),
+  code: z.string().regex(/^\d{6}$/, 'El código debe tener 6 dígitos.'),
+});
+
+const verifyPasswordReset = asyncHandler(async (req, res) => {
+  const { email, code } = resetVerifySchema.parse(req.body);
+  const user = await prisma.user.findUnique({ where: { email } });
+  const secret = user?.isActive && user.twoFactorEnabled ? decryptSecret(user.twoFactorSecretEncrypted) : null;
+  if (!secret || !verifyToken(secret, code)) {
+    throw ApiError.unauthorized('Correo o código de Google Authenticator incorrectos.');
+  }
+  res.json({ ok: true, resetToken: signPasswordResetToken(user) });
+});
+
+const resetCompleteSchema = z.object({
+  resetToken: z.string().min(1),
+  newPassword: z.string().min(8, 'La nueva contraseña debe tener al menos 8 caracteres').max(200),
+});
+
+const completePasswordReset = asyncHandler(async (req, res) => {
+  const { resetToken, newPassword } = resetCompleteSchema.parse(req.body);
+  const expired = () => ApiError.unauthorized('La verificación para restablecer la contraseña expiró. Vuelve a empezar.');
+  let payload;
+  try {
+    payload = verifyPasswordResetToken(resetToken);
+  } catch {
+    throw expired();
+  }
+  const user = await prisma.user.findUnique({ where: { id: payload.sub } });
+  // Uso único: si la contraseña ya cambió, la huella deja de coincidir.
+  if (!user || !user.isActive || payload.pwf !== passwordFingerprint(user.passwordHash)) throw expired();
+  const passwordHash = await bcrypt.hash(newPassword, 12);
+  await prisma.user.update({ where: { id: user.id }, data: { passwordHash } });
+  res.json({ ok: true, message: 'Contraseña actualizada correctamente.' });
+});
+
+module.exports = {
+  login,
+  loginWithTwoFactor,
+  loginWithCode,
+  logout,
+  me,
+  changePassword,
+  register,
+  verifyPasswordReset,
+  completePasswordReset,
+};

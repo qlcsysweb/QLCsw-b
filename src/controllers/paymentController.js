@@ -227,7 +227,49 @@ const reviewPaymentReport = asyncHandler(async (req, res) => {
   res.json({ ok: true, report: updated });
 });
 
+// ELIMINAR REPORTE (ADMIN) — permite borrar un reporte de garantía (incluso
+// ya confirmado) para que el cliente pueda enviar y QLC revisar uno nuevo.
+// Al borrar una garantía CONFIRMADA, la condición de pago de la subcuenta
+// vuelve a PENDIENTE. Un pago de estado de cuenta ya CONFIRMADO no se borra
+// (el estado de cuenta ya quedó pagado: es registro contable).
+// Evidencias: se borran sus filas (cascada) y, en lo posible, sus archivos
+// de Drive — nunca bloquea si Drive falla.
+const deletePaymentReport = asyncHandler(async (req, res) => {
+  const report = await prisma.paymentReport.findUnique({
+    where: { id: req.params.id },
+    include: { evidenceFiles: { select: { driveFileId: true } } },
+  });
+  if (!report) throw ApiError.notFound('Reporte de pago no encontrado');
+  if (report.statementId && report.status === 'APROBADO') {
+    throw ApiError.conflict('Un pago de estado de cuenta ya confirmado no se puede eliminar.');
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.paymentReport.delete({ where: { id: report.id } });
+    if (!report.statementId && report.status === 'APROBADO') {
+      const stillApproved = await tx.paymentReport.count({
+        where: { apiSubaccountId: report.apiSubaccountId, statementId: null, status: 'APROBADO' },
+      });
+      const process = await tx.process.findUnique({ where: { apiSubaccountId: report.apiSubaccountId } });
+      if (!stillApproved && process) {
+        await tx.processCondition.updateMany({
+          where: { processId: process.id, type: 'PAYMENT' },
+          data: { status: 'PENDING' },
+        });
+      }
+    }
+  });
+
+  const driveIds = [...report.evidenceFiles.map((f) => f.driveFileId), report.proofDriveFileId].filter(Boolean);
+  await Promise.all(
+    driveIds.map((id) => driveStorage.deleteDriveFileOnlyWhenAuthorized(id, { authorized: true }).catch(() => {}))
+  );
+
+  res.json({ ok: true });
+});
+
 module.exports = {
+  deletePaymentReport,
   getPaymentConfiguration,
   getPublicReceiveUid,
   updatePaymentConfiguration,
