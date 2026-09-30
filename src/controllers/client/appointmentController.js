@@ -29,7 +29,7 @@ const listAppointments = asyncHandler(async (req, res) => {
     where: { clientId: req.clientProfile.id, NOT: { supportCase: { is: { clientHiddenAt: { not: null } } } } },
     orderBy: { requestedDate: 'desc' },
     include: {
-      apiSubaccount: { select: { id: true, identifier: true, isPrincipal: true } },
+      apiSubaccount: { select: { id: true, isPrincipal: true, slotIndex: true } },
       supportCase: { select: { id: true, caseNumber: true, subject: true } },
     },
   });

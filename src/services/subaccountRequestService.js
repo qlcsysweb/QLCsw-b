@@ -8,6 +8,7 @@
  * eliminación: "desactivar" y "activar" son reversibles y jamás borran la
  * fila ni su historial (estados de cuenta, pagos, documentos).
  */
+const { clientSubaccountLabel } = require('../utils/subaccountLabels');
 const prisma = require('../config/prisma');
 const ApiError = require('../utils/ApiError');
 const { notifyAdmins, notifyClient } = require('../utils/notify');
@@ -98,7 +99,8 @@ async function listRequestsForClient(clientId) {
   return prisma.subaccountRequest.findMany({
     where: { clientId },
     orderBy: { requestedAt: 'desc' },
-    include: { apiSubaccount: { select: { id: true, identifier: true, slotIndex: true } } },
+    // Sin el identificador interno: esta lista la ve el cliente.
+    include: { apiSubaccount: { select: { id: true, slotIndex: true, isPrincipal: true } } },
   });
 }
 
@@ -198,7 +200,7 @@ async function rejectRequest({ requestId, reviewNote, reviewedByUserId }) {
   await notifyClient(request.clientId, {
     title: isDeactivate ? 'Solicitud de desactivación rechazada' : 'Solicitud de nueva subcuenta rechazada',
     message: isDeactivate
-      ? `QLC revisó tu solicitud de desactivar la subcuenta/API ${request.apiSubaccount?.identifier || `#${request.apiSubaccount?.slotIndex}`} y, por ahora, no fue posible autorizarla.${reviewNote ? ` Motivo: ${reviewNote}` : ''}`
+      ? `QLC revisó tu solicitud de desactivar la ${clientSubaccountLabel(request.apiSubaccount)} y, por ahora, no fue posible autorizarla.${reviewNote ? ` Motivo: ${reviewNote}` : ''}`
       : `QLC revisó tu solicitud de subcuenta adicional y, por ahora, no fue posible habilitarla.${reviewNote ? ` Motivo: ${reviewNote}` : ''}`,
     type: 'warning',
     templateKey: isDeactivate ? 'subaccount_deactivate_request_rejected' : 'subaccount_request_rejected',
@@ -260,7 +262,7 @@ async function deactivateSubaccount({ clientId, apiSubaccountId, deactivatedByUs
 
   await notifyClient(clientId, {
     title: 'Subcuenta desactivada',
-    message: `QLC desactivó la subcuenta/API ${subaccount.identifier || `#${subaccount.slotIndex}`} de tu cuenta. Tus estados de cuenta y pagos históricos de esa subcuenta siguen disponibles para consulta.`,
+    message: `QLC desactivó la ${clientSubaccountLabel(subaccount)} de tu cuenta. Tus estados de cuenta y pagos históricos de esa subcuenta siguen disponibles para consulta.`,
     type: 'info',
     templateKey: 'subaccount_deactivated',
     templateParams: { apiSubaccountId },
@@ -294,7 +296,7 @@ async function activateSubaccount({ clientId, apiSubaccountId, activatedByUserId
 
   await notifyClient(clientId, {
     title: 'Subcuenta activada',
-    message: `QLC activó la subcuenta/API ${subaccount.identifier || `#${subaccount.slotIndex}`}. Ya puedes verla en tu panel.`,
+    message: `QLC activó la ${clientSubaccountLabel(subaccount)}. Ya puedes verla en tu panel.`,
     type: 'success',
     templateKey: 'subaccount_activated',
     templateParams: { apiSubaccountId },

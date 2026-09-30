@@ -55,6 +55,7 @@ router.delete('/clients/:id', clientController.deleteClient);
 // cuenta PRINCIPAL; cualquier subcuenta adicional nace de una solicitud del
 // cliente aprobada por un admin, o de una creación manual directa.
 router.post('/clients/:clientId/api-subaccounts', apiSubaccountController.createSubaccount);
+router.get('/api-subaccounts/search', apiSubaccountController.searchByIdentifier);
 router.patch('/api-subaccounts/:id', apiSubaccountController.updateSubaccount);
 router.get('/api-subaccounts/:id/secrets', apiSubaccountController.getSubaccountSecrets);
 // Subcuentas por ESTADO — activar/desactivar, reversible, nunca eliminar.

@@ -1,4 +1,5 @@
 const { z } = require('zod');
+const { clientSubaccountLabel } = require('../utils/subaccountLabels');
 const prisma = require('../config/prisma');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
@@ -33,7 +34,7 @@ const updateCondition = asyncHandler(async (req, res) => {
 
   const process = await prisma.process.findUnique({
     where: { apiSubaccountId: req.params.apiSubaccountId },
-    include: { apiSubaccount: { select: { clientId: true, identifier: true } } },
+    include: { apiSubaccount: { select: { clientId: true, isPrincipal: true, slotIndex: true } } },
   });
   if (!process) throw ApiError.notFound('Proceso no encontrado');
 
@@ -44,10 +45,10 @@ const updateCondition = asyncHandler(async (req, res) => {
 
   await notifyClient(process.apiSubaccount.clientId, {
     title: 'Actualización de tu proceso',
-    message: `${process.apiSubaccount.identifier ? `[${process.apiSubaccount.identifier}] ` : ''}${CONDITION_LABELS[type] || type}: ${status}`,
+    message: `[${clientSubaccountLabel(process.apiSubaccount)}] ${CONDITION_LABELS[type] || type}: ${status}`,
     type: status === 'REJECTED' ? 'warning' : 'info',
     templateKey: 'process_condition_updated',
-    templateParams: { conditionType: type, status, identifier: process.apiSubaccount.identifier, apiSubaccountId: req.params.apiSubaccountId },
+    templateParams: { conditionType: type, status, identifier: clientSubaccountLabel(process.apiSubaccount), apiSubaccountId: req.params.apiSubaccountId },
   });
 
   res.json({ ok: true, condition });
@@ -91,7 +92,7 @@ const activateSubaccount = asyncHandler(async (req, res) => {
 const deactivateSubaccount = asyncHandler(async (req, res) => {
   const process = await prisma.process.findUnique({
     where: { apiSubaccountId: req.params.apiSubaccountId },
-    include: { apiSubaccount: { select: { clientId: true, identifier: true, isPrincipal: true } } },
+    include: { apiSubaccount: { select: { clientId: true, isPrincipal: true, slotIndex: true } } },
   });
   if (!process) throw ApiError.notFound('Proceso no encontrado');
 
@@ -105,8 +106,7 @@ const deactivateSubaccount = asyncHandler(async (req, res) => {
     data: { status: 'REVIEW' },
   });
 
-  const identifier =
-    process.apiSubaccount.identifier || (process.apiSubaccount.isPrincipal ? 'PRINCIPAL' : '');
+  const identifier = clientSubaccountLabel(process.apiSubaccount);
   await notifyClient(process.apiSubaccount.clientId, {
     title: 'Cuenta desactivada',
     message: `Tu cuenta QLC${identifier ? ` (${identifier})` : ''} fue desactivada y vuelve a estar en revisión.`,

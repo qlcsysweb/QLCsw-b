@@ -18,8 +18,11 @@ const ACTIVE_WHERE = { deactivatedAt: null };
 // propio a la subcuenta (mismo valor que muestra el panel del cliente).
 const DEFAULT_REQUIRED_CAPITAL = 100;
 
+// Lo que ve el CLIENTE de su subcuenta: nunca las claves cifradas ni el
+// identificador interno del admin (ej. PCB-1-A-1, ver utils/subaccountLabels).
 function shape(subaccount) {
-  const { apiKeyEncrypted, apiSecretEncrypted, apiPassphraseEncrypted, ...rest } = subaccount;
+  // eslint-disable-next-line no-unused-vars
+  const { apiKeyEncrypted, apiSecretEncrypted, apiPassphraseEncrypted, identifier, ...rest } = subaccount;
   return {
     ...rest,
     hasApiKey: Boolean(apiKeyEncrypted),

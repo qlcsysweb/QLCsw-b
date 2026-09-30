@@ -1,4 +1,5 @@
 const { z } = require('zod');
+const { clientSubaccountLabel } = require('../utils/subaccountLabels');
 const prisma = require('../config/prisma');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
@@ -66,7 +67,9 @@ const createSubaccount = asyncHandler(async (req, res) => {
 });
 
 const updateSubaccountSchema = z.object({
-  identifier: z.string().min(1).nullable().optional(),
+  // IDENTIFICADOR INTERNO (ej. PCB-1-A-1) — obligatorio, editable a voluntad
+  // por el ADMIN desde la sección API Key; nunca se muestra al cliente.
+  identifier: z.string().trim().min(1, 'El identificador interno es obligatorio.').max(60).optional(),
   exchangeName: z.string().min(1).optional(),
   apiKey: z.string().min(1).optional(),
   apiSecret: z.string().min(1).optional(),
@@ -89,6 +92,9 @@ const updateSubaccount = asyncHandler(async (req, res) => {
   if (!existing) throw ApiError.notFound('Subcuenta no encontrada');
   if (existing.deactivatedAt) throw ApiError.conflict('Esta subcuenta está inactiva. Actívala antes de editarla.');
 
+  if (!(data.identifier ?? existing.identifier)) {
+    throw ApiError.badRequest('El identificador interno de la subcuenta (ej. PCB-1-A-1) es obligatorio.');
+  }
   if (data.identifier && data.identifier !== existing.identifier) {
     const clash = await prisma.apiSubaccount.findUnique({ where: { identifier: data.identifier } });
     if (clash) throw ApiError.conflict('Ese identificador ya está en uso por otra subcuenta.');
@@ -153,10 +159,10 @@ const updateSubaccount = asyncHandler(async (req, res) => {
 
     await notifyClient(existing.clientId, {
       title: 'Actualización de tu conexión API',
-      message: `Estado de tu conexión API${updated.identifier ? ` (${updated.identifier})` : ''}: ${updated.status}`,
+      message: `Estado de tu conexión API (${clientSubaccountLabel(updated)}): ${updated.status}`,
       type: updated.status === 'CONECTADA' ? 'success' : 'info',
       templateKey: 'api_connection_status_updated',
-      templateParams: { status: updated.status, identifier: updated.identifier, apiSubaccountId: updated.id },
+      templateParams: { status: updated.status, identifier: clientSubaccountLabel(updated), apiSubaccountId: updated.id },
     });
   }
 
@@ -379,7 +385,31 @@ const listAuditCandidates = asyncHandler(async (req, res) => {
   });
 });
 
+// BUSCADOR POR IDENTIFICADOR (admin) — escribe el identificador (completo o
+// una parte, sin distinguir mayúsculas) y devuelve la subcuenta y el cliente
+// al que está ligada.
+const searchByIdentifier = asyncHandler(async (req, res) => {
+  const q = String(req.query.q || '').trim();
+  if (!q) return res.json({ ok: true, results: [] });
+  const results = await prisma.apiSubaccount.findMany({
+    where: { identifier: { contains: q, mode: 'insensitive' } },
+    orderBy: { identifier: 'asc' },
+    take: 20,
+    select: {
+      id: true,
+      identifier: true,
+      isPrincipal: true,
+      slotIndex: true,
+      status: true,
+      deactivatedAt: true,
+      client: { select: { id: true, username: true, firstName: true, lastName: true } },
+    },
+  });
+  res.json({ ok: true, results });
+});
+
 module.exports = {
+  searchByIdentifier,
   createSubaccount,
   updateSubaccount,
   getSubaccountSecrets,

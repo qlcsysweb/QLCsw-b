@@ -66,7 +66,7 @@ const getDashboard = asyncHandler(async (req, res) => {
 
   const withSummary = subaccounts.map((s) => ({
     subaccount: s,
-    statementSummary: { ...currentStatementSummary(s.statements), apiSubaccountId: s.id, identifier: s.identifier, isPrincipal: s.isPrincipal },
+    statementSummary: { ...currentStatementSummary(s.statements), apiSubaccountId: s.id, slotIndex: s.slotIndex, isPrincipal: s.isPrincipal },
   }));
 
   res.json({
@@ -80,7 +80,6 @@ const getDashboard = asyncHandler(async (req, res) => {
       status: client.status,
       subaccounts: subaccounts.map((s) => ({
         id: s.id,
-        identifier: s.identifier,
         isPrincipal: s.isPrincipal,
         slotIndex: s.slotIndex,
         apiStatus: s.status,

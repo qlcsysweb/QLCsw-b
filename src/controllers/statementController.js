@@ -1,4 +1,5 @@
 const { z } = require('zod');
+const { clientSubaccountLabel } = require('../utils/subaccountLabels');
 const prisma = require('../config/prisma');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
@@ -135,7 +136,8 @@ const createStatement = asyncHandler(async (req, res) => {
 
   let updatedStatement = statement;
   let pdfAttachment = null;
-  const fileName = `Estado_de_cuenta_${subaccount.identifier || subaccount.id}_${periodStart.toISOString().slice(0, 7)}.pdf`;
+  // Nombre y PDF sin el identificador interno (el cliente recibe el archivo).
+  const fileName = `Estado_de_cuenta_${clientSubaccountLabel(subaccount).replace(/[^A-Za-z0-9]+/g, '_') || subaccount.id}_${periodStart.toISOString().slice(0, 7)}.pdf`;
   if (uploadedPdf) {
     // El PDF del admin es obligatorio que quede guardado: si Drive falla, no
     // se deja un estado de cuenta "generado" sin su documento.
@@ -159,7 +161,7 @@ const createStatement = asyncHandler(async (req, res) => {
     try {
       const pdfBuffer = await generateStatementPdf({
         client: subaccount.client,
-        identifier: subaccount.identifier,
+        identifier: clientSubaccountLabel(subaccount),
         model: subaccount.clientModel?.model,
         statement,
       });
@@ -183,7 +185,7 @@ const createStatement = asyncHandler(async (req, res) => {
   // el email al correo real del cliente en la misma acción). El PDF va
   // ADJUNTO al correo y queda descargable dentro de la subcuenta del cliente.
   const month = monthLabel(data.periodEnd);
-  const identifier = subaccount.identifier || (subaccount.isPrincipal ? 'PRINCIPAL' : '');
+  const identifier = clientSubaccountLabel(subaccount);
   const notification = await notifyClient(subaccount.clientId, {
     title: 'Estado de cuenta generado — pendiente de pago',
     message: `Tu estado de cuenta de ${month}${identifier ? ` (subcuenta/API ${identifier})` : ''} fue generado y está PENDIENTE DE PAGO.${pdfAttachment ? ' El PDF del estado de cuenta va adjunto a este correo y también puedes descargarlo desde tu subcuenta en el panel de QLC.' : ''} Dispones de ${STATEMENT_DUE_HOURS} horas para pagarlo mediante Transferencia interna Bitget desde Pagos / Garantía. Si el plazo vence sin pago, la conexión API será desactivada.`,
@@ -241,7 +243,7 @@ async function markPaid(statementId) {
 const markStatementPaid = asyncHandler(async (req, res) => {
   const updated = await markPaid(req.params.id);
   const subaccount = await prisma.apiSubaccount.findUnique({ where: { id: updated.apiSubaccountId } });
-  const identifier = subaccount.identifier || (subaccount.isPrincipal ? 'PRINCIPAL' : '');
+  const identifier = clientSubaccountLabel(subaccount);
   await notifyClient(subaccount.clientId, {
     title: 'Estado de cuenta pagado',
     message: `El pago de tu estado de cuenta${identifier ? ` (subcuenta/API ${identifier})` : ''} fue confirmado por QLC. Estado: PAGADO.`,

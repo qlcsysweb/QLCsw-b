@@ -46,6 +46,8 @@ function currentStatementSummary(statements = []) {
   };
 }
 
+const { clientSubaccountLabel } = require('./subaccountLabels');
+
 function identifierOf(subaccount) {
   return subaccount.identifier || (subaccount.isPrincipal ? 'PRINCIPAL' : subaccount.id);
 }
@@ -76,10 +78,10 @@ async function warnDeadlineApproaching(apiSubaccountId) {
 
   await notifyClient(subaccount.clientId, {
     title: 'Tu estado de cuenta está por vencer',
-    message: `Quedan aproximadamente ${hoursLeft} horas para pagar el estado de cuenta de tu subcuenta/API ${identifier}. Si el plazo vence sin pago, la conexión API se desactivará.`,
+    message: `Quedan aproximadamente ${hoursLeft} horas para pagar el estado de cuenta de tu ${clientSubaccountLabel(subaccount)}. Si el plazo vence sin pago, la conexión API se desactivará.`,
     type: 'warning',
     templateKey: 'statement_deadline_warning',
-    templateParams: { identifier, hoursLeft: String(hoursLeft), apiSubaccountId },
+    templateParams: { identifier: clientSubaccountLabel(subaccount), hoursLeft: String(hoursLeft), apiSubaccountId },
   });
 
   const clientName = `${subaccount.client?.firstName || ''} ${subaccount.client?.lastName || ''}`.trim();
@@ -113,7 +115,7 @@ async function disconnectForOverdue(apiSubaccountId) {
       'El plazo de 72 horas para el pago de tu estado de cuenta venció sin recibir el pago. La conexión API fue desactivada. Se reactivará una vez que el pago haya sido reportado y validado.',
     type: 'warning',
     templateKey: 'api_connection_auto_disconnected',
-    templateParams: { identifier, apiSubaccountId },
+    templateParams: { identifier: clientSubaccountLabel(subaccount), apiSubaccountId },
   });
 
   const clientName = `${subaccount.client?.firstName || ''} ${subaccount.client?.lastName || ''}`.trim();
