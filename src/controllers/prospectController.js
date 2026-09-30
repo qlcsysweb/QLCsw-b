@@ -99,17 +99,17 @@ const createProspect = asyncHandler(async (req, res) => {
     data: emailResult.sent ? { emailSentAt: new Date() } : {},
   });
 
-  // El mensaje que escribió la persona viaja en la notificación (recortado)
-  // y completo en Prospectos — antes solo llegaba el aviso sin el texto.
+  // El mensaje COMPLETO que escribió la persona (máx. 2000 caracteres, ver
+  // createProspectSchema) llega al ADMIN en la notificación del panel, en el
+  // correo (en su propio bloque, con sus saltos de línea) y en Prospectos.
   const prospectName = `${prospect.firstName}${prospect.lastName ? ` ${prospect.lastName}` : ''}`;
   const text = (prospect.message || '').trim();
-  const excerpt = text.length > 400 ? `${text.slice(0, 400)}…` : text;
   await notifyAdmins({
     title: 'Nuevo prospecto',
-    message: `${prospectName} (${prospect.email}) solicitó información sobre QLC.${excerpt ? ` Mensaje: “${excerpt}”` : ''}`,
+    message: `${prospectName} (${prospect.email}) solicitó información sobre QLC.${text ? `\n\nMensaje:\n${text}` : '\n\n(No escribió mensaje.)'}`,
     type: 'info',
-    templateKey: excerpt ? 'new_prospect_admin_message' : 'new_prospect_admin',
-    templateParams: { prospectName, email: prospect.email, ...(excerpt ? { message: excerpt } : {}) },
+    templateKey: text ? 'new_prospect_admin_message' : 'new_prospect_admin',
+    templateParams: { prospectName, email: prospect.email, prospectId: prospect.id, ...(text ? { message: text } : {}) },
   });
 
   res.status(201).json({ ok: true, prospect: updated, email: emailResult });
