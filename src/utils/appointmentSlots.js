@@ -8,27 +8,32 @@
  *   - Un horario ya ocupado por una cita PENDING/AUTORIZADA no vuelve a
  *     ofrecerse (RECHAZADA/CANCELADA sí liberan el horario).
  *
- * Zona horaria: TODO el cálculo se hace en America/Mexico_City (CDMX),
- * zona operativa de QLC. México abolió el horario de verano a nivel
- * nacional en 2022 — CDMX opera todo el año en UTC-6, por eso el offset
- * fijo "-06:00" es seguro aquí (no hay que calcular reglas de DST).
+ * Zona horaria: las citas se agendan y se muestran en UTC (a pedido de QLC).
+ * La disponibilidad del admin (AvailabilitySlot) y la hora guardada en cada
+ * cita (requestedDate + requestedTime) están en UTC. Solo los avisos al ADMIN
+ * agregan la hora de México (mexicoTimeLabel): CDMX opera todo el año en
+ * UTC-6 (sin horario de verano desde 2022), por eso el desfase fijo es seguro.
  */
 const prisma = require('../config/prisma');
 
 const SLOT_INTERVAL_MINUTES = 15;
 const MIN_ADVANCE_MS = 60 * 60 * 1000; // 1 hora
-const CDMX_FIXED_OFFSET = '-06:00';
+const MEXICO_OFFSET_MS = 6 * 60 * 60 * 1000; // CDMX = UTC-6
 
-// Combina una fecha "YYYY-MM-DD" y una hora "HH:MM" interpretadas como hora
-// local de CDMX, devolviendo el instante UTC real correspondiente.
-function cdmxDateTime(dateStr, timeStr) {
-  return new Date(`${dateStr}T${timeStr}:00${CDMX_FIXED_OFFSET}`);
+// Instante real de una cita: fecha "YYYY-MM-DD" + hora "HH:MM" en UTC.
+function appointmentInstant(dateStr, timeStr) {
+  return new Date(`${dateStr}T${timeStr}:00Z`);
 }
 
 function dayOfWeekForDate(dateStr) {
-  // Ancla a mediodía CDMX (18:00 UTC) para evitar cualquier ambigüedad de
-  // día calendario cerca de la medianoche al leer getUTCDay().
-  return new Date(`${dateStr}T12:00:00${CDMX_FIXED_OFFSET}`).getUTCDay();
+  return new Date(`${dateStr}T12:00:00Z`).getUTCDay();
+}
+
+// Fecha "DD/MM/YYYY" y hora "HH:MM" de México para una cita en UTC — para
+// que el ADMIN reciba el aviso en su hora local.
+function mexicoTimeLabel(dateStr, timeStr) {
+  const iso = new Date(appointmentInstant(dateStr, timeStr).getTime() - MEXICO_OFFSET_MS).toISOString();
+  return { date: `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`, time: iso.slice(11, 16) };
 }
 
 function timeToMinutes(hhmm) {
@@ -57,8 +62,8 @@ function generateRangeSlots(startTime, endTime) {
   return slots;
 }
 
-// Devuelve los horarios disponibles reales para una fecha dada: dentro de
-// la disponibilidad activa del admin, con al menos 1 hora de anticipación
+// Devuelve los horarios disponibles reales (UTC) para una fecha dada: dentro
+// de la disponibilidad activa del admin, con al menos 1 hora de anticipación
 // desde "ahora", y excluyendo los ya ocupados por otra cita activa.
 async function getAvailableSlotsForDate(dateStr) {
   const dayOfWeek = dayOfWeekForDate(dateStr);
@@ -75,12 +80,8 @@ async function getAvailableSlotsForDate(dateStr) {
 
   if (allSlots.size === 0) return [];
 
-  // OJO: `requestedDate` se guarda como `new Date("YYYY-MM-DD")`, que
-  // siempre resuelve a medianoche UTC exacta de esa fecha — NO medianoche
-  // CDMX. Por eso la comparación es una igualdad exacta contra ese mismo
-  // instante, nunca un rango anclado a CDMX (ese desfase de 6 horas hacía
-  // que esta consulta nunca encontrara las citas del día, dejando
-  // "disponible" un horario que ya estaba tomado).
+  // `requestedDate` se guarda como `new Date("YYYY-MM-DD")` = medianoche UTC
+  // exacta de esa fecha: la comparación es una igualdad exacta.
   const dateOnlyUtc = new Date(`${dateStr}T00:00:00.000Z`);
   const takenAppointments = await prisma.appointment.findMany({
     where: {
@@ -91,13 +92,12 @@ async function getAvailableSlotsForDate(dateStr) {
   });
   const taken = new Set(takenAppointments.map((a) => a.requestedTime));
 
-  const now = Date.now();
-  const minInstant = now + MIN_ADVANCE_MS;
+  const minInstant = Date.now() + MIN_ADVANCE_MS;
 
   return Array.from(allSlots)
     .sort((a, b) => timeToMinutes(a) - timeToMinutes(b))
     .filter((t) => !taken.has(t))
-    .filter((t) => cdmxDateTime(dateStr, t).getTime() >= minInstant);
+    .filter((t) => appointmentInstant(dateStr, t).getTime() >= minInstant);
 }
 
 // Validación server-side real (nunca confiar solo en el dropdown del
@@ -111,7 +111,8 @@ async function assertSlotIsAvailable(dateStr, timeStr) {
 module.exports = {
   SLOT_INTERVAL_MINUTES,
   MIN_ADVANCE_MS,
-  cdmxDateTime,
+  appointmentInstant,
+  mexicoTimeLabel,
   getAvailableSlotsForDate,
   assertSlotIsAvailable,
 };

@@ -4,10 +4,11 @@ const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const { notifyClient } = require('../utils/notify');
 
+// requestedDate es una fecha-calendario UTC (medianoche UTC): se formatea
+// tal cual, sin convertir de zona (convertirla a México la movía un día atrás).
 function dateLabel(date) {
-  return new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City', year: 'numeric', month: '2-digit', day: '2-digit' }).format(
-    date instanceof Date ? date : new Date(date)
-  );
+  const iso = (date instanceof Date ? date : new Date(date)).toISOString();
+  return `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`;
 }
 
 const listAvailability = asyncHandler(async (req, res) => {
@@ -34,7 +35,8 @@ const setAvailability = asyncHandler(async (req, res) => {
 
   await prisma.$transaction([
     prisma.availabilitySlot.deleteMany({}),
-    prisma.availabilitySlot.createMany({ data: slots }),
+    // Rangos en UTC (ver utils/appointmentSlots.js).
+    prisma.availabilitySlot.createMany({ data: slots.map((s) => ({ ...s, timeZone: 'UTC' })) }),
   ]);
 
   const updated = await prisma.availabilitySlot.findMany({ orderBy: { dayOfWeek: 'asc' } });
@@ -77,6 +79,7 @@ const createAppointment = asyncHandler(async (req, res) => {
       prospectId: data.prospectId,
       requestedDate: new Date(data.requestedDate),
       requestedTime: data.requestedTime,
+      timeZone: 'UTC',
       notes: data.notes,
       status: 'PENDING',
     },
@@ -119,9 +122,9 @@ const updateAppointmentStatus = asyncHandler(async (req, res) => {
     if (status === 'AUTORIZADA') {
       await notifyClient(appointment.clientId, {
         title: 'Tu cita fue confirmada',
-        message: `Tu cita fue confirmada para el ${date} a las ${time}. ¡No lo olvides!`,
+        message: `Tu cita fue confirmada para el ${date} a las ${time} UTC. ¡No lo olvides!`,
         type: 'success',
-        templateKey: 'appointment_confirmed',
+        templateKey: 'appointment_confirmed_utc',
         templateParams: { date, time },
       });
     } else if (status === 'RECHAZADA') {

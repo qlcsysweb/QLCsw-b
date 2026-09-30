@@ -2,7 +2,7 @@ const { z } = require('zod');
 const prisma = require('../../config/prisma');
 const ApiError = require('../../utils/ApiError');
 const asyncHandler = require('../../utils/asyncHandler');
-const { getAvailableSlotsForDate, assertSlotIsAvailable } = require('../../utils/appointmentSlots');
+const { getAvailableSlotsForDate, assertSlotIsAvailable, mexicoTimeLabel } = require('../../utils/appointmentSlots');
 const { notifyAdmins, notifyClient } = require('../../utils/notify');
 
 const listAvailability = asyncHandler(async (req, res) => {
@@ -44,8 +44,9 @@ const listAppointments = asyncHandler(async (req, res) => {
 const createAppointmentSchema = z.object({
   caseNumber: z.coerce.number().int().positive('Debes indicar el número de caso generado previamente.'),
   apiSubaccountId: z.string().min(1, 'Debes indicar la cuenta/subcuenta que se va a revisar.'),
-  requestedDate: z.string(),
-  requestedTime: z.string(),
+  // Fecha y hora de la cita en UTC.
+  requestedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha inválida'),
+  requestedTime: z.string().regex(/^\d{2}:\d{2}$/, 'Hora inválida'),
   notes: z.string().optional(),
 });
 
@@ -88,33 +89,40 @@ const createAppointment = asyncHandler(async (req, res) => {
       apiSubaccountId: subaccount.id,
       requestedDate: new Date(data.requestedDate),
       requestedTime: data.requestedTime,
+      timeZone: 'UTC',
       notes: data.notes,
       status: 'PENDING',
     },
   });
 
   // AUDITORÍA QLC PARTE 8/12 — el admin debe enterarse en cuanto se crea
-  // una solicitud de cita, no solo cuando la revisa manualmente.
+  // una solicitud de cita. La cita es en UTC; al ADMIN se le avisa también
+  // en hora de México (su hora local). Al cliente, solo en UTC.
   const client = await prisma.clientProfile.findUnique({ where: { id: req.clientProfile.id } });
+  const [y, m, d] = data.requestedDate.split('-');
+  const dateUtc = `${d}/${m}/${y}`;
+  const mx = mexicoTimeLabel(data.requestedDate, data.requestedTime);
   await notifyAdmins({
     title: 'Nueva solicitud de cita',
-    message: `${client.firstName} ${client.lastName} solicitó una cita para el ${data.requestedDate} a las ${data.requestedTime} (caso #${data.caseNumber}).`,
+    message: `${client.firstName} ${client.lastName} solicitó una cita para el ${mx.date} a las ${mx.time} hora de México (${dateUtc} ${data.requestedTime} UTC) (caso #${data.caseNumber}).`,
     type: 'info',
-    templateKey: 'appointment_requested',
+    templateKey: 'appointment_requested_utc',
     templateParams: {
       clientName: `${client.firstName} ${client.lastName}`,
-      date: data.requestedDate,
+      date: dateUtc,
       time: data.requestedTime,
+      dateMx: mx.date,
+      timeMx: mx.time,
       appointmentId: appointment.id,
     },
   });
 
   await notifyClient(req.clientProfile.id, {
     title: 'Tu cita ha sido creada con éxito',
-    message: `Tu solicitud de cita para el ${data.requestedDate} a las ${data.requestedTime} fue enviada y espera la respuesta de QLC.`,
+    message: `Tu solicitud de cita para el ${dateUtc} a las ${data.requestedTime} UTC fue enviada y espera la respuesta de QLC.`,
     type: 'info',
-    templateKey: 'appointment_requested_self',
-    templateParams: { date: data.requestedDate, time: data.requestedTime },
+    templateKey: 'appointment_requested_self_utc',
+    templateParams: { date: dateUtc, time: data.requestedTime },
   });
 
   res.status(201).json({ ok: true, appointment });

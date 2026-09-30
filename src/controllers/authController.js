@@ -174,6 +174,22 @@ const changePassword = asyncHandler(async (req, res) => {
 const PRIVACY_NOTICE_VERSION = '2026-09-12';
 const TERMS_VERSION = '2026-09-12';
 
+// Los textos son editables por el ADMIN (CMS → sección "legal"). La versión
+// aceptada es la fecha/hora de la última edición del texto vigente, para
+// poder auditar exactamente qué versión aceptó cada cliente; si nunca se ha
+// editado, es la versión oficial original.
+async function currentLegalVersions() {
+  const rows = await prisma.publicContent.findMany({
+    where: { section: 'legal', key: { in: ['privacy_title', 'privacy_body', 'terms_title', 'terms_body'] } },
+    select: { key: true, updatedAt: true },
+  });
+  const latest = (prefix) => {
+    const dates = rows.filter((r) => r.key.startsWith(prefix)).map((r) => r.updatedAt.getTime());
+    return dates.length ? new Date(Math.max(...dates)).toISOString() : null;
+  };
+  return { privacy: latest('privacy_') || PRIVACY_NOTICE_VERSION, terms: latest('terms_') || TERMS_VERSION };
+}
+
 // CORRECCIÓN 5: registro público directo — crea la cuenta CLIENT completa
 // (User + ClientProfile + Process/condiciones vacías listas para su primera
 // subcuenta) y deja al visitante con sesión iniciada. Ya NO pasa por
@@ -183,9 +199,6 @@ const registerSchema = z.object({
   lastName: z.string().min(1, 'El apellido es obligatorio'),
   email: z.string().email('Email inválido'),
   password: z.string().min(8, 'La contraseña debe tener al menos 8 caracteres'),
-  // CORRECCIÓN 4: se captura una sola vez en el registro y se reutiliza
-  // automáticamente en la generación del contrato — nunca se vuelve a pedir.
-  nationality: z.string().min(1, 'La nacionalidad es obligatoria'),
   privacyAccepted: z.literal(true, {
     errorMap: () => ({ message: 'Debes aceptar el Aviso de Privacidad para continuar.' }),
   }),
@@ -205,6 +218,7 @@ const register = asyncHandler(async (req, res) => {
 
   const passwordHash = await bcrypt.hash(data.password, 12);
   const acceptedAt = new Date();
+  const legalVersions = await currentLegalVersions();
 
   const user = await prisma.user.create({
     data: {
@@ -215,11 +229,10 @@ const register = asyncHandler(async (req, res) => {
         create: {
           firstName: data.firstName,
           lastName: data.lastName,
-          nationality: data.nationality,
           privacyNoticeAcceptedAt: acceptedAt,
-          privacyNoticeVersion: PRIVACY_NOTICE_VERSION,
+          privacyNoticeVersion: legalVersions.privacy,
           termsAcceptedAt: acceptedAt,
-          termsVersion: TERMS_VERSION,
+          termsVersion: legalVersions.terms,
           apiAuthorizationAccepted: true,
           apiAuthorizationAcceptedAt: acceptedAt,
         },

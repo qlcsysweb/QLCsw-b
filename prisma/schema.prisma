@@ -209,9 +209,9 @@ model SecurityConfiguration {
 }
 
 model ClientProfile {
-  id          String       @id @default(cuid())
-  userId      String       @unique
-  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id        String       @id @default(cuid())
+  userId    String       @unique
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   // NOMENCLATURA ÚNICA DEL CLIENTE — "usuario" es un identificador libre
   // (cualquier carácter, máx. 30) que el ADMINISTRADOR asigna para
   // identificar al cliente y nombrar su carpeta de Google Drive. Es
@@ -220,17 +220,14 @@ model ClientProfile {
   // pueden editarla después (ver clientController.updateClient, que la
   // rechaza explícitamente si ya existe). Null = "PENDIENTE DE ASIGNACIÓN":
   // así nace todo registro público; un admin la asigna después.
-  username    String?      @unique @db.VarChar(30)
-  firstName   String
-  lastName    String
-  // CORRECCIÓN 4: capturada en el registro, reutilizada automáticamente en
-  // la generación del contrato — nunca se vuelve a pedir.
-  nationality String?
-  status      ClientStatus @default(PENDING)
-  notes       String?
-  isDemo      Boolean      @default(false)
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
+  username  String?      @unique @db.VarChar(30)
+  firstName String
+  lastName  String
+  status    ClientStatus @default(PENDING)
+  notes     String?
+  isDemo    Boolean      @default(false)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
 
   // Cache de IDs de carpetas de Google Drive (evita crear/buscar carpetas en cada subida)
   driveClientFolderId     String?
@@ -845,6 +842,9 @@ model AvailabilitySlot {
   startTime String // "09:00"
   endTime   String // "17:00"
   isActive  Boolean @default(true)
+  // "UTC" = startTime/endTime en UTC. null = rango antiguo en hora de México;
+  // el backend lo pasa a UTC una sola vez al arrancar (utils/appointmentsUtc.js).
+  timeZone  String?
 
   @@map("availability_slots")
 }
@@ -866,6 +866,9 @@ model Appointment {
   apiSubaccount    ApiSubaccount?    @relation(fields: [apiSubaccountId], references: [id], onDelete: SetNull)
   requestedDate    DateTime
   requestedTime    String
+  // "UTC" = requestedDate/requestedTime en UTC. null = cita antigua en hora
+  // de México; se convierte a UTC una sola vez al arrancar el backend.
+  timeZone         String?
   status           AppointmentStatus @default(PENDING)
   notes            String?
   approvedByUserId String?

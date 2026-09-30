@@ -24,7 +24,7 @@ const guides = [
         <li>20 subcuentas individuales</li>
       </ul>
       <p>Las 20 subcuentas están vinculadas a su cuenta principal y pertenecen exclusivamente a su perfil. Usted no tendrá que registrarse nuevamente para cada subcuenta.</p>
-      <p>Su información general — nombre completo, nacionalidad y documentación correspondiente — queda asociada automáticamente a sus 20 subcuentas.</p>
+      <p>Su información general — nombre completo y documentación correspondiente — queda asociada automáticamente a sus 20 subcuentas.</p>
 
       <h3>2. Configuración de API por subcuenta y capital operativo</h3>
       <p>Cada subcuenta funciona de manera individual y, por seguridad y control operativo, cada una requiere su propia API Key. Aunque todas las subcuentas pertenecen a su mismo perfil, usted deberá configurar la API correspondiente en cada una desde <strong>Subcuentas / API</strong>.</p>
@@ -56,7 +56,7 @@ const guides = [
     contentEn: `
       <h3>1. Your main account and your 20 subaccounts</h3>
       <p>When you complete your registration — personal data, acceptance of the <strong>Privacy Notice</strong> and the <strong>Copytrading Service Terms and Conditions</strong> (including API connection authorization, with no withdrawal permission) — the system automatically creates 1 main account and 20 individual subaccounts, linked to your profile only. You never register again per subaccount.</p>
-      <p>Your general information — full name, nationality and required documentation — is automatically associated with all 20 subaccounts.</p>
+      <p>Your general information — full name and required documentation — is automatically associated with all 20 subaccounts.</p>
       <h3>2. API configuration per subaccount and operating capital</h3>
       <p>Each subaccount works independently and, for security and operational control, requires its own API Key. Configure it from <strong>Subaccounts / API</strong> for each one you use.</p>
       <p>Each subaccount shows the <strong>required operating capital</strong> (in USDT) QLC sets for it — a fixed value you can only view, not edit, so you know how much capital you need available.</p>
@@ -130,7 +130,7 @@ const guides = [
     ├── Subcuenta #2  → Información del cliente + API Key #2
     ├── ...
     └── Subcuenta #20 → Información del cliente + API Key #20</pre>
-      <p>Su información del cliente (nombre, nacionalidad) se registra una sola vez y se asocia automáticamente a las 20 subcuentas. Solo la <strong>API Key</strong> es independiente por subcuenta — nunca se comparte entre ellas.</p>
+      <p>Su información del cliente (nombre) se registra una sola vez y se asocia automáticamente a las 20 subcuentas. Solo la <strong>API Key</strong> es independiente por subcuenta — nunca se comparte entre ellas.</p>
       <h4>Usuario operativo de subcuenta</h4>
       <p>El administrador de QLC asigna manualmente un identificador operativo a cada subcuenta (ejemplo: <code>PCB-1-A-1</code>). Este identificador NO es su usuario de acceso — usted siempre inicia sesión con su correo y contraseña.</p>
     `,
@@ -142,7 +142,7 @@ const guides = [
     ├── Subaccount #2  → Client info + API Key #2
     ├── ...
     └── Subaccount #20 → Client info + API Key #20</pre>
-      <p>Your client information (name, nationality) is registered once and automatically associated with all 20 subaccounts. Only the <strong>API Key</strong> is independent per subaccount.</p>
+      <p>Your client information (name) is registered once and automatically associated with all 20 subaccounts. Only the <strong>API Key</strong> is independent per subaccount.</p>
       <h4>Subaccount operator ID</h4>
       <p>QLC's admin manually assigns an operational identifier to each subaccount (e.g. <code>PCB-1-A-1</code>). This is NOT your login username — you always sign in with your email and password.</p>
     `,

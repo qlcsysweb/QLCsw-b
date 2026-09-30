@@ -52,7 +52,6 @@ const createClientSchema = z.object({
   password: z.string().min(8, 'La contraseña debe tener al menos 8 caracteres'),
   // CORRECCIÓN 4: opcional aquí (el admin puede completarla después desde
   // "Editar cliente") — en el registro público sí es obligatoria.
-  nationality: z.string().optional(),
   notes: z.string().optional(),
 });
 
@@ -168,7 +167,6 @@ const createClient = asyncHandler(async (req, res) => {
           username: data.username,
           firstName: data.firstName,
           lastName: data.lastName,
-          nationality: data.nationality || null,
           notes: data.notes,
           status: 'PENDING',
         },
@@ -210,7 +208,6 @@ const updateClientSchema = z.object({
   lastName: z.string().min(1).optional(),
   email: z.string().email('Email inválido').optional(),
   password: z.string().min(8, 'La contraseña debe tener al menos 8 caracteres').optional(),
-  nationality: z.string().optional(),
   notes: z.string().optional(),
   status: z.enum(['PENDING', 'ACTIVE', 'INACTIVE', 'REVIEW']).optional(),
 });
