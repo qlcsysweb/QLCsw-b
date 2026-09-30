@@ -34,27 +34,6 @@ const listSessions = asyncHandler(async (req, res) => {
   res.json({ ok: true, sessions });
 });
 
-// ARCHIVO DE SESIONES CERRADAS — toda sesión finalizada queda guardada
-// (mensajes y archivos) y el admin la busca por N.º de caso. Sin búsqueda,
-// devuelve las 30 más recientes.
-const listClosedSessions = asyncHandler(async (req, res) => {
-  const caseNumber = Number.parseInt(String(req.query.caseNumber || ''), 10);
-  const sessions = await prisma.chatSession.findMany({
-    where: {
-      status: 'CLOSED',
-      ...(Number.isFinite(caseNumber) ? { appointment: { supportCase: { caseNumber } } } : {}),
-    },
-    orderBy: [{ startedAt: 'desc' }, { createdAt: 'desc' }],
-    take: 30,
-    include: {
-      client: { select: { firstName: true, lastName: true } },
-      appointment: CHAT_APPOINTMENT_SELECT,
-      _count: { select: { messages: true } },
-    },
-  });
-  res.json({ ok: true, sessions });
-});
-
 // CORREGIR(2).xlsx ADMIN 28 — ver/entrar directamente al chat de una cita ya
 // autorizada desde la propia vista de la cita.
 const getSessionByAppointment = asyncHandler(async (req, res) => {
@@ -172,7 +151,6 @@ const downloadSessionPdf = asyncHandler(async (req, res) => {
 
 module.exports = {
   listSessions,
-  listClosedSessions,
   sendFile,
   downloadFile,
   getSessionByAppointment,

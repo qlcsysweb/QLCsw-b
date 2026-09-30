@@ -872,6 +872,8 @@ model Appointment {
   // El ADMIN la borró de su lista de citas. No se elimina: el cliente la
   // conserva y el chat asociado sigue archivado para QLC.
   adminArchivedAt  DateTime?
+  // El CLIENTE la borró de "Mis citas". No se elimina: QLC la conserva.
+  clientHiddenAt   DateTime?
   status           AppointmentStatus @default(PENDING)
   notes            String?
   approvedByUserId String?

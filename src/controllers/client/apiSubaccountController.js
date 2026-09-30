@@ -238,11 +238,11 @@ const reportCapitalDistribution = asyncHandler(async (req, res) => {
     throw ApiError.badRequest('La frase de confirmación no coincide con ninguna de las declaraciones indicadas.');
   }
 
-  // Una confirmación vigente (en revisión o aprobada) para ESTE mismo capital
-  // no se duplica. Si el admin cambia el capital requerido, sí se puede
-  // confirmar de nuevo con el monto nuevo.
+  // Solo se bloquea mientras haya una confirmación EN REVISIÓN (pendiente).
+  // Una vez que QLC la aprueba (o la rechaza), el formulario vuelve a quedar
+  // en ceros y el cliente puede enviar un reporte nuevo cuando sea necesario.
   const active = await prisma.capitalDistributionReport.findFirst({
-    where: { apiSubaccountId: subaccount.id, status: { not: 'RECHAZADO' }, amount: requiredCapital },
+    where: { apiSubaccountId: subaccount.id, status: { in: ['PENDING', 'EN_REVISION'] } },
     select: { id: true },
   });
   if (active) throw ApiError.conflict('Ya confirmaste tu capital operativo para esta subcuenta.');

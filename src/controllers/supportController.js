@@ -33,6 +33,41 @@ const listSupportCases = asyncHandler(async (req, res) => {
   });
 });
 
+// ARCHIVO DE SOPORTE — busca un caso por su N.º (o por id, desde una
+// notificación) aunque ya esté cerrado, con su mensajería (contadores) y
+// TODOS los chats de sus citas (cada chat finalizado queda guardado).
+const lookupSupportCase = asyncHandler(async (req, res) => {
+  const caseNumber = Number.parseInt(String(req.query.caseNumber || '').replace(/^#/, ''), 10);
+  const id = typeof req.query.id === 'string' ? req.query.id : null;
+  if (!Number.isFinite(caseNumber) && !id) throw ApiError.badRequest('Indica el número de caso.');
+  const found = await prisma.supportCase.findFirst({
+    where: Number.isFinite(caseNumber) ? { caseNumber } : { id },
+    include: {
+      client: { select: { firstName: true, lastName: true } },
+      _count: { select: { files: true, messages: true } },
+      messages: { where: { readAt: null, sender: { role: 'CLIENT' } }, select: { id: true } },
+    },
+  });
+  if (!found) throw ApiError.notFound('Caso no encontrado');
+  const chatSessions = await prisma.chatSession.findMany({
+    where: { appointment: { supportCaseId: found.id } },
+    orderBy: [{ startedAt: 'desc' }, { createdAt: 'desc' }],
+    include: {
+      client: { select: { firstName: true, lastName: true } },
+      appointment: {
+        select: { requestedDate: true, requestedTime: true, supportCase: { select: { caseNumber: true, subject: true } } },
+      },
+      _count: { select: { messages: true } },
+    },
+  });
+  const { messages, _count, ...c } = found;
+  res.json({
+    ok: true,
+    case: { ...c, unreadMessages: messages.length, hasUnread: messages.length > 0, messageCount: _count.messages, fileCount: _count.files },
+    chatSessions,
+  });
+});
+
 const createSupportCaseSchema = z.object({
   subject: z.string().min(1),
   message: z.string().min(1),
@@ -150,6 +185,7 @@ const downloadCaseFile = asyncHandler(async (req, res) => {
 });
 
 module.exports = {
+  lookupSupportCase,
   listSupportCases,
   createSupportCase,
   updateSupportCase,

@@ -4,6 +4,7 @@ const ApiError = require('../../utils/ApiError');
 const asyncHandler = require('../../utils/asyncHandler');
 const { getAvailableSlotsForDate, assertSlotIsAvailable, mexicoTimeLabel } = require('../../utils/appointmentSlots');
 const { notifyAdmins, notifyClient } = require('../../utils/notify');
+const { chatOpensAt } = require('../../utils/chatSessions');
 
 const listAvailability = asyncHandler(async (req, res) => {
   const slots = await prisma.availabilitySlot.findMany({
@@ -26,7 +27,8 @@ const listAvailableSlots = asyncHandler(async (req, res) => {
 
 const listAppointments = asyncHandler(async (req, res) => {
   const appointments = await prisma.appointment.findMany({
-    where: { clientId: req.clientProfile.id, NOT: { supportCase: { is: { clientHiddenAt: { not: null } } } } },
+    // Sin las citas que el cliente borró ni las de casos que borró.
+    where: { clientId: req.clientProfile.id, clientHiddenAt: null, NOT: { supportCase: { is: { clientHiddenAt: { not: null } } } } },
     orderBy: { requestedDate: 'desc' },
     include: {
       apiSubaccount: { select: { id: true, isPrincipal: true, slotIndex: true } },
@@ -128,4 +130,25 @@ const createAppointment = asyncHandler(async (req, res) => {
   res.status(201).json({ ok: true, appointment });
 });
 
-module.exports = { listAvailability, listAvailableSlots, listAppointments, createAppointment };
+// BORRAR CITA (cliente) — la quita de "Mis citas"; QLC la conserva (y su
+// chat). No se permite mientras esté pendiente de respuesta o por atender
+// (autorizada cuya hora aún no llega, o con el chat en curso).
+const hideAppointment = asyncHandler(async (req, res) => {
+  const appointment = await prisma.appointment.findFirst({
+    where: { id: req.params.id, clientId: req.clientProfile.id, clientHiddenAt: null },
+    include: { chatSession: { select: { status: true } } },
+  });
+  if (!appointment) throw ApiError.notFound('Cita no encontrada');
+  const opensAt = chatOpensAt(appointment);
+  const busy =
+    appointment.status === 'PENDING' ||
+    (appointment.status === 'AUTORIZADA' &&
+      (appointment.chatSession?.status === 'ACTIVE' || (opensAt && opensAt.getTime() > Date.now())));
+  if (busy) {
+    throw ApiError.conflict('Esta cita está pendiente o por atender. Podrás borrarla cuando termine o sea rechazada.');
+  }
+  await prisma.appointment.update({ where: { id: appointment.id }, data: { clientHiddenAt: new Date() } });
+  res.json({ ok: true });
+});
+
+module.exports = { listAvailability, listAvailableSlots, listAppointments, createAppointment, hideAppointment };

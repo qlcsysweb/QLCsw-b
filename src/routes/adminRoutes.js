@@ -159,6 +159,7 @@ router.patch('/appointments/:id/status', appointmentController.updateAppointment
 
 // Support / Chat
 router.get('/support-cases', supportController.listSupportCases);
+router.get('/support-cases/lookup', supportController.lookupSupportCase);
 router.patch('/support-cases/:id', supportController.updateSupportCase);
 router.get('/support-cases/:id/messages', supportController.listCaseMessages);
 router.post('/support-cases/:id/messages', supportController.sendCaseMessage);
@@ -166,7 +167,6 @@ router.get('/support-cases/:id/files', supportController.listCaseFiles);
 router.post('/support-cases/:id/files', singleCaseFile, supportController.uploadCaseFile);
 router.get('/support-cases/:id/files/:fileId/download', supportController.downloadCaseFile);
 router.get('/chat-sessions', chatController.listSessions);
-router.get('/chat-sessions/closed', chatController.listClosedSessions);
 // CORREGIR(2).xlsx ADMIN 28 — permite ver/entrar directamente al chat de una
 // cita ya autorizada desde la propia vista de la cita.
 router.get('/appointments/:appointmentId/chat-session', chatController.getSessionByAppointment);

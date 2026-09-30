@@ -109,6 +109,7 @@ router.get('/availability', appointmentController.listAvailability);
 router.get('/appointments/available-slots', appointmentController.listAvailableSlots);
 router.get('/appointments', appointmentController.listAppointments);
 router.post('/appointments', appointmentController.createAppointment);
+router.delete('/appointments/:id', appointmentController.hideAppointment);
 
 // CORREGIR.xlsx CLIENTE 07 — "Tu proceso paso a paso" (solo lectura, CMS editable desde ADMIN)
 router.get('/process-steps', processStepController.listStepsPublic);
