@@ -1,7 +1,7 @@
 const { Router } = require('express');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { resolveOwnClientProfile } = require('../middleware/clientAuth');
-const { uploadDocument: uploadDocumentFile, singleCaseFile, evidenceFiles } = require('../middleware/upload');
+const { uploadDocument: uploadDocumentFile, singleCaseFile, evidenceFiles, chatFile } = require('../middleware/upload');
 
 const modelController = require('../controllers/modelController');
 const profileController = require('../controllers/client/profileController');
@@ -84,6 +84,7 @@ router.get('/guides', guideController.listGuides);
 // Soporte
 router.get('/support-cases', supportController.listSupportCases);
 router.post('/support-cases', supportController.createSupportCase);
+router.delete('/support-cases/:id', supportController.hideSupportCase);
 router.get('/support-cases/:id/messages', supportController.listCaseMessages);
 router.post('/support-cases/:id/messages', supportController.sendCaseMessage);
 router.get('/support-cases/:id/files', supportController.listCaseFiles);
@@ -99,6 +100,8 @@ router.get('/appointments/:appointmentId/chat-session', chatController.getSessio
 router.get('/chat/:id', chatController.getSession);
 router.post('/chat/:id/start', chatController.startSession);
 router.post('/chat/:id/messages', chatController.sendMessage);
+router.post('/chat/:id/files', chatFile, chatController.sendFile);
+router.get('/chat/:id/files/:messageId', chatController.downloadFile);
 router.get('/chat/:id/pdf', chatController.downloadSessionPdf);
 
 // Citas

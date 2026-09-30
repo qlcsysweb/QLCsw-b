@@ -4,6 +4,13 @@ const ApiError = require('../../utils/ApiError');
 const asyncHandler = require('../../utils/asyncHandler');
 const { closeExpiredChatSession } = require('../../utils/chatSessionExpiry');
 const { generateChatSessionPdf } = require('../../utils/pdf/chatSessionPdf');
+const {
+  CHAT_APPOINTMENT_SELECT,
+  CHAT_MESSAGE_OMIT,
+  assertChatWindowOpen,
+  createFileMessage,
+  streamChatFile,
+} = require('../../utils/chatSessions');
 
 function isExpired(session) {
   return session.endsAt && new Date() > new Date(session.endsAt);
@@ -13,6 +20,7 @@ const listChatSessions = asyncHandler(async (req, res) => {
   const sessions = await prisma.chatSession.findMany({
     where: { clientId: req.clientProfile.id },
     orderBy: { createdAt: 'desc' },
+    include: { appointment: CHAT_APPOINTMENT_SELECT },
   });
   res.json({ ok: true, sessions });
 });
@@ -31,6 +39,7 @@ const getSessionByAppointment = asyncHandler(async (req, res) => {
 async function getOwnSessionOrThrow(req) {
   const session = await prisma.chatSession.findFirst({
     where: { id: req.params.id, clientId: req.clientProfile.id },
+    include: { appointment: CHAT_APPOINTMENT_SELECT },
   });
   if (!session) throw ApiError.notFound('Sesión de chat no encontrada');
   return session;
@@ -46,6 +55,7 @@ const getSession = asyncHandler(async (req, res) => {
   const messages = await prisma.chatMessage.findMany({
     where: { chatSessionId: session.id },
     orderBy: { createdAt: 'asc' },
+    omit: CHAT_MESSAGE_OMIT,
   });
 
   res.json({ ok: true, session, messages });
@@ -54,6 +64,8 @@ const getSession = asyncHandler(async (req, res) => {
 const startSession = asyncHandler(async (req, res) => {
   const session = await getOwnSessionOrThrow(req);
   if (session.status !== 'SCHEDULED') throw ApiError.badRequest('La sesión ya fue iniciada o cerrada');
+  // Nunca antes de la hora de la cita (UTC), aunque se llame a la API directo.
+  await assertChatWindowOpen(session);
 
   const startedAt = new Date();
   const endsAt = new Date(startedAt.getTime() + session.durationMinutes * 60 * 1000);
@@ -80,9 +92,28 @@ const sendMessage = asyncHandler(async (req, res) => {
 
   const message = await prisma.chatMessage.create({
     data: { chatSessionId: session.id, senderUserId: req.user.id, content },
+    omit: CHAT_MESSAGE_OMIT,
   });
 
   res.status(201).json({ ok: true, message });
+});
+
+// Archivo (imagen o PDF) dentro del chat — mismas reglas que un mensaje:
+// sesión propia, activa y dentro de su tiempo.
+const sendFile = asyncHandler(async (req, res) => {
+  const session = await getOwnSessionOrThrow(req);
+  if (session.status !== 'ACTIVE') throw ApiError.badRequest('El chat no está activo');
+  if (isExpired(session)) {
+    await closeExpiredChatSession(session);
+    throw ApiError.badRequest('El tiempo de la sesión de chat ha finalizado');
+  }
+  const message = await createFileMessage(session, { file: req.file, caption: req.body?.caption, senderUserId: req.user.id });
+  res.status(201).json({ ok: true, message });
+});
+
+const downloadFile = asyncHandler(async (req, res) => {
+  const session = await getOwnSessionOrThrow(req);
+  await streamChatFile(res, session, req.params.messageId);
 });
 
 // PDF de la conversación de la sesión propia — misma verificación de
@@ -118,6 +149,8 @@ const downloadSessionPdf = asyncHandler(async (req, res) => {
 });
 
 module.exports = {
+  sendFile,
+  downloadFile,
   listChatSessions,
   getSessionByAppointment,
   getSession,

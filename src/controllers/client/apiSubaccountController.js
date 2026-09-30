@@ -14,6 +14,9 @@ const subaccountRequestService = require('../../services/subaccountRequestServic
 // subcuenta INACTIVA nunca se borra (conserva su historial), pero tampoco es
 // accesible para el cliente ni adivinando su URL/id.
 const ACTIVE_WHERE = { deactivatedAt: null };
+// Capital operativo mínimo de QLC: se usa cuando el ADMIN no asignó un monto
+// propio a la subcuenta (mismo valor que muestra el panel del cliente).
+const DEFAULT_REQUIRED_CAPITAL = 100;
 
 function shape(subaccount) {
   const { apiKeyEncrypted, apiSecretEncrypted, apiPassphraseEncrypted, ...rest } = subaccount;
@@ -222,9 +225,10 @@ const reportCapitalDistribution = asyncHandler(async (req, res) => {
     where: { id: req.params.id, clientId: req.clientProfile.id, ...ACTIVE_WHERE },
   });
   if (!subaccount) throw ApiError.notFound('Subcuenta no encontrada');
-  if (subaccount.requiredCapital == null || Number(subaccount.requiredCapital) <= 0) {
-    throw ApiError.badRequest('QLC todavía no configuró el capital operativo requerido para esta subcuenta.');
-  }
+  // Si el ADMIN no asignó un monto a la subcuenta, aplica el capital mínimo
+  // de QLC (100 USDT). Siempre se lee de la BD / constante, nunca del body.
+  const requiredCapital =
+    subaccount.requiredCapital != null && Number(subaccount.requiredCapital) > 0 ? subaccount.requiredCapital : DEFAULT_REQUIRED_CAPITAL;
 
   const confirmationLanguage = declarationLanguage(confirmation);
   if (!confirmationLanguage) {
@@ -235,7 +239,7 @@ const reportCapitalDistribution = asyncHandler(async (req, res) => {
   // no se duplica. Si el admin cambia el capital requerido, sí se puede
   // confirmar de nuevo con el monto nuevo.
   const active = await prisma.capitalDistributionReport.findFirst({
-    where: { apiSubaccountId: subaccount.id, status: { not: 'RECHAZADO' }, amount: subaccount.requiredCapital },
+    where: { apiSubaccountId: subaccount.id, status: { not: 'RECHAZADO' }, amount: requiredCapital },
     select: { id: true },
   });
   if (active) throw ApiError.conflict('Ya confirmaste tu capital operativo para esta subcuenta.');
@@ -243,7 +247,7 @@ const reportCapitalDistribution = asyncHandler(async (req, res) => {
   const report = await prisma.capitalDistributionReport.create({
     data: {
       apiSubaccountId: subaccount.id,
-      amount: subaccount.requiredCapital,
+      amount: requiredCapital,
       // Declaración autorizada (forma canónica) + idioma que usó el cliente.
       declaration: CAPITAL_DECLARATIONS[confirmationLanguage],
       confirmationLanguage,

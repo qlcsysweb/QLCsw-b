@@ -4,12 +4,14 @@ const ApiError = require('../../utils/ApiError');
 const asyncHandler = require('../../utils/asyncHandler');
 const { notifyAdmins, notifyClient } = require('../../utils/notify');
 const { saveCaseFile, streamCaseFile, CASE_FILE_SELECT } = require('../../utils/supportCaseFiles');
+const { chatOpensAt } = require('../../utils/chatSessions');
 
 // Cada caso incluye el indicador de mensajes NUEVOS (mensajes del equipo QLC
 // que el cliente todavía no abrió) y su conteo de archivos.
 const listSupportCases = asyncHandler(async (req, res) => {
   const cases = await prisma.supportCase.findMany({
-    where: { clientId: req.clientProfile.id },
+    // Los casos que el cliente borró ya no se le muestran (QLC los conserva).
+    where: { clientId: req.clientProfile.id, clientHiddenAt: null },
     orderBy: { createdAt: 'desc' },
     include: {
       _count: { select: { files: true, messages: true } },
@@ -155,7 +157,37 @@ const downloadCaseFile = asyncHandler(async (req, res) => {
   await streamCaseFile(res, file);
 });
 
+// BORRAR CASO (cliente) — lo quita de SU vista; QLC conserva el caso, sus
+// mensajes, archivos y el historial del chat. No se permite mientras el caso
+// tenga una cita por atender (pendiente, o autorizada que aún no pasa o con
+// el chat en curso).
+const hideSupportCase = asyncHandler(async (req, res) => {
+  const supportCase = await prisma.supportCase.findFirst({
+    where: { id: req.params.id, clientId: req.clientProfile.id, clientHiddenAt: null },
+    include: {
+      appointments: {
+        select: { status: true, requestedDate: true, requestedTime: true, chatSession: { select: { status: true } } },
+      },
+    },
+  });
+  if (!supportCase) throw ApiError.notFound('Caso no encontrado');
+  const now = Date.now();
+  const busy = supportCase.appointments.some((a) => {
+    if (a.status === 'PENDING') return true;
+    if (a.status !== 'AUTORIZADA') return false;
+    if (a.chatSession?.status === 'ACTIVE') return true;
+    const opensAt = chatOpensAt(a);
+    return opensAt ? opensAt.getTime() > now : false;
+  });
+  if (busy) {
+    throw ApiError.conflict('Este caso tiene una cita pendiente o por atender. Podrás borrarlo cuando la cita termine.');
+  }
+  await prisma.supportCase.update({ where: { id: supportCase.id }, data: { clientHiddenAt: new Date() } });
+  res.json({ ok: true });
+});
+
 module.exports = {
+  hideSupportCase,
   listSupportCases,
   createSupportCase,
   listCaseMessages,

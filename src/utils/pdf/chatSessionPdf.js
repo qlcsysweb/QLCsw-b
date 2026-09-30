@@ -37,7 +37,9 @@ function generateChatSessionPdf({ session, client, messages, participantNames })
     messages.forEach((m) => {
       const name = participantNames[m.senderUserId] || 'Usuario';
       doc.fillColor('#0d131a').text(`${name} — ${formatCdmx(m.createdAt)}`);
-      doc.fillColor('#3a4550').text(m.content);
+      if (m.content) doc.fillColor('#3a4550').text(m.content);
+      // Archivo enviado en el chat (queda guardado en Drive; aquí solo su nombre).
+      if (m.fileName) doc.fillColor('#3a4550').text(`[Archivo adjunto: ${m.fileName}]`);
       doc.moveDown(0.6);
     });
 

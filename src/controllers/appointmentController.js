@@ -47,6 +47,8 @@ const listAppointments = asyncHandler(async (req, res) => {
   const { status, clientId } = req.query;
   const appointments = await prisma.appointment.findMany({
     where: {
+      // Las citas que el admin borró de su lista no se muestran (se conservan).
+      adminArchivedAt: null,
       ...(status ? { status } : {}),
       ...(clientId ? { clientId } : {}),
     },
@@ -149,7 +151,22 @@ const updateAppointmentStatus = asyncHandler(async (req, res) => {
   res.json({ ok: true, appointment: updated });
 });
 
+// BORRAR CITA (admin) — la quita de la lista de citas del admin. No se
+// elimina de la base: el cliente conserva su historial y el chat asociado
+// queda archivado. Una solicitud PENDIENTE primero debe autorizarse o
+// rechazarse (así el cliente siempre recibe respuesta).
+const archiveAppointment = asyncHandler(async (req, res) => {
+  const appointment = await prisma.appointment.findFirst({ where: { id: req.params.id, adminArchivedAt: null } });
+  if (!appointment) throw ApiError.notFound('Cita no encontrada');
+  if (appointment.status === 'PENDING') {
+    throw ApiError.conflict('Primero autoriza o rechaza la solicitud de cita antes de borrarla.');
+  }
+  await prisma.appointment.update({ where: { id: appointment.id }, data: { adminArchivedAt: new Date() } });
+  res.json({ ok: true });
+});
+
 module.exports = {
+  archiveAppointment,
   listAvailability,
   setAvailability,
   listAppointments,

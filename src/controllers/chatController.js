@@ -4,9 +4,19 @@ const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const { closeExpiredChatSession } = require('../utils/chatSessionExpiry');
 const { generateChatSessionPdf } = require('../utils/pdf/chatSessionPdf');
+const {
+  CHAT_APPOINTMENT_SELECT,
+  CHAT_MESSAGE_OMIT,
+  assertChatWindowOpen,
+  createFileMessage,
+  streamChatFile,
+} = require('../utils/chatSessions');
 
 async function getSessionOrThrow(id) {
-  const session = await prisma.chatSession.findUnique({ where: { id } });
+  const session = await prisma.chatSession.findUnique({
+    where: { id },
+    include: { appointment: CHAT_APPOINTMENT_SELECT, client: { select: { firstName: true, lastName: true } } },
+  });
   if (!session) throw ApiError.notFound('Sesión de chat no encontrada');
   return session;
 }
@@ -19,7 +29,28 @@ const listSessions = asyncHandler(async (req, res) => {
   const sessions = await prisma.chatSession.findMany({
     where: { status: { in: ['SCHEDULED', 'ACTIVE'] } },
     orderBy: { createdAt: 'desc' },
-    include: { client: { select: { firstName: true, lastName: true } } },
+    include: { client: { select: { firstName: true, lastName: true } }, appointment: CHAT_APPOINTMENT_SELECT },
+  });
+  res.json({ ok: true, sessions });
+});
+
+// ARCHIVO DE SESIONES CERRADAS — toda sesión finalizada queda guardada
+// (mensajes y archivos) y el admin la busca por N.º de caso. Sin búsqueda,
+// devuelve las 30 más recientes.
+const listClosedSessions = asyncHandler(async (req, res) => {
+  const caseNumber = Number.parseInt(String(req.query.caseNumber || ''), 10);
+  const sessions = await prisma.chatSession.findMany({
+    where: {
+      status: 'CLOSED',
+      ...(Number.isFinite(caseNumber) ? { appointment: { supportCase: { caseNumber } } } : {}),
+    },
+    orderBy: [{ startedAt: 'desc' }, { createdAt: 'desc' }],
+    take: 30,
+    include: {
+      client: { select: { firstName: true, lastName: true } },
+      appointment: CHAT_APPOINTMENT_SELECT,
+      _count: { select: { messages: true } },
+    },
   });
   res.json({ ok: true, sessions });
 });
@@ -42,6 +73,7 @@ const getSession = asyncHandler(async (req, res) => {
   const messages = await prisma.chatMessage.findMany({
     where: { chatSessionId: session.id },
     orderBy: { createdAt: 'asc' },
+    omit: CHAT_MESSAGE_OMIT,
   });
 
   res.json({ ok: true, session, messages });
@@ -50,6 +82,8 @@ const getSession = asyncHandler(async (req, res) => {
 const startSession = asyncHandler(async (req, res) => {
   const session = await getSessionOrThrow(req.params.id);
   if (session.status !== 'SCHEDULED') throw ApiError.badRequest('La sesión ya fue iniciada o cerrada');
+  // El admin tampoco puede adelantar el chat a la hora de la cita (UTC).
+  await assertChatWindowOpen(session);
 
   const startedAt = new Date();
   const endsAt = new Date(startedAt.getTime() + session.durationMinutes * 60 * 1000);
@@ -76,9 +110,26 @@ const sendMessage = asyncHandler(async (req, res) => {
 
   const message = await prisma.chatMessage.create({
     data: { chatSessionId: session.id, senderUserId: req.user.id, content },
+    omit: CHAT_MESSAGE_OMIT,
   });
 
   res.status(201).json({ ok: true, message });
+});
+
+const sendFile = asyncHandler(async (req, res) => {
+  const session = await getSessionOrThrow(req.params.id);
+  if (session.status !== 'ACTIVE') throw ApiError.badRequest('El chat no está activo');
+  if (isExpired(session)) {
+    await closeExpiredChatSession(session);
+    throw ApiError.badRequest('El tiempo de la sesión de chat ha finalizado');
+  }
+  const message = await createFileMessage(session, { file: req.file, caption: req.body?.caption, senderUserId: req.user.id });
+  res.status(201).json({ ok: true, message });
+});
+
+const downloadFile = asyncHandler(async (req, res) => {
+  const session = await getSessionOrThrow(req.params.id);
+  await streamChatFile(res, session, req.params.messageId);
 });
 
 const closeSession = asyncHandler(async (req, res) => {
@@ -121,6 +172,9 @@ const downloadSessionPdf = asyncHandler(async (req, res) => {
 
 module.exports = {
   listSessions,
+  listClosedSessions,
+  sendFile,
+  downloadFile,
   getSessionByAppointment,
   getSession,
   startSession,

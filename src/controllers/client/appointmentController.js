@@ -26,7 +26,7 @@ const listAvailableSlots = asyncHandler(async (req, res) => {
 
 const listAppointments = asyncHandler(async (req, res) => {
   const appointments = await prisma.appointment.findMany({
-    where: { clientId: req.clientProfile.id },
+    where: { clientId: req.clientProfile.id, NOT: { supportCase: { is: { clientHiddenAt: { not: null } } } } },
     orderBy: { requestedDate: 'desc' },
     include: {
       apiSubaccount: { select: { id: true, identifier: true, isPrincipal: true } },
@@ -54,7 +54,7 @@ const createAppointment = asyncHandler(async (req, res) => {
   const data = createAppointmentSchema.parse(req.body);
 
   const supportCase = await prisma.supportCase.findFirst({
-    where: { caseNumber: data.caseNumber, clientId: req.clientProfile.id },
+    where: { caseNumber: data.caseNumber, clientId: req.clientProfile.id, clientHiddenAt: null },
   });
   if (!supportCase) {
     throw ApiError.badRequest('El número de caso indicado no existe o no pertenece a tu cuenta.');

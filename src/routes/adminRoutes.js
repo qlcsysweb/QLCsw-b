@@ -1,6 +1,6 @@
 const { Router } = require('express');
 const { requireAuth, requireRole } = require('../middleware/auth');
-const { uploadDocument: uploadDocumentFile, uploadMedia, singleCaseFile, singleStatementPdf, messageFiles } = require('../middleware/upload');
+const { uploadDocument: uploadDocumentFile, uploadMedia, singleCaseFile, singleStatementPdf, messageFiles, chatFile } = require('../middleware/upload');
 
 const dashboardController = require('../controllers/dashboardController');
 const clientController = require('../controllers/clientController');
@@ -153,6 +153,7 @@ router.delete('/payment-reports/:id', paymentController.deletePaymentReport);
 router.get('/availability', appointmentController.listAvailability);
 router.put('/availability', appointmentController.setAvailability);
 router.get('/appointments', appointmentController.listAppointments);
+router.delete('/appointments/:id', appointmentController.archiveAppointment);
 router.patch('/appointments/:id/status', appointmentController.updateAppointmentStatus);
 
 // Support / Chat
@@ -164,12 +165,15 @@ router.get('/support-cases/:id/files', supportController.listCaseFiles);
 router.post('/support-cases/:id/files', singleCaseFile, supportController.uploadCaseFile);
 router.get('/support-cases/:id/files/:fileId/download', supportController.downloadCaseFile);
 router.get('/chat-sessions', chatController.listSessions);
+router.get('/chat-sessions/closed', chatController.listClosedSessions);
 // CORREGIR(2).xlsx ADMIN 28 — permite ver/entrar directamente al chat de una
 // cita ya autorizada desde la propia vista de la cita.
 router.get('/appointments/:appointmentId/chat-session', chatController.getSessionByAppointment);
 router.get('/chat/:id', chatController.getSession);
 router.post('/chat/:id/start', chatController.startSession);
 router.post('/chat/:id/messages', chatController.sendMessage);
+router.post('/chat/:id/files', chatFile, chatController.sendFile);
+router.get('/chat/:id/files/:messageId', chatController.downloadFile);
 router.post('/chat/:id/close', chatController.closeSession);
 router.get('/chat/:id/pdf', chatController.downloadSessionPdf);
 

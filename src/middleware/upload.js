@@ -128,7 +128,20 @@ function messageFiles(req, res, next) {
   });
 }
 
+// ARCHIVO del chat de citas (cliente o admin): uno por mensaje, imagen o PDF,
+// máx. 10 MB. Campo multipart: "file".
+function chatFile(req, res, next) {
+  messageUpload.single('file')(req, res, (err) => {
+    if (!err) return next();
+    if (err.code === 'LIMIT_FILE_SIZE') return next(ApiError.badRequest('Cada archivo puede pesar como máximo 10 MB.'));
+    if (err.code === 'LIMIT_UNEXPECTED_FILE') return next(ApiError.badRequest('Adjunta un solo archivo por mensaje.'));
+    if (err instanceof ApiError) return next(err);
+    return next(ApiError.badRequest('No se pudieron procesar los archivos adjuntos.'));
+  });
+}
+
 module.exports = {
+  chatFile,
   messageFiles,
   MAX_MESSAGE_FILE_BYTES,
   uploadDocument,

@@ -869,6 +869,9 @@ model Appointment {
   // "UTC" = requestedDate/requestedTime en UTC. null = cita antigua en hora
   // de México; se convierte a UTC una sola vez al arrancar el backend.
   timeZone         String?
+  // El ADMIN la borró de su lista de citas. No se elimina: el cliente la
+  // conserva y el chat asociado sigue archivado para QLC.
+  adminArchivedAt  DateTime?
   status           AppointmentStatus @default(PENDING)
   notes            String?
   approvedByUserId String?
@@ -886,18 +889,21 @@ model Appointment {
 // ==========================================================
 
 model SupportCase {
-  id         String            @id @default(cuid())
+  id             String            @id @default(cuid())
   // Número de caso legible/correlativo — lo que el cliente y el admin
   // realmente usan para identificar el caso (el id sigue existiendo para
   // relaciones internas, pero nunca se muestra en la interfaz).
-  caseNumber Int               @unique @default(autoincrement())
-  clientId   String
-  client     ClientProfile     @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  subject    String
-  message    String
-  status     SupportCaseStatus @default(OPEN)
-  createdAt  DateTime          @default(now())
-  closedAt   DateTime?
+  caseNumber     Int               @unique @default(autoincrement())
+  clientId       String
+  client         ClientProfile     @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  subject        String
+  message        String
+  status         SupportCaseStatus @default(OPEN)
+  createdAt      DateTime          @default(now())
+  closedAt       DateTime?
+  // El cliente lo borró de SU vista. QLC conserva el caso completo (y su
+  // historial de chat) internamente.
+  clientHiddenAt DateTime?
 
   appointments Appointment[]
   messages     SupportCaseMessage[]
@@ -935,6 +941,13 @@ model ChatMessage {
   senderUserId  String
   sender        User        @relation("ChatMessageSender", fields: [senderUserId], references: [id])
   content       String
+  // Archivo adjunto del mensaje (opcional): el binario vive en Google Drive,
+  // aquí solo la metadata. content puede ir vacío si solo se envía archivo.
+  fileName      String?
+  mimeType      String?
+  sizeBytes     Int?
+  driveFileId   String?
+  driveFolderId String?
   createdAt     DateTime    @default(now())
 
   @@map("chat_messages")
