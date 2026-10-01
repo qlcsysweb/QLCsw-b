@@ -4,7 +4,7 @@
  *  - Ventana de hora: el chat de una cita solo puede INICIARSE a partir de la
  *    hora agendada (UTC). Antes solo lo bloqueaba la pantalla del cliente; el
  *    servidor ahora lo exige a ambos lados (el admin tampoco puede adelantarlo).
- *  - Archivos: cada mensaje puede llevar un archivo (imagen o PDF, 10 MB). El
+ *  - Archivos: cada mensaje puede llevar un archivo (foto o documento, 10 MB). El
  *    binario va a Google Drive (carpeta "Otros" del cliente); NeonDB solo
  *    guarda la metadata. Nunca se expone el enlace de Drive: se sirve por la
  *    API autenticada.
@@ -12,7 +12,7 @@
 const prisma = require('../config/prisma');
 const ApiError = require('./ApiError');
 const driveStorage = require('../services/driveStorageService');
-const { assertSafeFiles } = require('./fileSignature');
+const { assertChatFile } = require('./fileSignature');
 const { safeFileName } = require('./supportCaseFiles');
 const { streamEvidenceFile } = require('./paymentEvidence');
 const { appointmentInstant, mexicoTimeLabel } = require('./appointmentSlots');
@@ -56,7 +56,7 @@ async function assertChatWindowOpen(session) {
 // controlador (dueño, estado y tiempo).
 async function createFileMessage(session, { file, caption, senderUserId }) {
   if (!file) throw ApiError.badRequest('Adjunta un archivo.');
-  assertSafeFiles([file], { maxBytes: MAX_MESSAGE_FILE_BYTES, maxLabel: '10 MB' });
+  const mimeType = assertChatFile(file, { maxBytes: MAX_MESSAGE_FILE_BYTES, maxLabel: '10 MB' });
   if (!(await driveStorage.isConfigured())) {
     throw ApiError.serviceUnavailable('No pudimos conectar con el almacenamiento de documentos para guardar los adjuntos.');
   }
@@ -66,7 +66,7 @@ async function createFileMessage(session, { file, caption, senderUserId }) {
   let folderId;
   try {
     folderId = await driveStorage.getOrCreateSubfolder(client, 'other');
-    uploaded = await driveStorage.uploadFileToDrive(file.buffer, { folderId, fileName, mimeType: file.mimetype });
+    uploaded = await driveStorage.uploadFileToDrive(file.buffer, { folderId, fileName, mimeType });
   } catch {
     throw ApiError.serviceUnavailable('No se pudieron guardar los archivos adjuntos. Intenta nuevamente.');
   }
@@ -76,7 +76,7 @@ async function createFileMessage(session, { file, caption, senderUserId }) {
       senderUserId,
       content: String(caption || '').trim().slice(0, 2000),
       fileName,
-      mimeType: file.mimetype,
+      mimeType,
       sizeBytes: file.size,
       driveFileId: uploaded.id,
       driveFolderId: folderId,

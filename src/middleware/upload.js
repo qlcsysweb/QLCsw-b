@@ -128,10 +128,16 @@ function messageFiles(req, res, next) {
   });
 }
 
-// ARCHIVO del chat de citas (cliente o admin): uno por mensaje, imagen o PDF,
-// máx. 10 MB. Campo multipart: "file".
+// ARCHIVO del chat de citas (cliente o admin): uno por mensaje, foto o
+// documento, máx. 10 MB. Campo multipart: "file". El tipo y el contenido se
+// validan en utils/fileSignature.assertChatFile.
+const chatUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_MESSAGE_FILE_BYTES, files: 1 },
+});
+
 function chatFile(req, res, next) {
-  messageUpload.single('file')(req, res, (err) => {
+  chatUpload.single('file')(req, res, (err) => {
     if (!err) return next();
     if (err.code === 'LIMIT_FILE_SIZE') return next(ApiError.badRequest('Cada archivo puede pesar como máximo 10 MB.'));
     if (err.code === 'LIMIT_UNEXPECTED_FILE') return next(ApiError.badRequest('Adjunta un solo archivo por mensaje.'));
