@@ -50,9 +50,32 @@ const listPaymentReports = asyncHandler(async (req, res) => {
       proofDriveFileId: true,
       proofFileName: true,
       evidenceFiles: { select: EVIDENCE_FILE_SELECT, orderBy: { createdAt: 'asc' } },
+      clientHiddenAt: true,
     },
   });
-  res.json({ ok: true, reports });
+  // Los borrados por el cliente se envían marcados (clientHidden): siguen
+  // contando para el estado del pago y el panel solo los quita del historial.
+  res.json({
+    ok: true,
+    reports: reports.map(({ clientHiddenAt, ...r }) => ({ ...r, clientHidden: Boolean(clientHiddenAt) })),
+  });
+});
+
+// BORRAR DE "TRANSFERENCIAS REPORTADAS" (cliente) — solo reportes ya
+// revisados por QLC (aprobados o rechazados). Se oculta únicamente para el
+// cliente; el admin conserva el registro completo.
+const hidePaymentReport = asyncHandler(async (req, res) => {
+  const report = await prisma.paymentReport.findUnique({
+    where: { id: req.params.id },
+    select: { id: true, apiSubaccountId: true, status: true, clientHiddenAt: true },
+  });
+  if (!report || report.clientHiddenAt) throw ApiError.notFound('Reporte no encontrado');
+  await assertOwnsSubaccount(req.clientProfile.id, report.apiSubaccountId);
+  if (!['APROBADO', 'RECHAZADO'].includes(report.status)) {
+    throw ApiError.badRequest('Este reporte sigue en revisión; podrás borrarlo cuando QLC lo revise.');
+  }
+  await prisma.paymentReport.update({ where: { id: report.id }, data: { clientHiddenAt: new Date() } });
+  res.json({ ok: true });
 });
 
 // Evidencia propia: se valida que el reporte pertenezca a una subcuenta del
@@ -308,6 +331,7 @@ const downloadPaymentProof = asyncHandler(async (req, res) => {
 module.exports = {
   getSubaccountPaymentData,
   listPaymentReports,
+  hidePaymentReport,
   createPaymentReport,
   correctPaymentReport,
   downloadPaymentProof,

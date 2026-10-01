@@ -68,11 +68,13 @@ router.get('/payment-reports/:id/proof', paymentController.downloadPaymentProof)
 router.get('/payment-reports/:id/files/:fileId', paymentController.downloadEvidenceFile);
 // Corregir un reporte RECHAZADO (mismo registro, vuelve a revisión) — multipart.
 router.put('/payment-reports/:id', evidenceFiles, paymentController.correctPaymentReport);
+router.delete('/payment-reports/:id', paymentController.hidePaymentReport);
 
 // Estado de cuenta — estado actual por subcuenta (NO GENERADO / PENDIENTE
 // DE PAGO / PAGADO / VENCIDO SIN PAGAR) y descarga del PDF.
 router.get('/api-subaccounts/:apiSubaccountId/statements', statementController.listStatements);
 router.get('/statements/:id/download', statementController.downloadStatementFile);
+router.delete('/statements/:id', statementController.hideStatement);
 
 // Liga hacia la plataforma externa (CORRECCIÓN 10) — solo lectura para el cliente
 router.get('/platform-link', platformSettingsController.getPlatformLinkForClient);

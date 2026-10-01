@@ -42,11 +42,20 @@ const listStatements = asyncHandler(async (req, res) => {
       expiresAt: true,
       paidAt: true,
       pdfDriveFileId: true,
+      clientHiddenAt: true,
     },
   });
+  // Los borrados por el cliente se envían marcados (clientHidden) en vez de
+  // omitirse: el estado ACTUAL se sigue calculando con la lista completa y el
+  // panel solo los quita de "Estados de cuenta anteriores".
   res.json({
     ok: true,
-    statements: statements.map(({ pdfDriveFileId, ...s }) => ({ ...s, hasPdf: Boolean(pdfDriveFileId), status: effectiveStatementStatus(s) })),
+    statements: statements.map(({ pdfDriveFileId, clientHiddenAt, ...s }) => ({
+      ...s,
+      hasPdf: Boolean(pdfDriveFileId),
+      status: effectiveStatementStatus(s),
+      clientHidden: Boolean(clientHiddenAt),
+    })),
     current: currentStatementSummary(statements),
   });
 });
@@ -64,4 +73,24 @@ const downloadStatementFile = asyncHandler(async (req, res) => {
   stream.pipe(res);
 });
 
-module.exports = { listStatements, downloadStatementFile };
+// BORRAR DE "ESTADOS DE CUENTA ANTERIORES" (cliente) — solo estados de
+// cuenta PAGADOS y nunca el actual (el más reciente). Se oculta únicamente
+// para el cliente; el admin conserva el registro completo.
+const hideStatement = asyncHandler(async (req, res) => {
+  const statement = await prisma.statement.findUnique({ where: { id: req.params.id } });
+  if (!statement || statement.clientHiddenAt) throw ApiError.notFound('Estado de cuenta no encontrado');
+  await assertOwnsSubaccount(req.clientProfile.id, statement.apiSubaccountId);
+  const latest = await prisma.statement.findFirst({
+    where: { apiSubaccountId: statement.apiSubaccountId },
+    orderBy: { generatedAt: 'desc' },
+    select: { id: true },
+  });
+  if (latest?.id === statement.id) throw ApiError.badRequest('El estado de cuenta actual no se puede borrar.');
+  if (effectiveStatementStatus(statement) !== 'PAGADO') {
+    throw ApiError.badRequest('Solo puedes borrar estados de cuenta ya pagados.');
+  }
+  await prisma.statement.update({ where: { id: statement.id }, data: { clientHiddenAt: new Date() } });
+  res.json({ ok: true });
+});
+
+module.exports = { listStatements, downloadStatementFile, hideStatement };

@@ -759,6 +759,11 @@ model PaymentReport {
   statementId String?
   statement   Statement? @relation(fields: [statementId], references: [id], onDelete: SetNull)
 
+  // El CLIENTE lo borró de su historial "Transferencias reportadas" (solo
+  // reportes ya revisados). Se conserva: el admin lo sigue viendo y cuenta
+  // para el estado del pago.
+  clientHiddenAt DateTime?
+
   @@map("payment_reports")
 }
 
@@ -828,6 +833,10 @@ model Statement {
   createdAt       DateTime @default(now())
 
   paymentReports PaymentReport[]
+
+  // El CLIENTE lo borró de "Estados de cuenta anteriores" (solo pagados y
+  // nunca el actual). Se conserva: el admin lo sigue viendo completo.
+  clientHiddenAt DateTime?
 
   // CORRECCIÓN 5: no permitir dos Estados de Cuenta iguales para la misma
   // subcuenta/API + mismo periodo.
