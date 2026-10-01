@@ -22,10 +22,20 @@ const listStatements = asyncHandler(async (req, res) => {
   const statements = await prisma.statement.findMany({
     where: { apiSubaccountId: req.params.apiSubaccountId },
     orderBy: { generatedAt: 'desc' },
+    // Los mismos datos que el ADMIN captura al generar el estado de cuenta
+    // (solo de subcuentas propias, ver assertOwnsSubaccount).
     select: {
       id: true,
       periodStart: true,
       periodEnd: true,
+      startingBalance: true,
+      endingBalance: true,
+      resultAmount: true,
+      resultPercentage: true,
+      volatility: true,
+      netResult: true,
+      activityNotes: true,
+      adminNotes: true,
       commission: true,
       status: true,
       generatedAt: true,

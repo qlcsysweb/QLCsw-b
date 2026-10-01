@@ -1,5 +1,6 @@
 const { z } = require('zod');
 const { clientSubaccountLabel } = require('../utils/subaccountLabels');
+const { recordConnectionEvent, syncConditionFromConnection } = require('../utils/apiConnectionSync');
 const prisma = require('../config/prisma');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
@@ -132,30 +133,10 @@ const updateSubaccount = asyncHandler(async (req, res) => {
     // PRIMERA conexión de una subcuenta se registra como ACTIVATED, las
     // siguientes como RECONNECTED, para distinguir activación inicial de
     // reactivaciones posteriores.
-    let eventType = 'DISCONNECTED';
-    if (data.status === 'CONECTADA') {
-      const priorConnections = await prisma.apiConnectionEvent.count({
-        where: { apiSubaccountId: updated.id, eventType: { in: ['ACTIVATED', 'RECONNECTED'] } },
-      });
-      eventType = priorConnections === 0 ? 'ACTIVATED' : 'RECONNECTED';
-    }
-    await prisma.apiConnectionEvent.create({
-      data: {
-        apiSubaccountId: updated.id,
-        eventType,
-        reason: data.connectionReason || null,
-      },
-    });
-
-    if (updated.status === 'CONECTADA') {
-      const process = await prisma.process.findUnique({ where: { apiSubaccountId: updated.id } });
-      if (process) {
-        await prisma.processCondition.update({
-          where: { processId_type: { processId: process.id, type: 'API' } },
-          data: { status: 'CONFIRMED' },
-        });
-      }
-    }
+    await recordConnectionEvent(updated.id, updated.status, data.connectionReason);
+    // El paso "Conexión API" del proceso se ajusta al nuevo estado
+    // (CONECTADA → confirmado, DESCONECTADA → rechazado, PENDIENTE → pendiente).
+    await syncConditionFromConnection(updated.id, updated.status);
 
     await notifyClient(existing.clientId, {
       title: 'Actualización de tu conexión API',

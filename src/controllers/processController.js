@@ -1,5 +1,6 @@
 const { z } = require('zod');
 const { clientSubaccountLabel } = require('../utils/subaccountLabels');
+const { syncConnectionFromCondition } = require('../utils/apiConnectionSync');
 const prisma = require('../config/prisma');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
@@ -42,6 +43,12 @@ const updateCondition = asyncHandler(async (req, res) => {
     where: { processId_type: { processId: process.id, type } },
     data: { status, note },
   });
+
+  // El paso "Conexión API" y el estado de la conexión siempre coinciden:
+  // rechazarlo desconecta la API, confirmarlo la conecta.
+  if (type === 'API') {
+    await syncConnectionFromCondition(req.params.apiSubaccountId, status, req.user.id);
+  }
 
   await notifyClient(process.apiSubaccount.clientId, {
     title: 'Actualización de tu proceso',
