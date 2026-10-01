@@ -58,7 +58,8 @@ const getSession = asyncHandler(async (req, res) => {
     omit: CHAT_MESSAGE_OMIT,
   });
 
-  res.json({ ok: true, session, messages });
+  // serverTime: el navegador alinea la apertura del chat con la hora del servidor.
+  res.json({ ok: true, session, messages, serverTime: new Date().toISOString() });
 });
 
 const startSession = asyncHandler(async (req, res) => {
