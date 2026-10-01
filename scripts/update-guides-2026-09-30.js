@@ -104,7 +104,7 @@ const CLIENT_ES = `<h2>1. Inicio de sesión</h2>
   <li>Seleccionar la cuenta o subcuenta que deseas revisar.</li>
   <li>Consultar el estado de la cita.</li>
 </ul>
-<p>Las citas se muestran en horario <strong>UTC</strong>, en bloques de 15 minutos, y requieren una anticipación mínima de una hora. Cuando la cita sea autorizada y llegue la hora correspondiente, se habilitará el chat de soporte durante 15 minutos, en el que también puedes enviar imágenes o PDF.</p>
+<p>Las citas se muestran en horario <strong>UTC</strong>, en bloques de 15 minutos, y requieren una anticipación mínima de 30 minutos. Cuando la cita sea autorizada y llegue la hora correspondiente, se habilitará el chat de soporte durante 15 minutos, en el que también puedes enviar imágenes o PDF.</p>
 
 <h2>10. Notificaciones</h2>
 <p>Las notificaciones te informarán sobre cambios importantes relacionados con tu cuenta. Podrás recibir avisos sobre:</p>
@@ -207,7 +207,7 @@ const CLIENT_EN = `<h2>1. Signing in</h2>
   <li>Select the account or subaccount you want reviewed.</li>
   <li>Check the appointment status.</li>
 </ul>
-<p>Appointments are shown in <strong>UTC</strong> time, in 15-minute slots, and require at least one hour in advance. Once the appointment is authorized and its time arrives, the support chat is enabled for 15 minutes; you can also send images or PDF files in it.</p>
+<p>Appointments are shown in <strong>UTC</strong> time, in 15-minute slots, and require at least 30 minutes in advance. Once the appointment is authorized and its time arrives, the support chat is enabled for 15 minutes; you can also send images or PDF files in it.</p>
 
 <h2>10. Notifications</h2>
 <p>Notifications inform you about important changes to your account. You can receive notices about:</p>

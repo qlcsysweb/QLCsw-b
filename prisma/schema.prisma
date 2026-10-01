@@ -874,6 +874,14 @@ model Appointment {
   adminArchivedAt  DateTime?
   // El CLIENTE la borró de "Mis citas". No se elimina: QLC la conserva.
   clientHiddenAt   DateTime?
+  // REAGENDAR — al no poder atender el horario pedido, el ADMIN rechaza la
+  // cita y PROPONE otro horario (UTC). El cliente lo acepta (la cita queda
+  // AUTORIZADA en el horario propuesto) o no (puede solicitar otro).
+  // proposalStatus: PENDING | ACCEPTED | DECLINED.
+  proposedDate     DateTime?
+  proposedTime     String?
+  proposalStatus   String?
+  proposedAt       DateTime?
   status           AppointmentStatus @default(PENDING)
   notes            String?
   approvedByUserId String?

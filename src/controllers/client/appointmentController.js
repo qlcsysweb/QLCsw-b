@@ -2,7 +2,7 @@ const { z } = require('zod');
 const prisma = require('../../config/prisma');
 const ApiError = require('../../utils/ApiError');
 const asyncHandler = require('../../utils/asyncHandler');
-const { getAvailableSlotsForDate, assertSlotIsAvailable, mexicoTimeLabel } = require('../../utils/appointmentSlots');
+const { getAvailableSlotsForDate, assertSlotIsAvailable, mexicoTimeLabel, appointmentInstant } = require('../../utils/appointmentSlots');
 const { notifyAdmins, notifyClient } = require('../../utils/notify');
 const { chatOpensAt } = require('../../utils/chatSessions');
 
@@ -15,7 +15,7 @@ const listAvailability = asyncHandler(async (req, res) => {
 });
 
 // CORRECCIÓN 16 (bloque de 20) — horarios reales de 15 en 15 minutos,
-// respetando la disponibilidad del admin, la anticipación mínima de 1 hora
+// respetando la disponibilidad del admin, la anticipación mínima de 30 minutos
 // y los horarios ya ocupados por otra cita activa.
 const availableSlotsSchema = z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha inválida') });
 
@@ -75,12 +75,12 @@ const createAppointment = asyncHandler(async (req, res) => {
 
   // CORRECCIÓN 16 — nunca confiar en la hora que envía el frontend: debe
   // seguir siendo un horario real disponible (dentro de la disponibilidad
-  // del admin, con al menos 1 hora de anticipación, y libre) en este mismo
+  // del admin, con al menos 30 minutos de anticipación, y libre) en este mismo
   // instante del servidor.
   const isAvailable = await assertSlotIsAvailable(data.requestedDate, data.requestedTime);
   if (!isAvailable) {
     throw ApiError.conflict(
-      'Ese horario ya no está disponible (fue tomado, quedó fuera de la anticipación mínima de 1 hora, o no está dentro del horario de atención). Selecciona otro horario.'
+      'Ese horario ya no está disponible (fue tomado, quedó fuera de la anticipación mínima de 30 minutos, o no está dentro del horario de atención). Selecciona otro horario.'
     );
   }
 
@@ -147,8 +147,92 @@ const hideAppointment = asyncHandler(async (req, res) => {
   if (busy) {
     throw ApiError.conflict('Esta cita está pendiente o por atender. Podrás borrarla cuando termine o sea rechazada.');
   }
+  if (appointment.proposalStatus === 'PENDING') {
+    throw ApiError.conflict('QLC te propuso otro horario para esta cita. Acéptalo o recházalo antes de borrarla.');
+  }
   await prisma.appointment.update({ where: { id: appointment.id }, data: { clientHiddenAt: new Date() } });
   res.json({ ok: true });
 });
 
-module.exports = { listAvailability, listAvailableSlots, listAppointments, createAppointment, hideAppointment };
+// RESPUESTA A LA PROPUESTA DE HORARIO — el cliente acepta el horario que
+// propuso QLC (la cita queda AUTORIZADA en ese horario y se habilita su chat)
+// o no le funciona (puede solicitar otra cita cuando quiera).
+const respondProposalSchema = z.object({ accept: z.boolean() });
+
+const respondToProposal = asyncHandler(async (req, res) => {
+  const { accept } = respondProposalSchema.parse(req.body);
+  const appointment = await prisma.appointment.findFirst({
+    where: { id: req.params.id, clientId: req.clientProfile.id, proposalStatus: 'PENDING' },
+  });
+  if (!appointment) throw ApiError.notFound('No hay una propuesta de horario pendiente para esta cita.');
+  const client = await prisma.clientProfile.findUnique({ where: { id: req.clientProfile.id } });
+  const clientName = `${client.firstName} ${client.lastName}`;
+  const dateStr = appointment.proposedDate.toISOString().slice(0, 10);
+  const [y, m, d] = dateStr.split('-');
+  const dateUtc = `${d}/${m}/${y}`;
+  const mx = mexicoTimeLabel(dateStr, appointment.proposedTime);
+
+  if (!accept) {
+    const updated = await prisma.appointment.update({ where: { id: appointment.id }, data: { proposalStatus: 'DECLINED' } });
+    await notifyAdmins({
+      title: 'Propuesta de horario no aceptada',
+      message: `${clientName} no aceptó el horario propuesto (${mx.date} ${mx.time} hora de México · ${dateUtc} ${appointment.proposedTime} UTC).`,
+      type: 'info',
+      templateKey: 'appointment_proposal_declined',
+      templateParams: { clientName, dateMx: mx.date, timeMx: mx.time, date: dateUtc, time: appointment.proposedTime, appointmentId: appointment.id },
+    });
+    return res.json({ ok: true, appointment: updated });
+  }
+
+  if (appointmentInstant(dateStr, appointment.proposedTime).getTime() <= Date.now()) {
+    throw ApiError.conflict('El horario propuesto ya pasó. Solicita una nueva cita.');
+  }
+  const clash = await prisma.appointment.findFirst({
+    where: {
+      id: { not: appointment.id },
+      requestedDate: appointment.proposedDate,
+      requestedTime: appointment.proposedTime,
+      status: { in: ['PENDING', 'AUTORIZADA'] },
+    },
+    select: { id: true },
+  });
+  if (clash) throw ApiError.conflict('Ese horario ya no está disponible. Solicita una nueva cita.');
+
+  const updated = await prisma.$transaction(async (tx) => {
+    const appt = await tx.appointment.update({
+      where: { id: appointment.id },
+      data: {
+        requestedDate: appointment.proposedDate,
+        requestedTime: appointment.proposedTime,
+        timeZone: 'UTC',
+        status: 'AUTORIZADA',
+        proposalStatus: 'ACCEPTED',
+      },
+    });
+    const existing = await tx.chatSession.findUnique({ where: { appointmentId: appointment.id } });
+    if (!existing) {
+      await tx.chatSession.create({
+        data: { appointmentId: appointment.id, clientId: appointment.clientId, status: 'SCHEDULED', durationMinutes: 15 },
+      });
+    }
+    return appt;
+  });
+
+  await notifyAdmins({
+    title: 'Propuesta de horario aceptada',
+    message: `${clientName} aceptó la cita del ${mx.date} a las ${mx.time} hora de México (${dateUtc} ${appointment.proposedTime} UTC).`,
+    type: 'success',
+    templateKey: 'appointment_proposal_accepted',
+    templateParams: { clientName, dateMx: mx.date, timeMx: mx.time, date: dateUtc, time: appointment.proposedTime, appointmentId: appointment.id },
+  });
+  await notifyClient(req.clientProfile.id, {
+    title: 'Tu cita fue confirmada',
+    message: `Tu cita fue confirmada para el ${dateUtc} a las ${appointment.proposedTime} UTC. ¡No lo olvides!`,
+    type: 'success',
+    templateKey: 'appointment_confirmed_utc',
+    templateParams: { date: dateUtc, time: appointment.proposedTime },
+  });
+  res.json({ ok: true, appointment: updated });
+});
+
+module.exports = { listAvailability, listAvailableSlots, listAppointments, createAppointment, hideAppointment, respondToProposal };

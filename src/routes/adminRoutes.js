@@ -154,6 +154,8 @@ router.delete('/payment-reports/:id', paymentController.deletePaymentReport);
 router.get('/availability', appointmentController.listAvailability);
 router.put('/availability', appointmentController.setAvailability);
 router.get('/appointments', appointmentController.listAppointments);
+router.get('/appointments/available-slots', appointmentController.listAvailableSlotsAdmin);
+router.post('/appointments/:id/propose', appointmentController.proposeAppointmentTime);
 router.delete('/appointments/:id', appointmentController.archiveAppointment);
 router.patch('/appointments/:id/status', appointmentController.updateAppointmentStatus);
 

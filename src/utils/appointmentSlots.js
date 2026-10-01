@@ -4,9 +4,10 @@
  * Reglas de negocio:
  *   - Los horarios se generan en intervalos de 15 minutos dentro de los
  *     rangos de disponibilidad activos del admin (AvailabilitySlot).
- *   - Ninguna cita puede solicitarse con menos de 1 hora de anticipación.
- *   - Un horario ya ocupado por una cita PENDING/AUTORIZADA no vuelve a
- *     ofrecerse (RECHAZADA/CANCELADA sí liberan el horario).
+ *   - Ninguna cita puede solicitarse con menos de 30 minutos de anticipación.
+ *   - Un horario ya ocupado por una cita PENDING/AUTORIZADA, o PROPUESTO por
+ *     el admin y aún sin respuesta del cliente, no vuelve a ofrecerse
+ *     (RECHAZADA/CANCELADA y las propuestas no aceptadas sí lo liberan).
  *
  * Zona horaria: las citas se agendan y se muestran en UTC (a pedido de QLC).
  * La disponibilidad del admin (AvailabilitySlot) y la hora guardada en cada
@@ -17,7 +18,7 @@
 const prisma = require('../config/prisma');
 
 const SLOT_INTERVAL_MINUTES = 15;
-const MIN_ADVANCE_MS = 60 * 60 * 1000; // 1 hora
+const MIN_ADVANCE_MS = 30 * 60 * 1000; // 30 minutos (a pedido de QLC)
 const MEXICO_OFFSET_MS = 6 * 60 * 60 * 1000; // CDMX = UTC-6
 
 // Instante real de una cita: fecha "YYYY-MM-DD" + hora "HH:MM" en UTC.
@@ -63,9 +64,11 @@ function generateRangeSlots(startTime, endTime) {
 }
 
 // Devuelve los horarios disponibles reales (UTC) para una fecha dada: dentro
-// de la disponibilidad activa del admin, con al menos 1 hora de anticipación
-// desde "ahora", y excluyendo los ya ocupados por otra cita activa.
-async function getAvailableSlotsForDate(dateStr) {
+// de la disponibilidad activa del admin, con al menos 30 minutos de
+// anticipación desde "ahora", y excluyendo los ya ocupados por otra cita
+// activa o por un horario propuesto pendiente. `excludeAppointmentId` ignora
+// una cita concreta (la misma que se está reagendando).
+async function getAvailableSlotsForDate(dateStr, { excludeAppointmentId } = {}) {
   const dayOfWeek = dayOfWeekForDate(dateStr);
   const ranges = await prisma.availabilitySlot.findMany({
     where: { dayOfWeek, isActive: true },
@@ -83,14 +86,18 @@ async function getAvailableSlotsForDate(dateStr) {
   // `requestedDate` se guarda como `new Date("YYYY-MM-DD")` = medianoche UTC
   // exacta de esa fecha: la comparación es una igualdad exacta.
   const dateOnlyUtc = new Date(`${dateStr}T00:00:00.000Z`);
-  const takenAppointments = await prisma.appointment.findMany({
-    where: {
-      requestedDate: dateOnlyUtc,
-      status: { in: ['PENDING', 'AUTORIZADA'] },
-    },
-    select: { requestedTime: true },
-  });
-  const taken = new Set(takenAppointments.map((a) => a.requestedTime));
+  const notSelf = excludeAppointmentId ? { id: { not: excludeAppointmentId } } : {};
+  const [takenAppointments, pendingProposals] = await Promise.all([
+    prisma.appointment.findMany({
+      where: { requestedDate: dateOnlyUtc, status: { in: ['PENDING', 'AUTORIZADA'] }, ...notSelf },
+      select: { requestedTime: true },
+    }),
+    prisma.appointment.findMany({
+      where: { proposedDate: dateOnlyUtc, proposalStatus: 'PENDING', ...notSelf },
+      select: { proposedTime: true },
+    }),
+  ]);
+  const taken = new Set([...takenAppointments.map((a) => a.requestedTime), ...pendingProposals.map((a) => a.proposedTime)]);
 
   const minInstant = Date.now() + MIN_ADVANCE_MS;
 
@@ -103,8 +110,8 @@ async function getAvailableSlotsForDate(dateStr) {
 // Validación server-side real (nunca confiar solo en el dropdown del
 // frontend): la fecha/hora solicitada debe seguir figurando entre los
 // horarios disponibles calculados en este mismo instante.
-async function assertSlotIsAvailable(dateStr, timeStr) {
-  const available = await getAvailableSlotsForDate(dateStr);
+async function assertSlotIsAvailable(dateStr, timeStr, options) {
+  const available = await getAvailableSlotsForDate(dateStr, options);
   return available.includes(timeStr);
 }
 

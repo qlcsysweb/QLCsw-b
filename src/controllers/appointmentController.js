@@ -3,6 +3,7 @@ const prisma = require('../config/prisma');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const { notifyClient } = require('../utils/notify');
+const { getAvailableSlotsForDate, assertSlotIsAvailable, mexicoTimeLabel } = require('../utils/appointmentSlots');
 
 // requestedDate es una fecha-calendario UTC (medianoche UTC): se formatea
 // tal cual, sin convertir de zona (convertirla a México la movía un día atrás).
@@ -130,12 +131,13 @@ const updateAppointmentStatus = asyncHandler(async (req, res) => {
         templateParams: { date, time },
       });
     } else if (status === 'RECHAZADA') {
+      // El cliente ve que ese horario no se puede atender y que debe reagendar.
       await notifyClient(appointment.clientId, {
-        title: 'Tu cita fue rechazada',
-        message: 'Tu solicitud de cita fue rechazada.',
+        title: 'No podemos atenderte en ese horario',
+        message: `No podemos atenderte el ${date} a las ${time} UTC. Por favor reagenda tu cita desde Soporte.`,
         type: 'warning',
-        templateKey: 'appointment_rejected',
-        templateParams: { date, time },
+        templateKey: 'appointment_rejected_reschedule',
+        templateParams: { date, time, appointmentId: appointment.id },
       });
     } else {
       await notifyClient(appointment.clientId, {
@@ -149,6 +151,62 @@ const updateAppointmentStatus = asyncHandler(async (req, res) => {
   }
 
   res.json({ ok: true, appointment: updated });
+});
+
+// HORARIOS LIBRES (admin) — los mismos que vería el cliente para esa fecha
+// (UTC, 30 min de anticipación), sin contar la cita que se está reagendando.
+const listAvailableSlotsAdmin = asyncHandler(async (req, res) => {
+  const { date, excludeId } = z
+    .object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha inválida'), excludeId: z.string().optional() })
+    .parse(req.query);
+  const slots = await getAvailableSlotsForDate(date, { excludeAppointmentId: excludeId });
+  res.json({ ok: true, slots });
+});
+
+// PROPONER OTRO HORARIO — el admin no puede atender el horario pedido: la cita
+// queda RECHAZADA y se le propone al cliente un horario libre (UTC). Ese
+// horario queda reservado hasta que el cliente responda.
+const proposeSchema = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha inválida'),
+  time: z.string().regex(/^\d{2}:\d{2}$/, 'Hora inválida'),
+});
+
+const proposeAppointmentTime = asyncHandler(async (req, res) => {
+  const { date, time } = proposeSchema.parse(req.body);
+  const appointment = await prisma.appointment.findUnique({ where: { id: req.params.id } });
+  if (!appointment) throw ApiError.notFound('Cita no encontrada');
+  if (!['PENDING', 'RECHAZADA'].includes(appointment.status)) {
+    throw ApiError.conflict('Solo se puede proponer otro horario para una solicitud pendiente o rechazada.');
+  }
+  if (appointment.requestedDate.toISOString().slice(0, 10) === date && appointment.requestedTime === time) {
+    throw ApiError.badRequest('Propón un horario distinto al que pidió el cliente.');
+  }
+  if (!(await assertSlotIsAvailable(date, time, { excludeAppointmentId: appointment.id }))) {
+    throw ApiError.conflict('Ese horario ya no está disponible. Elige otro.');
+  }
+  const updated = await prisma.appointment.update({
+    where: { id: appointment.id },
+    data: {
+      status: 'RECHAZADA',
+      proposedDate: new Date(date),
+      proposedTime: time,
+      proposalStatus: 'PENDING',
+      proposedAt: new Date(),
+    },
+  });
+
+  if (appointment.clientId) {
+    const [y, m, d] = date.split('-');
+    const oldDate = dateLabel(appointment.requestedDate);
+    await notifyClient(appointment.clientId, {
+      title: 'Te proponemos otro horario para tu cita',
+      message: `No podemos atenderte el ${oldDate} a las ${appointment.requestedTime} UTC. QLC te propone el ${d}/${m}/${y} a las ${time} UTC. Entra a Soporte para aceptarlo.`,
+      type: 'info',
+      templateKey: 'appointment_reschedule_proposed',
+      templateParams: { date: oldDate, time: appointment.requestedTime, newDate: `${d}/${m}/${y}`, newTime: time, appointmentId: appointment.id },
+    });
+  }
+  res.json({ ok: true, appointment: updated, proposedMexico: mexicoTimeLabel(date, time) });
 });
 
 // BORRAR CITA (admin) — la quita de la lista de citas del admin. No se
@@ -166,6 +224,8 @@ const archiveAppointment = asyncHandler(async (req, res) => {
 });
 
 module.exports = {
+  listAvailableSlotsAdmin,
+  proposeAppointmentTime,
   archiveAppointment,
   listAvailability,
   setAvailability,
