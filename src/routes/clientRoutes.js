@@ -44,6 +44,7 @@ router.post('/api-subaccounts/:id/report-capital-ready', apiSubaccountController
 // CORREGIR.xlsx CLIENTE 13 — reporte real de distribución de capital
 router.get('/api-subaccounts/:id/capital-distribution-reports', apiSubaccountController.listCapitalDistributionReports);
 router.post('/api-subaccounts/:id/capital-distribution-reports', apiSubaccountController.reportCapitalDistribution);
+router.delete('/api-subaccounts/:id/capital-distribution-reports/:reportId', apiSubaccountController.hideCapitalDistributionReport);
 // Modelo de participación: único (50% QLC / 50% Cliente) y asignado
 // automáticamente — ya no hay rutas para elegir ni confirmar modelo.
 

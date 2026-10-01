@@ -283,10 +283,31 @@ const listCapitalDistributionReports = asyncHandler(async (req, res) => {
   if (!subaccount) throw ApiError.notFound('Subcuenta no encontrada');
 
   const reports = await prisma.capitalDistributionReport.findMany({
-    where: { apiSubaccountId: subaccount.id },
+    where: { apiSubaccountId: subaccount.id, clientHiddenAt: null },
     orderBy: { reportedAt: 'desc' },
   });
   res.json({ ok: true, reports });
+});
+
+// BORRAR DEL HISTORIAL (cliente) — solo reportes ya revisados por QLC
+// (aprobados o rechazados); uno en revisión no se puede quitar. Se oculta
+// únicamente para el cliente: el admin conserva el registro completo.
+const hideCapitalDistributionReport = asyncHandler(async (req, res) => {
+  const subaccount = await prisma.apiSubaccount.findFirst({
+    where: { id: req.params.id, clientId: req.clientProfile.id, ...ACTIVE_WHERE },
+    select: { id: true },
+  });
+  if (!subaccount) throw ApiError.notFound('Subcuenta no encontrada');
+  const report = await prisma.capitalDistributionReport.findFirst({
+    where: { id: req.params.reportId, apiSubaccountId: subaccount.id, clientHiddenAt: null },
+    select: { id: true, status: true },
+  });
+  if (!report) throw ApiError.notFound('Reporte no encontrado');
+  if (!['APROBADO', 'RECHAZADO'].includes(report.status)) {
+    throw ApiError.badRequest('Este reporte sigue en revisión; podrás borrarlo cuando QLC lo revise.');
+  }
+  await prisma.capitalDistributionReport.update({ where: { id: report.id }, data: { clientHiddenAt: new Date() } });
+  res.json({ ok: true });
 });
 
 const listMyRequests = asyncHandler(async (req, res) => {
@@ -304,4 +325,5 @@ module.exports = {
   reportCapitalReady,
   reportCapitalDistribution,
   listCapitalDistributionReports,
+  hideCapitalDistributionReport,
 };

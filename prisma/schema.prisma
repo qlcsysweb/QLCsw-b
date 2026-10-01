@@ -1267,6 +1267,9 @@ model CapitalDistributionReport {
   reviewedBy           User?               @relation("CapitalDistReportReviewedBy", fields: [reviewedByUserId], references: [id])
   reviewedAt           DateTime?
   reportedAt           DateTime            @default(now())
+  // El CLIENTE lo borró de su historial (solo reportes ya revisados). Se
+  // conserva: el admin lo sigue viendo completo.
+  clientHiddenAt       DateTime?
 
   @@map("capital_distribution_reports")
 }
