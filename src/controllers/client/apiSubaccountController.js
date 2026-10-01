@@ -101,7 +101,7 @@ const getMine = asyncHandler(async (req, res) => {
       process: { include: { conditions: { where: { type: { not: 'WALLET' } } } } },
       paymentReports: { orderBy: { reportedAt: 'desc' } },
       statements: { orderBy: { generatedAt: 'desc' } },
-      connectionEvents: { orderBy: { occurredAt: 'desc' } },
+      connectionEvents: { where: { hiddenAt: null }, orderBy: { occurredAt: 'desc' } },
     },
   });
   if (!subaccount) throw ApiError.notFound('Subcuenta no encontrada');

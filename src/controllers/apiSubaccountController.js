@@ -389,7 +389,20 @@ const searchByIdentifier = asyncHandler(async (req, res) => {
   res.json({ ok: true, results });
 });
 
+// BORRAR EVENTO DEL HISTORIAL DE CONEXIÓN (admin) — deja de mostrarse al
+// admin y al cliente. Se conserva internamente: el sistema lo cuenta para
+// saber si una conexión es la primera (ACTIVADA) o una reconexión.
+const hideConnectionEvent = asyncHandler(async (req, res) => {
+  const { count } = await prisma.apiConnectionEvent.updateMany({
+    where: { id: req.params.eventId, apiSubaccountId: req.params.id, hiddenAt: null },
+    data: { hiddenAt: new Date() },
+  });
+  if (!count) throw ApiError.notFound('Evento no encontrado');
+  res.json({ ok: true });
+});
+
 module.exports = {
+  hideConnectionEvent,
   searchByIdentifier,
   createSubaccount,
   updateSubaccount,

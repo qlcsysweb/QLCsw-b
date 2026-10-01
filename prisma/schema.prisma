@@ -422,6 +422,9 @@ model ApiConnectionEvent {
   // cliente y el admin pueden consultar este historial completo.
   reason          String?
   occurredAt      DateTime            @default(now())
+  // El ADMIN lo borró del historial visible. Se conserva internamente (el
+  // sistema lo cuenta para distinguir primera activación de reconexión).
+  hiddenAt        DateTime?
 
   @@map("api_connection_events")
 }

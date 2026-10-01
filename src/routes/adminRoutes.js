@@ -57,6 +57,7 @@ router.delete('/clients/:id', clientController.deleteClient);
 router.post('/clients/:clientId/api-subaccounts', apiSubaccountController.createSubaccount);
 router.get('/api-subaccounts/search', apiSubaccountController.searchByIdentifier);
 router.patch('/api-subaccounts/:id', apiSubaccountController.updateSubaccount);
+router.delete('/api-subaccounts/:id/connection-events/:eventId', apiSubaccountController.hideConnectionEvent);
 router.get('/api-subaccounts/:id/secrets', apiSubaccountController.getSubaccountSecrets);
 // Subcuentas por ESTADO — activar/desactivar, reversible, nunca eliminar.
 router.post('/clients/:clientId/api-subaccounts/:id/deactivate', apiSubaccountController.deactivateSubaccountDirect);
