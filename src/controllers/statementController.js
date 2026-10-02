@@ -36,7 +36,11 @@ const listStatements = asyncHandler(async (req, res) => {
     where: { apiSubaccountId: req.params.apiSubaccountId },
     orderBy: { generatedAt: 'desc' },
   });
-  res.json({ ok: true, statements: statements.map(shapeStatement), current: currentStatementSummary(statements) });
+  // El BORRADOR (si existe) va aparte: no es un estado de cuenta emitido, no
+  // cuenta en el historial ni en el estado actual.
+  const draft = statements.find((s) => s.status === 'BORRADOR') || null;
+  const issued = statements.filter((s) => s.status !== 'BORRADOR');
+  res.json({ ok: true, statements: issued.map(shapeStatement), draft, current: currentStatementSummary(issued) });
 });
 
 const createStatementSchema = z
@@ -60,6 +64,119 @@ const createStatementSchema = z
     path: ['periodEnd'],
   });
 
+// BORRADOR — el admin puede guardar el estado de cuenta incompleto: solo el
+// periodo es obligatorio (columnas NOT NULL); los importes que falten se
+// guardan en 0 y se exigen completos al FINALIZAR (createStatementSchema).
+const optionalNumber = z.preprocess((v) => (v === '' || v === null ? undefined : v), z.coerce.number().optional());
+const draftStatementSchema = z
+  .object({
+    periodStart: z.coerce.date().optional(),
+    periodEnd: z.coerce.date({ required_error: 'Indica la fecha "hasta" del periodo.' }),
+    startingBalance: optionalNumber,
+    endingBalance: optionalNumber,
+    resultAmount: optionalNumber,
+    resultPercentage: optionalNumber,
+    volatility: z.string().optional(),
+    netResult: optionalNumber,
+    commission: optionalNumber,
+    activityNotes: z.string().optional(),
+    adminNotes: z.string().optional(),
+  })
+  .refine((data) => !data.periodStart || data.periodEnd > data.periodStart, {
+    message: 'El periodo "hasta" debe ser posterior al periodo "desde".',
+    path: ['periodEnd'],
+  });
+
+// Serializa las escrituras de estados de cuenta de UNA subcuenta dentro de
+// la transacción: dos "Guardar borrador" / "Generar" casi simultáneos nunca
+// crean dos registros. Se libera al terminar la transacción.
+function lockStatementSubaccount(tx, apiSubaccountId) {
+  return tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`statement:${apiSubaccountId}`}))`;
+}
+
+// "Desde" = fin del último estado de cuenta EMITIDO (los borradores no
+// cuentan); solo el primero de la subcuenta lo indica el admin.
+async function resolvePeriodStart(tx, apiSubaccountId, requestedStart, periodEnd) {
+  const previous = await tx.statement.findFirst({
+    where: { apiSubaccountId, status: { not: 'BORRADOR' } },
+    orderBy: { periodEnd: 'desc' },
+  });
+  const periodStart = previous ? previous.periodEnd : requestedStart;
+  if (!periodStart) {
+    throw ApiError.badRequest('Indica la fecha "desde" para el primer estado de cuenta de esta subcuenta/API.');
+  }
+  if (periodEnd <= periodStart) {
+    throw ApiError.badRequest('El periodo "hasta" debe ser posterior al periodo "desde".');
+  }
+  return periodStart;
+}
+
+function statementFields(data, periodStart) {
+  return {
+    periodStart,
+    periodEnd: data.periodEnd,
+    startingBalance: data.startingBalance ?? 0,
+    endingBalance: data.endingBalance ?? 0,
+    resultAmount: data.resultAmount ?? 0,
+    resultPercentage: data.resultPercentage ?? 0,
+    volatility: data.volatility || null,
+    netResult: data.netResult ?? null,
+    commission: data.commission ?? 0,
+    activityNotes: data.activityNotes || null,
+    adminNotes: data.adminNotes || null,
+  };
+}
+
+function periodConflict(err) {
+  if (err.code === 'P2002') {
+    return ApiError.conflict('Ya existe un estado de cuenta para esta subcuenta/API en ese mismo periodo.');
+  }
+  return err;
+}
+
+// GUARDAR BORRADOR — un único borrador por subcuenta (además lo garantiza el
+// índice único parcial statements_one_draft_per_subaccount): si ya existe se
+// ACTUALIZA, nunca se inserta otro. Sin PDF, sin plazo de 72 h, sin
+// notificación y sin Drive: el cliente no lo ve.
+const saveStatementDraft = asyncHandler(async (req, res) => {
+  const data = draftStatementSchema.parse(req.body);
+  const subaccount = await prisma.apiSubaccount.findUnique({ where: { id: req.params.apiSubaccountId }, select: { id: true } });
+  if (!subaccount) throw ApiError.notFound('Subcuenta no encontrada');
+
+  let draft;
+  try {
+    draft = await prisma.$transaction(async (tx) => {
+      await lockStatementSubaccount(tx, subaccount.id);
+      const periodStart = await resolvePeriodStart(tx, subaccount.id, data.periodStart, data.periodEnd);
+      const existing = await tx.statement.findFirst({ where: { apiSubaccountId: subaccount.id, status: 'BORRADOR' } });
+      // generatedAt/expiresAt son obligatorios en la tabla: en un borrador
+      // solo registran el último guardado (el plazo real nace al finalizar).
+      const now = new Date();
+      const fields = { ...statementFields(data, periodStart), generatedAt: now, expiresAt: now };
+      if (existing) return tx.statement.update({ where: { id: existing.id }, data: fields });
+      return tx.statement.create({
+        data: { ...fields, apiSubaccountId: subaccount.id, status: 'BORRADOR', createdByUserId: req.user.id },
+      });
+    });
+  } catch (err) {
+    throw periodConflict(err);
+  }
+  res.json({ ok: true, draft });
+});
+
+// ELIMINAR BORRADOR — solo un BORRADOR (nunca un estado de cuenta emitido:
+// esos siguen las reglas de auditoría). No hay PDF ni archivos que limpiar.
+const deleteStatementDraft = asyncHandler(async (req, res) => {
+  const { count } = await prisma.statement.deleteMany({ where: { id: req.params.id, status: 'BORRADOR' } });
+  if (!count) throw ApiError.conflict('Solo se puede eliminar un borrador de estado de cuenta.');
+  res.json({ ok: true });
+});
+
+// GENERAR / FINALIZAR — si la subcuenta tiene un BORRADOR, ese MISMO
+// registro pasa a PENDIENTE_DE_PAGO con los datos finales; si no, se crea
+// directamente. Todo dentro de una transacción con bloqueo por subcuenta
+// (y el índice único por periodo): un doble clic nunca genera dos estados de
+// cuenta ni dos PDFs.
 const createStatement = asyncHandler(async (req, res) => {
   const data = createStatementSchema.parse(req.body);
   // PDF del estado de cuenta cargado por el admin (multipart, campo "file").
@@ -82,57 +199,37 @@ const createStatement = asyncHandler(async (req, res) => {
   if (!subaccount) throw ApiError.notFound('Subcuenta no encontrada');
 
   await enforceCommissionDeadline(subaccount.id);
-  const unpaid = await prisma.statement.findFirst({
-    where: { apiSubaccountId: subaccount.id, status: { in: ['PENDIENTE_DE_PAGO', 'VENCIDO_SIN_PAGAR'] } },
-  });
-  if (unpaid) {
-    throw ApiError.conflict('Esta subcuenta/API ya tiene un estado de cuenta sin pagar. Confirma su pago antes de generar uno nuevo.');
-  }
-
-  const previousStatement = await prisma.statement.findFirst({
-    where: { apiSubaccountId: subaccount.id },
-    orderBy: { periodEnd: 'desc' },
-  });
-  const periodStart = previousStatement ? previousStatement.periodEnd : data.periodStart;
-  if (!periodStart) {
-    throw ApiError.badRequest('Indica la fecha "desde" para el primer estado de cuenta de esta subcuenta/API.');
-  }
-  if (data.periodEnd <= periodStart) {
-    throw ApiError.badRequest('El periodo "hasta" debe ser posterior al periodo "desde".');
-  }
 
   // Fuente de verdad del contador: hora del servidor + 72 h.
   const generatedAt = new Date();
   const expiresAt = new Date(generatedAt.getTime() + STATEMENT_DUE_HOURS * 60 * 60 * 1000);
 
   let statement;
+  let fromDraft = false;
   try {
-    statement = await prisma.statement.create({
-      data: {
-        apiSubaccountId: subaccount.id,
-        periodStart,
-        periodEnd: data.periodEnd,
-        startingBalance: data.startingBalance,
-        endingBalance: data.endingBalance,
-        resultAmount: data.resultAmount,
-        resultPercentage: data.resultPercentage,
-        volatility: data.volatility || null,
-        netResult: data.netResult ?? null,
-        commission: data.commission,
-        activityNotes: data.activityNotes || null,
-        adminNotes: data.adminNotes || null,
-        status: 'PENDIENTE_DE_PAGO',
-        generatedAt,
-        expiresAt,
-        createdByUserId: req.user.id,
-      },
-    });
+    ({ statement, fromDraft } = await prisma.$transaction(async (tx) => {
+      await lockStatementSubaccount(tx, subaccount.id);
+      const unpaid = await tx.statement.findFirst({
+        where: { apiSubaccountId: subaccount.id, status: { in: ['PENDIENTE_DE_PAGO', 'VENCIDO_SIN_PAGAR'] } },
+      });
+      if (unpaid) {
+        throw ApiError.conflict('Esta subcuenta/API ya tiene un estado de cuenta sin pagar. Confirma su pago antes de generar uno nuevo.');
+      }
+      const periodStart = await resolvePeriodStart(tx, subaccount.id, data.periodStart, data.periodEnd);
+      const fields = { ...statementFields(data, periodStart), status: 'PENDIENTE_DE_PAGO', generatedAt, expiresAt };
+      const draft = await tx.statement.findFirst({ where: { apiSubaccountId: subaccount.id, status: 'BORRADOR' } });
+      if (draft) {
+        return { statement: await tx.statement.update({ where: { id: draft.id }, data: fields }), fromDraft: true };
+      }
+      return {
+        statement: await tx.statement.create({ data: { ...fields, apiSubaccountId: subaccount.id, createdByUserId: req.user.id } }),
+        fromDraft: false,
+      };
+    }));
   } catch (err) {
-    if (err.code === 'P2002') {
-      throw ApiError.conflict('Ya existe un estado de cuenta para esta subcuenta/API en ese mismo periodo.');
-    }
-    throw err;
+    throw periodConflict(err);
   }
+  const { periodStart } = statement;
 
   let updatedStatement = statement;
   let pdfAttachment = null;
@@ -154,7 +251,14 @@ const createStatement = asyncHandler(async (req, res) => {
       });
       pdfAttachment = { filename: fileName, content: uploadedPdf.buffer, contentType: 'application/pdf' };
     } catch {
-      await prisma.statement.delete({ where: { id: statement.id } }).catch(() => {});
+      // Nunca queda un estado de cuenta "generado" sin su documento: si venía
+      // de un borrador vuelve a BORRADOR (no se pierde lo capturado); si se
+      // acababa de crear, se retira.
+      if (fromDraft) {
+        await prisma.statement.update({ where: { id: statement.id }, data: { status: 'BORRADOR' } }).catch(() => {});
+      } else {
+        await prisma.statement.delete({ where: { id: statement.id } }).catch(() => {});
+      }
       throw ApiError.serviceUnavailable('No se pudo guardar el PDF del estado de cuenta en Google Drive. Intenta nuevamente.');
     }
   } else if (await driveStorage.isConfigured()) {
@@ -217,6 +321,7 @@ async function markPaid(statementId) {
   });
   if (!statement) throw ApiError.notFound('Estado de cuenta no encontrado');
   if (statement.status === 'PAGADO') return statement;
+  if (statement.status === 'BORRADOR') throw ApiError.conflict('Un borrador de estado de cuenta no se puede marcar como pagado.');
 
   const updated = await prisma.statement.update({
     where: { id: statement.id },
@@ -269,6 +374,8 @@ const downloadStatementFile = asyncHandler(async (req, res) => {
 module.exports = {
   listStatements,
   createStatement,
+  saveStatementDraft,
+  deleteStatementDraft,
   markStatementPaid,
   markPaid,
   downloadStatementFile,

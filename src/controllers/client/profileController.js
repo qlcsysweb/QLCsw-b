@@ -54,7 +54,7 @@ const getDashboard = asyncHandler(async (req, res) => {
       include: {
         clientModel: { include: { model: true } },
         process: { include: { conditions: { where: { type: { not: 'WALLET' } } } } },
-        statements: { orderBy: { generatedAt: 'desc' }, take: 1 },
+        statements: { where: { status: { not: 'BORRADOR' } }, orderBy: { generatedAt: 'desc' }, take: 1 },
       },
     }),
     prisma.notification.count({ where: { userId: req.user.id, isRead: false } }),

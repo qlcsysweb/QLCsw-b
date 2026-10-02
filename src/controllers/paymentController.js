@@ -125,8 +125,9 @@ const markTransferReceived = asyncHandler(async (req, res) => {
   if (!report) throw ApiError.notFound('Reporte de pago no encontrado');
   if (report.transferReceivedAt) throw ApiError.conflict('Esta transferencia ya fue marcada como recibida.');
 
-  const updated = await prisma.paymentReport.update({
-    where: { id: report.id },
+  // Condicionado a que siga sin marcar: un doble clic no lo procesa dos veces.
+  const { count } = await prisma.paymentReport.updateMany({
+    where: { id: report.id, transferReceivedAt: null },
     data: {
       transferReceivedAt: new Date(),
       transferReceivedByUserId: req.user.id,
@@ -135,6 +136,8 @@ const markTransferReceived = asyncHandler(async (req, res) => {
       status: report.status === 'PENDING' ? 'EN_REVISION' : report.status,
     },
   });
+  if (!count) throw ApiError.conflict('Esta transferencia ya fue marcada como recibida.');
+  const updated = await prisma.paymentReport.findUnique({ where: { id: report.id } });
 
   res.json({ ok: true, report: updated });
 });
@@ -152,14 +155,16 @@ const markGuaranteeReported = asyncHandler(async (req, res) => {
   }
   if (report.guaranteeReportedAt) throw ApiError.conflict('La garantía de este pago ya fue reportada.');
 
-  const updated = await prisma.paymentReport.update({
-    where: { id: report.id },
+  const { count } = await prisma.paymentReport.updateMany({
+    where: { id: report.id, guaranteeReportedAt: null },
     data: {
       guaranteeReportedAt: new Date(),
       guaranteeReportedByUserId: req.user.id,
       status: 'GARANTIA_REPORTADA',
     },
   });
+  if (!count) throw ApiError.conflict('La garantía de este pago ya fue reportada.');
+  const updated = await prisma.paymentReport.findUnique({ where: { id: report.id } });
 
   const subaccount = await prisma.apiSubaccount.findUnique({ where: { id: report.apiSubaccountId } });
   await notifyClient(subaccount.clientId, {
@@ -188,15 +193,32 @@ const reviewPaymentReport = asyncHandler(async (req, res) => {
     throw ApiError.badRequest('Primero debes marcar "Garantía reportada" antes de aprobar este pago.');
   }
 
-  const updated = await prisma.paymentReport.update({
-    where: { id: report.id },
-    data: {
-      status,
-      reviewNote,
-      reviewedByUserId: req.user.id,
-      reviewedAt: new Date(),
-    },
-  });
+  // Idempotente: repetir la misma decisión final (doble clic / reintento) no
+  // vuelve a procesar ni a notificar al cliente.
+  if (report.status === status && (status === 'APROBADO' || status === 'RECHAZADO')) {
+    return res.json({ ok: true, report, alreadyReviewed: true });
+  }
+
+  // Transición condicionada al estado leído: dos clics casi simultáneos no
+  // aplican (ni notifican) la decisión dos veces.
+  let count;
+  try {
+    ({ count } = await prisma.paymentReport.updateMany({
+      where: { id: report.id, status: report.status },
+      data: {
+        status,
+        reviewNote,
+        reviewedByUserId: req.user.id,
+        reviewedAt: new Date(),
+      },
+    }));
+  } catch (err) {
+    // Reabrir un reporte rechazado cuyo N.º de orden ya tiene otro reporte vigente.
+    if (err.code === 'P2002') throw ApiError.conflict('Ese número de orden ya fue reportado.');
+    throw err;
+  }
+  const updated = await prisma.paymentReport.findUnique({ where: { id: report.id } });
+  if (!count) return res.json({ ok: true, report: updated, alreadyReviewed: true });
 
   const subaccount = await prisma.apiSubaccount.findUnique({ where: { id: report.apiSubaccountId } });
 

@@ -106,7 +106,14 @@ enum GuideAudience {
 // limpieza automática de 34 días para preservar el historial del "correo
 // interno".
 // Estado de cuenta simplificado (ver model Statement).
+// BORRADOR: el admin todavía lo prepara (editable, sin PDF, invisible para el
+// cliente, sin plazo de 72 h). Al FINALIZAR, el MISMO registro pasa a
+// PENDIENTE_DE_PAGO. Máximo un borrador por subcuenta (índice único parcial
+// "statements_one_draft_per_subaccount", creado por SQL en la migración
+// 20261002090100_borrador_estado_cuenta_unico — Prisma no modela índices
+// parciales).
 enum StatementStatus {
+  BORRADOR
   PENDIENTE_DE_PAGO
   PAGADO
   VENCIDO_SIN_PAGAR
@@ -712,6 +719,10 @@ model PaymentReport {
   currency           String              @default("USDT")
   // TRANSFERENCIA INTERNA BITGET — los ÚNICOS dos datos que el cliente
   // reporta después de transferir al UID de recepción de QLC.
+  // Idempotencia: un mismo N.º de orden no puede tener dos reportes vigentes
+  // (no rechazados) — índice único parcial "payment_reports_order_number_active_key"
+  // sobre UPPER(bitgetOrderNumber), creado por SQL en la migración
+  // 20261002090000_borradores_y_duplicados (Prisma no modela índices parciales).
   bitgetOrderNumber  String?
   transactionAt      DateTime?
   // UID de recepción de QLC que el cliente tenía a la vista al reportar

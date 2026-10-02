@@ -133,12 +133,21 @@ function assertNotFuture(transactionAt) {
 // Un mismo N.º de orden de Bitget no puede registrarse dos veces (salvo que
 // el reporte anterior haya sido rechazado). `exceptId`: el propio reporte
 // cuando se está corrigiendo.
+// Validación temprana (mensaje claro antes de subir evidencias); la garantía
+// real ante requests concurrentes es el índice único parcial
+// "payment_reports_order_number_active_key" (ver migración
+// 20261002090000_borradores_y_duplicados), que se traduce también a 409.
+const ORDER_ALREADY_REPORTED = 'Ese número de orden ya fue reportado.';
 async function assertOrderNotReported(bitgetOrderNumber, exceptId = null) {
   const duplicate = await prisma.paymentReport.findFirst({
-    where: { bitgetOrderNumber, status: { not: 'RECHAZADO' }, ...(exceptId ? { id: { not: exceptId } } : {}) },
+    where: {
+      bitgetOrderNumber: { equals: bitgetOrderNumber, mode: 'insensitive' },
+      status: { not: 'RECHAZADO' },
+      ...(exceptId ? { id: { not: exceptId } } : {}),
+    },
     select: { id: true },
   });
-  if (duplicate) throw ApiError.conflict('Ese número de orden ya fue reportado.');
+  if (duplicate) throw ApiError.conflict(ORDER_ALREADY_REPORTED);
 }
 
 async function currentReceiveUid(bitgetOrderNumber) {
@@ -201,19 +210,39 @@ const createPaymentReport = asyncHandler(async (req, res) => {
   // cliente ve en su subcuenta) — se guarda para la revisión del admin.
   const receiveUid = await currentReceiveUid(bitgetOrderNumber);
 
-  // 1) Evidencias a Drive. 2) Reporte + metadata en NeonDB (sin binarios).
-  const uploadedFiles = await uploadEvidence(req.clientProfile.id, bitgetOrderNumber, files);
-  const report = await prisma.paymentReport.create({
-    data: {
-      apiSubaccountId: subaccount.id,
-      currency: 'USDT',
-      bitgetOrderNumber,
-      transactionAt,
-      receiveUid,
-      statementId: unpaidStatement?.id || null,
-      status: 'PENDING',
-      evidenceFiles: { create: uploadedFiles },
-    },
+  // 1) Se RESERVA el N.º de orden insertando el reporte (el índice único
+  //    parcial de payment_reports lo protege también ante dos requests casi
+  //    simultáneos: el segundo recibe 409 sin subir nada a Drive).
+  // 2) Evidencias a Drive. 3) Metadata de las evidencias en NeonDB.
+  let report;
+  try {
+    report = await prisma.paymentReport.create({
+      data: {
+        apiSubaccountId: subaccount.id,
+        currency: 'USDT',
+        bitgetOrderNumber,
+        transactionAt,
+        receiveUid,
+        statementId: unpaidStatement?.id || null,
+        status: 'PENDING',
+      },
+    });
+  } catch (err) {
+    if (err.code === 'P2002') throw ApiError.conflict(ORDER_ALREADY_REPORTED);
+    throw err;
+  }
+  let uploadedFiles;
+  try {
+    uploadedFiles = await uploadEvidence(req.clientProfile.id, bitgetOrderNumber, files);
+  } catch (err) {
+    // Sin evidencia no hay reporte: se retira la reserva recién creada por
+    // este mismo request (nunca un registro previo).
+    await prisma.paymentReport.delete({ where: { id: report.id } }).catch(() => {});
+    throw err;
+  }
+  report = await prisma.paymentReport.update({
+    where: { id: report.id },
+    data: { evidenceFiles: { create: uploadedFiles } },
     include: { evidenceFiles: { select: EVIDENCE_FILE_SELECT } },
   });
 
@@ -268,28 +297,39 @@ const correctPaymentReport = asyncHandler(async (req, res) => {
   }
 
   const uploadedFiles = files.length ? await uploadEvidence(req.clientProfile.id, bitgetOrderNumber, files) : [];
-  const updated = await prisma.paymentReport.update({
-    where: { id: report.id },
-    data: {
-      bitgetOrderNumber,
-      transactionAt,
-      receiveUid,
-      status: 'PENDING',
-      reviewNote: null,
-      reviewedAt: null,
-      reviewedByUserId: null,
-      transferReceivedAt: null,
-      transferReceivedByUserId: null,
-      guaranteeReportedAt: null,
-      guaranteeReportedByUserId: null,
-      reportedAt: new Date(),
-      evidenceFiles: {
-        deleteMany: { id: { in: removed.map((f) => f.id) } },
-        create: uploadedFiles,
+  let updated;
+  try {
+    updated = await prisma.paymentReport.update({
+      where: { id: report.id },
+      data: {
+        bitgetOrderNumber,
+        transactionAt,
+        receiveUid,
+        status: 'PENDING',
+        reviewNote: null,
+        reviewedAt: null,
+        reviewedByUserId: null,
+        transferReceivedAt: null,
+        transferReceivedByUserId: null,
+        guaranteeReportedAt: null,
+        guaranteeReportedByUserId: null,
+        reportedAt: new Date(),
+        evidenceFiles: {
+          deleteMany: { id: { in: removed.map((f) => f.id) } },
+          create: uploadedFiles,
+        },
       },
-    },
-    include: { evidenceFiles: { select: EVIDENCE_FILE_SELECT } },
-  });
+      include: { evidenceFiles: { select: EVIDENCE_FILE_SELECT } },
+    });
+  } catch (err) {
+    if (err.code !== 'P2002') throw err;
+    // Otro reporte vigente tomó ese N.º de orden mientras se corregía: se
+    // retiran las evidencias recién subidas y se responde 409.
+    await Promise.all(
+      uploadedFiles.map((f) => driveStorage.deleteDriveFileOnlyWhenAuthorized(f.driveFileId, { authorized: true }).catch(() => {}))
+    );
+    throw ApiError.conflict(ORDER_ALREADY_REPORTED);
+  }
   // Los binarios retirados se eliminan de Drive (best effort).
   await Promise.all(
     removed.map((f) => driveStorage.deleteDriveFileOnlyWhenAuthorized(f.driveFileId, { authorized: true }).catch(() => {}))

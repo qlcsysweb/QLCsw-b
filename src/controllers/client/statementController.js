@@ -20,7 +20,8 @@ const listStatements = asyncHandler(async (req, res) => {
   await assertOwnsSubaccount(req.clientProfile.id, req.params.apiSubaccountId);
   await enforceCommissionDeadline(req.params.apiSubaccountId);
   const statements = await prisma.statement.findMany({
-    where: { apiSubaccountId: req.params.apiSubaccountId },
+    // Un BORRADOR del admin nunca es visible para el cliente.
+    where: { apiSubaccountId: req.params.apiSubaccountId, status: { not: 'BORRADOR' } },
     orderBy: { generatedAt: 'desc' },
     // Los mismos datos que el ADMIN captura al generar el estado de cuenta
     // (solo de subcuentas propias, ver assertOwnsSubaccount).
@@ -62,7 +63,7 @@ const listStatements = asyncHandler(async (req, res) => {
 
 const downloadStatementFile = asyncHandler(async (req, res) => {
   const statement = await prisma.statement.findUnique({ where: { id: req.params.id } });
-  if (!statement) throw ApiError.notFound('Estado de cuenta no encontrado');
+  if (!statement || statement.status === 'BORRADOR') throw ApiError.notFound('Estado de cuenta no encontrado');
   await assertOwnsSubaccount(req.clientProfile.id, statement.apiSubaccountId);
   if (!statement.pdfDriveFileId) throw ApiError.notFound('El PDF de este estado de cuenta no está disponible');
 
@@ -78,10 +79,10 @@ const downloadStatementFile = asyncHandler(async (req, res) => {
 // para el cliente; el admin conserva el registro completo.
 const hideStatement = asyncHandler(async (req, res) => {
   const statement = await prisma.statement.findUnique({ where: { id: req.params.id } });
-  if (!statement || statement.clientHiddenAt) throw ApiError.notFound('Estado de cuenta no encontrado');
+  if (!statement || statement.clientHiddenAt || statement.status === 'BORRADOR') throw ApiError.notFound('Estado de cuenta no encontrado');
   await assertOwnsSubaccount(req.clientProfile.id, statement.apiSubaccountId);
   const latest = await prisma.statement.findFirst({
-    where: { apiSubaccountId: statement.apiSubaccountId },
+    where: { apiSubaccountId: statement.apiSubaccountId, status: { not: 'BORRADOR' } },
     orderBy: { generatedAt: 'desc' },
     select: { id: true },
   });

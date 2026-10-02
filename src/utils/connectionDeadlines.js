@@ -32,8 +32,9 @@ function effectiveStatementStatus(statement, now = new Date()) {
 
 // Resumen del estado de cuenta ACTUAL de una subcuenta a partir de su lista
 // de estados de cuenta (cualquier orden).
+// Un BORRADOR nunca es el estado de cuenta actual (todavía no se emitió).
 function currentStatementSummary(statements = []) {
-  const latest = [...statements].sort((a, b) => new Date(b.generatedAt) - new Date(a.generatedAt))[0] || null;
+  const latest = statements.filter((s) => s.status !== 'BORRADOR').sort((a, b) => new Date(b.generatedAt) - new Date(a.generatedAt))[0] || null;
   const status = effectiveStatementStatus(latest);
   return {
     status,

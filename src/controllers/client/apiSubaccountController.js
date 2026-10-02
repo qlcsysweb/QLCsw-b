@@ -8,6 +8,12 @@ const { isValidIp } = require('../../utils/ipValidation');
 const { notifyAdmins } = require('../../utils/notify');
 const { MAX_SUBACCOUNTS_PER_CLIENT } = require('../../utils/subaccountProvisioning');
 const subaccountRequestService = require('../../services/subaccountRequestService');
+const {
+  FINAL_CAPITAL_STATUSES,
+  isCurrentCapitalReport,
+  latestCapitalReport,
+  lockCapitalSubaccount,
+} = require('../../utils/capitalDistribution');
 
 // GESTIÓN DINÁMICA DE SUBCUENTAS — subcuentas por ESTADO: toda subcuenta sin
 // deactivatedAt es, por definición, ACTIVA y visible para su cliente. Una
@@ -100,7 +106,7 @@ const getMine = asyncHandler(async (req, res) => {
       clientModel: { include: { model: true } },
       process: { include: { conditions: { where: { type: { not: 'WALLET' } } } } },
       paymentReports: { orderBy: { reportedAt: 'desc' } },
-      statements: { orderBy: { generatedAt: 'desc' } },
+      statements: { where: { status: { not: 'BORRADOR' } }, orderBy: { generatedAt: 'desc' } },
       connectionEvents: { where: { hiddenAt: null }, orderBy: { occurredAt: 'desc' } },
     },
   });
@@ -238,26 +244,29 @@ const reportCapitalDistribution = asyncHandler(async (req, res) => {
     throw ApiError.badRequest('La frase de confirmación no coincide con ninguna de las declaraciones indicadas.');
   }
 
-  // Solo se bloquea mientras haya una confirmación EN REVISIÓN (pendiente).
-  // Una vez que QLC la aprueba (o la rechaza), el formulario vuelve a quedar
-  // en ceros y el cliente puede enviar un reporte nuevo cuando sea necesario.
-  const active = await prisma.capitalDistributionReport.findFirst({
-    where: { apiSubaccountId: subaccount.id, status: { in: ['PENDING', 'EN_REVISION'] } },
-    select: { id: true },
+  // UNA confirmación vigente por requerimiento de capital (ver
+  // utils/capitalDistribution). Búsqueda + INSERT dentro de una transacción
+  // con bloqueo por subcuenta: un doble clic, un reintento o dos requests
+  // casi simultáneos nunca crean dos registros — el segundo recibe el mismo
+  // registro vigente (respuesta idempotente, sin notificar otra vez).
+  const { report, created } = await prisma.$transaction(async (tx) => {
+    await lockCapitalSubaccount(tx, subaccount.id);
+    const latest = await latestCapitalReport(tx, subaccount.id);
+    if (isCurrentCapitalReport(latest, requiredCapital)) return { report: latest, created: false };
+    const inserted = await tx.capitalDistributionReport.create({
+      data: {
+        apiSubaccountId: subaccount.id,
+        amount: requiredCapital,
+        // Declaración autorizada (forma canónica) + idioma que usó el cliente.
+        declaration: CAPITAL_DECLARATIONS[confirmationLanguage],
+        confirmationLanguage,
+        note: note || null,
+        status: 'PENDING',
+      },
+    });
+    return { report: inserted, created: true };
   });
-  if (active) throw ApiError.conflict('Ya confirmaste tu capital operativo para esta subcuenta.');
-
-  const report = await prisma.capitalDistributionReport.create({
-    data: {
-      apiSubaccountId: subaccount.id,
-      amount: requiredCapital,
-      // Declaración autorizada (forma canónica) + idioma que usó el cliente.
-      declaration: CAPITAL_DECLARATIONS[confirmationLanguage],
-      confirmationLanguage,
-      note: note || null,
-      status: 'PENDING',
-    },
-  });
+  if (!created) return res.json({ ok: true, report, alreadyReported: true });
 
   const client = await prisma.clientProfile.findUnique({ where: { id: req.clientProfile.id } });
   await notifyAdmins({
@@ -282,11 +291,19 @@ const listCapitalDistributionReports = asyncHandler(async (req, res) => {
   });
   if (!subaccount) throw ApiError.notFound('Subcuenta no encontrada');
 
-  const reports = await prisma.capitalDistributionReport.findMany({
-    where: { apiSubaccountId: subaccount.id, clientHiddenAt: null },
-    orderBy: { reportedAt: 'desc' },
-  });
-  res.json({ ok: true, reports });
+  const [reports, latest] = await Promise.all([
+    prisma.capitalDistributionReport.findMany({
+      where: { apiSubaccountId: subaccount.id, clientHiddenAt: null },
+      orderBy: { reportedAt: 'desc' },
+    }),
+    latestCapitalReport(prisma, subaccount.id),
+  ]);
+  // Registro VIGENTE (si existe): el panel lo muestra en lugar del
+  // formulario vacío, aunque el cliente lo haya quitado de su historial.
+  const requiredCapital =
+    subaccount.requiredCapital != null && Number(subaccount.requiredCapital) > 0 ? subaccount.requiredCapital : DEFAULT_REQUIRED_CAPITAL;
+  const current = isCurrentCapitalReport(latest, requiredCapital) ? latest : null;
+  res.json({ ok: true, reports, current });
 });
 
 // BORRAR DEL HISTORIAL (cliente) — solo reportes ya revisados por QLC
@@ -303,7 +320,7 @@ const hideCapitalDistributionReport = asyncHandler(async (req, res) => {
     select: { id: true, status: true },
   });
   if (!report) throw ApiError.notFound('Reporte no encontrado');
-  if (!['APROBADO', 'RECHAZADO'].includes(report.status)) {
+  if (!FINAL_CAPITAL_STATUSES.includes(report.status)) {
     throw ApiError.badRequest('Este reporte sigue en revisión; podrás borrarlo cuando QLC lo revise.');
   }
   await prisma.capitalDistributionReport.update({ where: { id: report.id }, data: { clientHiddenAt: new Date() } });

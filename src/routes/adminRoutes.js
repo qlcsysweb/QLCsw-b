@@ -73,6 +73,9 @@ router.post('/subaccount-requests/:id/reject', apiSubaccountController.rejectReq
 // CORREGIR.xlsx CLIENTE 13 — revisión de reportes de distribución de capital
 router.get('/capital-distribution-reports', apiSubaccountController.listCapitalDistributionReports);
 router.patch('/capital-distribution-reports/:id', apiSubaccountController.reviewCapitalDistributionReport);
+// Borrador de la revisión (mismo registro): guardar / descartar.
+router.put('/capital-distribution-reports/:id/draft', apiSubaccountController.saveCapitalDistributionDraft);
+router.delete('/capital-distribution-reports/:id/draft', apiSubaccountController.discardCapitalDistributionDraft);
 
 // Process / activation — por subcuenta
 router.get('/api-subaccounts/:apiSubaccountId/process', processController.getProcess);
@@ -134,6 +137,9 @@ router.get('/api-subaccounts/:apiSubaccountId/statements', statementController.l
 // multipart/form-data: campos del estado de cuenta + "file" (PDF cargado por
 // el admin, se envía al cliente por correo y mensajería interna).
 router.post('/api-subaccounts/:apiSubaccountId/statements', singleStatementPdf, statementController.createStatement);
+// BORRADOR del estado de cuenta (uno por subcuenta): guardar (UPDATE del mismo registro) / eliminar.
+router.put('/api-subaccounts/:apiSubaccountId/statements/draft', statementController.saveStatementDraft);
+router.delete('/statements/:id/draft', statementController.deleteStatementDraft);
 router.get('/statements/:id/download', statementController.downloadStatementFile);
 router.patch('/statements/:id/mark-paid', statementController.markStatementPaid);
 

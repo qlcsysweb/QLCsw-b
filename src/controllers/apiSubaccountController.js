@@ -15,6 +15,7 @@ const {
   PROCESS_CONDITION_TYPES,
 } = require('../utils/subaccountProvisioning');
 const subaccountRequestService = require('../services/subaccountRequestService');
+const { ACTIVE_CAPITAL_STATUSES } = require('../utils/capitalDistribution');
 
 // CORRECCIÓN 11/16: cada subcuenta nace con su propio proceso de
 // activación (5 condiciones) — igual que antes nacía a nivel cliente.
@@ -197,20 +198,81 @@ const listCapitalDistributionReports = asyncHandler(async (req, res) => {
   res.json({ ok: true, reports });
 });
 
+// BORRADOR de la revisión del admin (reutiliza el estado EN_REVISION, sin
+// enum nuevo): la nota de revisión se prepara y se guarda sobre el MISMO
+// registro (UPDATE) tantas veces como haga falta, sin notificar al cliente ni
+// dejarla como definitiva. Solo existe mientras la confirmación no esté
+// finalizada (aprobada/rechazada).
+const capitalDraftSchema = z.object({ reviewNote: z.string().max(500).optional() });
+
+async function findReviewableCapitalReport(id) {
+  const report = await prisma.capitalDistributionReport.findUnique({ where: { id } });
+  if (!report) throw ApiError.notFound('Reporte no encontrado');
+  if (!ACTIVE_CAPITAL_STATUSES.includes(report.status)) {
+    throw ApiError.conflict('Este reporte ya fue finalizado; no se puede modificar su borrador.');
+  }
+  return report;
+}
+
+const saveCapitalDistributionDraft = asyncHandler(async (req, res) => {
+  const { reviewNote } = capitalDraftSchema.parse(req.body);
+  const report = await findReviewableCapitalReport(req.params.id);
+  // updateMany condicionado al estado: si otro admin lo finalizó entre la
+  // lectura y el guardado, el borrador no pisa el registro definitivo.
+  const { count } = await prisma.capitalDistributionReport.updateMany({
+    where: { id: report.id, status: { in: ACTIVE_CAPITAL_STATUSES } },
+    data: { status: 'EN_REVISION', reviewNote: reviewNote?.trim() || null, reviewedByUserId: req.user.id },
+  });
+  if (!count) throw ApiError.conflict('Este reporte ya fue finalizado; no se puede modificar su borrador.');
+  const updated = await prisma.capitalDistributionReport.findUnique({ where: { id: report.id } });
+  res.json({ ok: true, report: updated });
+});
+
+// ELIMINAR BORRADOR — descarta solo la revisión en preparación (nota +
+// estado vuelve a PENDING). La confirmación del cliente nunca se borra.
+const discardCapitalDistributionDraft = asyncHandler(async (req, res) => {
+  const report = await findReviewableCapitalReport(req.params.id);
+  const { count } = await prisma.capitalDistributionReport.updateMany({
+    where: { id: report.id, status: { in: ACTIVE_CAPITAL_STATUSES } },
+    data: { status: 'PENDING', reviewNote: null, reviewedByUserId: null, reviewedAt: null },
+  });
+  if (!count) throw ApiError.conflict('Este reporte ya fue finalizado; no se puede modificar su borrador.');
+  const updated = await prisma.capitalDistributionReport.findUnique({ where: { id: report.id } });
+  res.json({ ok: true, report: updated });
+});
+
 const reviewCapitalDistributionReportSchema = z.object({
   status: z.enum(['APROBADO', 'RECHAZADO', 'EN_REVISION']),
   reviewNote: z.string().max(500).optional(),
 });
 
+// FINALIZAR — aprobar/rechazar actualiza el MISMO registro (borrador →
+// definitivo). La transición es atómica y solo desde PENDING/EN_REVISION:
+// un doble clic o un reintento no vuelve a notificar ni re-procesa; repetir
+// el mismo estado final responde idempotente con el registro actual.
 const reviewCapitalDistributionReport = asyncHandler(async (req, res) => {
   const { status, reviewNote } = reviewCapitalDistributionReportSchema.parse(req.body);
+  if (status === 'EN_REVISION') return saveCapitalDistributionDraft(req, res);
+
   const report = await prisma.capitalDistributionReport.findUnique({ where: { id: req.params.id } });
   if (!report) throw ApiError.notFound('Reporte no encontrado');
 
-  const updated = await prisma.capitalDistributionReport.update({
-    where: { id: report.id },
-    data: { status, reviewNote: reviewNote || null, reviewedByUserId: req.user.id, reviewedAt: new Date() },
+  const { count } = await prisma.capitalDistributionReport.updateMany({
+    where: { id: report.id, status: { in: ACTIVE_CAPITAL_STATUSES } },
+    data: {
+      status,
+      // Sin nota nueva se conserva la del borrador guardado.
+      reviewNote: reviewNote !== undefined ? reviewNote.trim() || null : report.reviewNote,
+      reviewedByUserId: req.user.id,
+      reviewedAt: new Date(),
+    },
   });
+  if (!count) {
+    const current = await prisma.capitalDistributionReport.findUnique({ where: { id: report.id } });
+    if (current.status === status) return res.json({ ok: true, report: current, alreadyReviewed: true });
+    throw ApiError.conflict('Este reporte ya fue finalizado.');
+  }
+  const updated = await prisma.capitalDistributionReport.findUnique({ where: { id: report.id } });
 
   if (status === 'APROBADO') {
     await prisma.apiSubaccount.update({
@@ -230,7 +292,7 @@ const reviewCapitalDistributionReport = asyncHandler(async (req, res) => {
   await notifyClient(subaccount.clientId, {
     title: 'Actualización de tu reporte de distribución de capital',
     message: `Tu reporte de distribución de capital (${report.amount} USDT) fue marcado como: ${status}`,
-    type: status === 'APROBADO' ? 'success' : status === 'RECHAZADO' ? 'warning' : 'info',
+    type: status === 'APROBADO' ? 'success' : 'warning',
     templateKey: 'capital_distribution_report_updated',
     templateParams: { amount: String(report.amount), status, apiSubaccountId: report.apiSubaccountId },
   });
@@ -409,6 +471,8 @@ module.exports = {
   getSubaccountSecrets,
   listCapitalDistributionReports,
   reviewCapitalDistributionReport,
+  saveCapitalDistributionDraft,
+  discardCapitalDistributionDraft,
   listRequests,
   approveCreateRequest,
   approveDeactivateRequest,
