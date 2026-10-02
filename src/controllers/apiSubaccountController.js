@@ -463,7 +463,23 @@ const hideConnectionEvent = asyncHandler(async (req, res) => {
   res.json({ ok: true });
 });
 
+// BORRAR DEL HISTORIAL "Distribución de capital" (admin) — solo reportes ya
+// revisados. Se oculta para el admin; el cliente y el proceso no cambian.
+const hideCapitalDistributionReportForAdmin = asyncHandler(async (req, res) => {
+  const report = await prisma.capitalDistributionReport.findUnique({
+    where: { id: req.params.id },
+    select: { id: true, status: true, adminHiddenAt: true },
+  });
+  if (!report || report.adminHiddenAt) throw ApiError.notFound('Reporte no encontrado');
+  if (!['APROBADO', 'RECHAZADO'].includes(report.status)) {
+    throw ApiError.badRequest('Este reporte sigue en revisión; podrás borrarlo cuando lo confirmes o rechaces.');
+  }
+  await prisma.capitalDistributionReport.update({ where: { id: report.id }, data: { adminHiddenAt: new Date() } });
+  res.json({ ok: true });
+});
+
 module.exports = {
+  hideCapitalDistributionReportForAdmin,
   hideConnectionEvent,
   searchByIdentifier,
   createSubaccount,

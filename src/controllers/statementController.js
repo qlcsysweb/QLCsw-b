@@ -371,7 +371,29 @@ const downloadStatementFile = asyncHandler(async (req, res) => {
   stream.pipe(res);
 });
 
+// BORRAR DE "ESTADOS DE CUENTA ANTERIORES" (admin) — solo pagados y nunca el
+// actual (el emitido más reciente). Se oculta para el admin; el cliente y los
+// pagos no cambian.
+const hideStatementForAdmin = asyncHandler(async (req, res) => {
+  const statement = await prisma.statement.findUnique({ where: { id: req.params.id } });
+  if (!statement || statement.adminHiddenAt || statement.status === 'BORRADOR') {
+    throw ApiError.notFound('Estado de cuenta no encontrado');
+  }
+  const latest = await prisma.statement.findFirst({
+    where: { apiSubaccountId: statement.apiSubaccountId, status: { not: 'BORRADOR' } },
+    orderBy: { generatedAt: 'desc' },
+    select: { id: true },
+  });
+  if (latest?.id === statement.id) throw ApiError.badRequest('El estado de cuenta actual no se puede borrar.');
+  if (effectiveStatementStatus(statement) !== 'PAGADO') {
+    throw ApiError.badRequest('Solo se pueden borrar estados de cuenta ya pagados.');
+  }
+  await prisma.statement.update({ where: { id: statement.id }, data: { adminHiddenAt: new Date() } });
+  res.json({ ok: true });
+});
+
 module.exports = {
+  hideStatementForAdmin,
   listStatements,
   createStatement,
   saveStatementDraft,

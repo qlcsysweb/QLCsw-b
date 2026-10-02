@@ -774,6 +774,9 @@ model PaymentReport {
   // reportes ya revisados). Se conserva: el admin lo sigue viendo y cuenta
   // para el estado del pago.
   clientHiddenAt DateTime?
+  // El ADMIN lo borró del historial de la subcuenta (solo reportes ya
+  // revisados). Se conserva: el cliente y la contabilidad no cambian.
+  adminHiddenAt  DateTime?
 
   @@map("payment_reports")
 }
@@ -848,6 +851,9 @@ model Statement {
   // El CLIENTE lo borró de "Estados de cuenta anteriores" (solo pagados y
   // nunca el actual). Se conserva: el admin lo sigue viendo completo.
   clientHiddenAt DateTime?
+  // El ADMIN lo borró de "Estados de cuenta anteriores" (solo pagados y nunca
+  // el actual). Se conserva; el cliente no se ve afectado.
+  adminHiddenAt  DateTime?
 
   // CORRECCIÓN 5: no permitir dos Estados de Cuenta iguales para la misma
   // subcuenta/API + mismo periodo.
@@ -1290,6 +1296,9 @@ model CapitalDistributionReport {
   // El CLIENTE lo borró de su historial (solo reportes ya revisados). Se
   // conserva: el admin lo sigue viendo completo.
   clientHiddenAt       DateTime?
+  // El ADMIN lo borró del historial "Distribución de capital" (solo reportes
+  // ya revisados). Se conserva; el cliente no se ve afectado.
+  adminHiddenAt        DateTime?
 
   @@map("capital_distribution_reports")
 }

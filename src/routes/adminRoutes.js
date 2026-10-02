@@ -73,6 +73,7 @@ router.post('/subaccount-requests/:id/reject', apiSubaccountController.rejectReq
 // CORREGIR.xlsx CLIENTE 13 — revisión de reportes de distribución de capital
 router.get('/capital-distribution-reports', apiSubaccountController.listCapitalDistributionReports);
 router.patch('/capital-distribution-reports/:id', apiSubaccountController.reviewCapitalDistributionReport);
+router.delete('/capital-distribution-reports/:id/history', apiSubaccountController.hideCapitalDistributionReportForAdmin);
 // Borrador de la revisión (mismo registro): guardar / descartar.
 router.put('/capital-distribution-reports/:id/draft', apiSubaccountController.saveCapitalDistributionDraft);
 router.delete('/capital-distribution-reports/:id/draft', apiSubaccountController.discardCapitalDistributionDraft);
@@ -142,6 +143,7 @@ router.put('/api-subaccounts/:apiSubaccountId/statements/draft', statementContro
 router.delete('/statements/:id/draft', statementController.deleteStatementDraft);
 router.get('/statements/:id/download', statementController.downloadStatementFile);
 router.patch('/statements/:id/mark-paid', statementController.markStatementPaid);
+router.delete('/statements/:id/history', statementController.hideStatementForAdmin);
 
 // Pagos / Garantía — UID de recepción Bitget (configurable solo por ADMIN)
 // y reportes de transferencia interna Bitget.
@@ -156,6 +158,7 @@ router.patch('/payment-reports/:id/transfer-received', paymentController.markTra
 router.patch('/payment-reports/:id/guarantee-reported', paymentController.markGuaranteeReported);
 router.patch('/payment-reports/:id', paymentController.reviewPaymentReport);
 router.delete('/payment-reports/:id', paymentController.deletePaymentReport);
+router.delete('/payment-reports/:id/history', paymentController.hidePaymentReportForAdmin);
 
 // Appointments
 router.get('/availability', appointmentController.listAvailability);

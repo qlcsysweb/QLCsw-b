@@ -290,8 +290,25 @@ const deletePaymentReport = asyncHandler(async (req, res) => {
   res.json({ ok: true });
 });
 
+// BORRAR DEL HISTORIAL (admin) — solo transferencias ya revisadas (confirmadas
+// o rechazadas). A diferencia de "Eliminar reporte", NO borra el registro ni
+// cambia el estado del pago: solo deja de mostrarse en la subcuenta del admin.
+const hidePaymentReportForAdmin = asyncHandler(async (req, res) => {
+  const report = await prisma.paymentReport.findUnique({
+    where: { id: req.params.id },
+    select: { id: true, status: true, adminHiddenAt: true },
+  });
+  if (!report || report.adminHiddenAt) throw ApiError.notFound('Reporte de pago no encontrado');
+  if (!['APROBADO', 'RECHAZADO'].includes(report.status)) {
+    throw ApiError.badRequest('Este reporte sigue en revisión; podrás borrarlo cuando lo confirmes o rechaces.');
+  }
+  await prisma.paymentReport.update({ where: { id: report.id }, data: { adminHiddenAt: new Date() } });
+  res.json({ ok: true });
+});
+
 module.exports = {
   deletePaymentReport,
+  hidePaymentReportForAdmin,
   getPaymentConfiguration,
   getPublicReceiveUid,
   updatePaymentConfiguration,
