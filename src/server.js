@@ -2,6 +2,7 @@ require('dotenv').config();
 const app = require('./app');
 const { startStatementExpirySweep } = require('./utils/connectionDeadlines');
 const { migrateAppointmentsToUtc } = require('./utils/appointmentsUtc');
+const { startKeepAlive } = require('./utils/keepAlive');
 
 const PORT = process.env.PORT || 4000;
 
@@ -9,6 +10,8 @@ app.listen(PORT, () => {
   console.log(`QLC backend escuchando en http://localhost:${PORT}`);
   // Vencimiento de estados de cuenta (72 h) aunque nadie tenga la página abierta.
   startStatementExpirySweep();
+  // Render gratuito: evita que el servicio se duerma por inactividad.
+  startKeepAlive();
   // Citas antiguas (hora de México) → UTC, una sola vez. SKIP_APPOINTMENTS_UTC_MIGRATION
   // =true la omite (pruebas locales contra la base de producción antes de desplegar).
   if (process.env.SKIP_APPOINTMENTS_UTC_MIGRATION !== 'true') {
