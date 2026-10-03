@@ -22,6 +22,15 @@ app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
 app.use(express.json({ limit: '2mb' }));
 app.use(cookieParser());
+// Datos SIEMPRE frescos: ninguna respuesta de la API se guarda en la caché
+// del navegador ni de intermediarios, así lo que se actualiza (por el admin,
+// el cliente o una nueva versión) se refleja de inmediato en todas las
+// pantallas. Los archivos que se descargan (PDF, comprobantes) también.
+app.use('/api', (req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store, max-age=0');
+  res.setHeader('Pragma', 'no-cache');
+  next();
+});
 
 app.get('/api/health', (req, res) => res.json({ ok: true, service: 'qlc-backend' }));
 

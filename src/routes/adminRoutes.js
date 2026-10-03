@@ -14,7 +14,6 @@ const adminController = require('../controllers/adminController');
 const documentController = require('../controllers/documentController');
 const statementController = require('../controllers/statementController');
 const affiliateController = require('../controllers/affiliateController');
-const qlcDepositController = require('../controllers/qlcDepositController');
 const affiliatePrepaymentController = require('../controllers/affiliatePrepaymentController');
 const paymentController = require('../controllers/paymentController');
 const appointmentController = require('../controllers/appointmentController');
@@ -75,10 +74,6 @@ router.post('/subaccount-requests/:id/reject', apiSubaccountController.rejectReq
 
 // CORREGIR.xlsx CLIENTE 13 — revisión de reportes de distribución de capital
 router.get('/capital-distribution-reports', apiSubaccountController.listCapitalDistributionReports);
-// Depósitos que QLC realiza al cliente (registro administrativo por subcuenta).
-router.get('/api-subaccounts/:id/qlc-deposits', qlcDepositController.listForAdmin);
-router.post('/api-subaccounts/:id/qlc-deposits', qlcDepositController.createDeposit);
-router.patch('/qlc-deposits/:depositId/void', qlcDepositController.voidDeposit);
 // Pago previo de la comisión del afiliador (obligatorio antes del estado de cuenta).
 router.get('/api-subaccounts/:id/affiliate-prepayment', affiliatePrepaymentController.getPrepayment);
 router.post('/api-subaccounts/:id/affiliate-prepayment', singleCaseFile, affiliatePrepaymentController.createPrepayment);

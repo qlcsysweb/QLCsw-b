@@ -1,4 +1,5 @@
 const { z } = require('zod');
+const { isAccountActivated } = require('../../utils/accountActivation');
 const prisma = require('../../config/prisma');
 const ApiError = require('../../utils/ApiError');
 const asyncHandler = require('../../utils/asyncHandler');
@@ -57,18 +58,11 @@ function shapeReferralAccount(s, staleDays) {
   candidates.sort((x, y) => new Date(y.updatedAt) - new Date(x.updatedAt));
   const latest = candidates[0] || null;
 
-  // HISTORIAL REGISTRADO POR QLC: los DEPÓSITOS que QLC realiza al cliente
-  // en esta API (fecha, tipo de movimiento e importe), registrados por
-  // administración. Nunca movimientos consultados a Bitget; los anulados no
-  // se muestran.
-  const history = (s.qlcDeposits || []).map((d) => ({
-    date: d.depositedAt,
-    type: 'DEPOSITO_QLC',
-    periodStart: null,
-    periodEnd: null,
-    amount: Number(d.amount),
-    status: 'REGISTRADO',
-  }));
+  // HISTORIAL REGISTRADO POR QLC: los DEPÓSITOS que QLC le hizo al
+  // AFILIADOR por su comisión de esta API (se completa en getMyAffiliate con
+  // los pagos registrados por administración). Al cliente QLC no le deposita:
+  // su ganancia ya queda en su propia cuenta.
+  const history = [];
 
   return {
     // PCB asignado por QLC al registrar la API (formato actual del sistema).
@@ -76,7 +70,7 @@ function shapeReferralAccount(s, staleDays) {
     principal: Boolean(s.isPrincipal),
     apiKeyTail: apiKeyTail(s.apiKeyEncrypted),
     connectionStatus: s.status,
-    activated: Boolean(s.process?.isActivated),
+    activated: isAccountActivated(s),
     milestones: MILESTONES.map((type) => {
       const c = conditions.find((x) => x.type === type);
       return { type, status: c?.status || 'PENDING', updatedAt: c?.updatedAt || null };
@@ -105,12 +99,6 @@ const REFERRAL_ACCOUNT_SELECT = {
     take: 12,
     select: { amount: true, reviewedAt: true, reportedAt: true },
   },
-  qlcDeposits: {
-    where: { voidedAt: null },
-    orderBy: { depositedAt: 'desc' },
-    take: 24,
-    select: { amount: true, depositedAt: true },
-  },
   statements: {
     where: { status: { not: 'BORRADOR' } },
     orderBy: { periodEnd: 'desc' },
@@ -131,8 +119,10 @@ const PAYMENT_SELECT = {
   status: true,
   paidAt: true,
   createdAt: true,
+  // Cuenta (API) del referido a la que corresponde el pago (vía su estado de cuenta).
+  statement: { select: { apiSubaccountId: true } },
 };
-const shapePayment = ({ proofDriveFileId, ...p }) => ({ ...p, amount: Number(p.amount), hasProof: Boolean(proofDriveFileId) });
+const shapePayment = ({ proofDriveFileId, statement, ...p }) => ({ ...p, amount: Number(p.amount), hasProof: Boolean(proofDriveFileId) });
 
 const getMyAffiliate = asyncHandler(async (req, res) => {
   const me = req.clientProfile;
@@ -202,7 +192,15 @@ const getMyAffiliate = asyncHandler(async (req, res) => {
       accounts: r.apiSubaccounts.map((acc) => {
         const accCommissions = mine.filter((c) => c.statement?.apiSubaccountId === acc.id);
         const { id, ...shaped } = { id: acc.id, ...shapeReferralAccount(acc, config.balanceStaleDays) };
-        return { ...shaped, commissions: { totals: totalsOf(accCommissions), history: accCommissions.map(shapeCommission) } };
+        // Depósitos de QLC al afiliador por la comisión de ESTA API (pagados).
+        const deposits = payments
+          .filter((p) => p.statement?.apiSubaccountId === acc.id && p.status === 'PAGADO')
+          .map((p) => ({ date: p.paidAt || p.createdAt, type: 'DEPOSITO_QLC', periodStart: null, periodEnd: null, amount: Number(p.amount), orderNumber: p.reference || null, status: 'PAGADO' }));
+        return {
+          ...shaped,
+          history: deposits,
+          commissions: { totals: totalsOf(accCommissions), history: accCommissions.map(shapeCommission) },
+        };
       }),
       // Ajustes manuales justificados por QLC (no ligados a una API).
       adjustments: { totals: totalsOf(adjustments), history: adjustments.map(shapeCommission) },

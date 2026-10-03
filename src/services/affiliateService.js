@@ -8,6 +8,7 @@
  * corresponder a SU afiliador directo (no hay niveles ni comisiones heredadas).
  */
 const crypto = require('crypto');
+const { isAccountActivated, ACTIVATION_SELECT } = require('../utils/accountActivation');
 const QRCode = require('qrcode');
 const prisma = require('../config/prisma');
 const ApiError = require('../utils/ApiError');
@@ -162,7 +163,7 @@ async function regenerateAffiliateCode(clientId) {
 // completado; INACTIVO = cliente/usuario desactivado; EN_PROCESO = el resto.
 function referralStatus(client) {
   if (client.status === 'INACTIVE' || client.user?.isActive === false) return 'INACTIVO';
-  const activated = (client.apiSubaccounts || []).some((s) => !s.deactivatedAt && s.process?.isActivated);
+  const activated = (client.apiSubaccounts || []).some(isAccountActivated);
   return activated ? 'ACTIVO' : 'EN_PROCESO';
 }
 
@@ -171,7 +172,7 @@ function referralStatus(client) {
 const REFERRAL_STATUS_SELECT = {
   status: true,
   user: { select: { isActive: true } },
-  apiSubaccounts: { select: { deactivatedAt: true, process: { select: { isActivated: true } } } },
+  apiSubaccounts: { select: ACTIVATION_SELECT },
 };
 
 // Lo que el AFILIADOR puede ver como identificación de su referido: SOLO

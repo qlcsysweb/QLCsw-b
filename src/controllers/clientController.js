@@ -7,6 +7,7 @@ const driveStorage = require('../services/driveStorageService');
 const { enforceCommissionDeadline, currentStatementSummary } = require('../utils/connectionDeadlines');
 const { ensurePrincipalSubaccount } = require('../utils/subaccountProvisioning');
 const { syncClientStatus, computeClientStatus } = require('../utils/clientStatus');
+const { isAccountActivated } = require('../utils/accountActivation');
 const { resolveActiveReferrer, logAffiliateEvent } = require('../services/affiliateService');
 
 // Resumen de avance de UNA subcuenta/API — para el indicador de "lista
@@ -29,10 +30,10 @@ function summarizeConditions(process) {
 // tener hasta 20 subcuentas/API, cada una con su propio proceso.
 function summarizeSubaccounts(apiSubaccounts) {
   const total = apiSubaccounts.length;
-  const activated = apiSubaccounts.filter((s) => s.process?.isActivated).length;
+  const activated = apiSubaccounts.filter(isAccountActivated).length;
   const readyToActivate = apiSubaccounts.filter((s) => {
     const summary = summarizeConditions(s.process);
-    return summary.allConfirmed && !s.process?.isActivated;
+    return summary.allConfirmed && !isAccountActivated(s);
   }).length;
   return { total, activated, readyToActivate };
 }

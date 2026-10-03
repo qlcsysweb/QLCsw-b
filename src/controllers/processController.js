@@ -50,6 +50,8 @@ const updateCondition = asyncHandler(async (req, res) => {
   if (type === 'API') {
     await syncConnectionFromCondition(req.params.apiSubaccountId, status, req.user.id);
   }
+  // El paso "Activación" cuenta para el estado del cliente (ver utils/accountActivation).
+  if (type === 'ACTIVATION') await syncClientStatus(process.apiSubaccount.clientId);
 
   await notifyClient(process.apiSubaccount.clientId, {
     title: 'Actualización de tu proceso',

@@ -46,6 +46,8 @@ const updateSchema = z.object({
   roi30d: percentField(-100, 99999999),
   winRate: percentField(0, 100),
   maxDrawdown: percentField(0, 100),
+  // Días del periodo del ROI ("ROI 30D"): entero de 1 a 365.
+  roiDays: z.coerce.number({ invalid_type_error: 'Indica el número de días del ROI.' }).int('Los días del ROI deben ser un número entero.').min(1, 'Los días del ROI deben ser entre 1 y 365.').max(365, 'Los días del ROI deben ser entre 1 y 365.').optional(),
   isActive: z.boolean().optional(),
 });
 

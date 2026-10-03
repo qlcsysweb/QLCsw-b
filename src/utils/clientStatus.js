@@ -9,10 +9,11 @@
  * tuviera ninguna cuenta activada; eso ya no ocurre.
  */
 const prisma = require('../config/prisma');
+const { isAccountActivated, ACTIVATION_SELECT } = require('./accountActivation');
 
 function computeClientStatus({ userIsActive, storedStatus, subaccounts }) {
   if (userIsActive === false) return 'INACTIVE';
-  const activated = (subaccounts || []).some((s) => !s.deactivatedAt && s.process?.isActivated);
+  const activated = (subaccounts || []).some(isAccountActivated);
   if (activated) return 'ACTIVE';
   return storedStatus === 'REVIEW' ? 'REVIEW' : 'PENDING';
 }
@@ -25,7 +26,7 @@ async function syncClientStatus(clientId, db = prisma) {
     select: {
       status: true,
       user: { select: { isActive: true } },
-      apiSubaccounts: { select: { deactivatedAt: true, process: { select: { isActivated: true } } } },
+      apiSubaccounts: { select: ACTIVATION_SELECT },
     },
   });
   if (!client) return null;

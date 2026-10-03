@@ -1,4 +1,5 @@
 const { z } = require('zod');
+const { isAccountActivated, ACTIVATION_SELECT } = require('../utils/accountActivation');
 const prisma = require('../config/prisma');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
@@ -350,7 +351,7 @@ const getAffiliate = asyncHandler(async (req, res) => {
           status: true,
           user: { select: { isActive: true } },
           apiSubaccounts: {
-            select: { identifier: true, isPrincipal: true, status: true, deactivatedAt: true, process: { select: { isActivated: true } } },
+            select: { identifier: true, isPrincipal: true, status: true, ...ACTIVATION_SELECT },
             orderBy: { slotIndex: 'asc' },
           },
         },
@@ -386,7 +387,7 @@ const getAffiliate = asyncHandler(async (req, res) => {
         status: referralStatus(r),
         accounts: r.apiSubaccounts
           .filter((s) => !s.deactivatedAt)
-          .map((s) => ({ pcb: s.identifier, principal: s.isPrincipal, connectionStatus: s.status, activated: Boolean(s.process?.isActivated) })),
+          .map((s) => ({ pcb: s.identifier, principal: s.isPrincipal, connectionStatus: s.status, activated: isAccountActivated(s) })),
       })),
       commissionTotals: commissionTotals(groups),
       commissions,

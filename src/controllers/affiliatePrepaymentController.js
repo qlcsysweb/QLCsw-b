@@ -76,13 +76,25 @@ const getPrepayment = asyncHandler(async (req, res) => {
   res.json({ ok: true, ...shapeContext(await prepaymentContext(req.params.id)) });
 });
 
+// Igual que la confirmación de transferencia del cliente: N.º de orden de
+// Bitget + fecha y hora del depósito + comprobante.
 const createSchema = z.object({
   amount: z.coerce.number({ invalid_type_error: 'Indica el monto pagado al afiliador.' }).positive('El monto pagado debe ser mayor que 0.'),
-  reference: z.string().trim().max(200).optional(),
+  reference: z
+    .string({ required_error: 'El número de orden es obligatorio' })
+    .trim()
+    .min(4, 'El número de orden es obligatorio')
+    .max(64, 'El número de orden no puede superar 64 caracteres')
+    .regex(/^[A-Za-z0-9-]+$/, 'El número de orden solo puede contener letras, números y guiones'),
+  paidAt: z.coerce.date({ required_error: 'Indica la fecha y hora del depósito.', invalid_type_error: 'La fecha y hora del depósito no es válida.' }),
 });
 
 const createPrepayment = asyncHandler(async (req, res) => {
   const data = createSchema.parse(req.body);
+  // Tolerancia de 10 min por diferencia de relojes; nunca una fecha futura.
+  if (data.paidAt.getTime() > Date.now() + 10 * 60 * 1000) {
+    throw ApiError.badRequest('La fecha y hora del depósito no puede estar en el futuro.');
+  }
   const { subaccount, referrer, prepayment } = await prepaymentContext(req.params.id);
   if (!referrer) throw ApiError.badRequest('El cliente de esta subcuenta no tiene promotor afiliador directo.');
   if (!referrer.affiliateBitgetUid) {
@@ -106,7 +118,7 @@ const createPrepayment = asyncHandler(async (req, res) => {
 
   let payment;
   try {
-    const now = new Date();
+    const now = data.paidAt;
     payment = await prisma.affiliatePayment.create({
       data: {
         referrerClientId: referrer.id,
@@ -114,7 +126,7 @@ const createPrepayment = asyncHandler(async (req, res) => {
         amount: Math.round(data.amount * 100) / 100,
         periodLabel: `Estado de cuenta — ${clientSubaccountLabel(subaccount) || 'subcuenta'}`,
         destinationUid: referrer.affiliateBitgetUid,
-        reference: data.reference || null,
+        reference: data.reference,
         proofDriveFileId: uploaded.id,
         proofFileName: fileName,
         proofMimeType: file.mimetype,

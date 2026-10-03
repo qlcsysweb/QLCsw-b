@@ -1148,6 +1148,8 @@ model TrackRecord {
   // (ROI de 30 días y tasa de éxito, en %). Null = no configurado → el
   // sitio muestra "—"; nunca se inventa una cifra.
   roi30d        Decimal? @db.Decimal(10, 2)
+  // Número de días del periodo del ROI mostrado ("ROI 30D"), editable por el admin.
+  roiDays       Int      @default(30)
   winRate       Decimal? @db.Decimal(5, 2)
   // Maximum Drawdown (%) mostrado en el hero/Resultados — lo captura el
   // ADMIN en Admin → Track Record (no se consulta a ninguna API).
