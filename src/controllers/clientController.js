@@ -6,6 +6,7 @@ const asyncHandler = require('../utils/asyncHandler');
 const driveStorage = require('../services/driveStorageService');
 const { enforceCommissionDeadline, currentStatementSummary } = require('../utils/connectionDeadlines');
 const { ensurePrincipalSubaccount } = require('../utils/subaccountProvisioning');
+const { resolveActiveReferrer, logAffiliateEvent } = require('../services/affiliateService');
 
 // Resumen de avance de UNA subcuenta/API — para el indicador de "lista
 // para activar" (una subcuenta está lista cuando todas sus condiciones
@@ -53,6 +54,13 @@ const createClientSchema = z.object({
   // CORRECCIÓN 4: opcional aquí (el admin puede completarla después desde
   // "Editar cliente") — en el registro público sí es obligatoria.
   notes: z.string().optional(),
+  // AFILIACIÓN — el ADMIN decide explícitamente: sin afiliado, o con afiliado
+  // identificado por su CÓDIGO (nunca un ID; el backend resuelve el cliente).
+  withAffiliate: z.boolean().optional().default(false),
+  affiliateCode: z.string().trim().max(64).optional(),
+}).refine((d) => !d.withAffiliate || Boolean(d.affiliateCode), {
+  message: 'Indica y valida el código de afiliado, o elige "Sin afiliado".',
+  path: ['affiliateCode'],
 });
 
 const listClients = asyncHandler(async (req, res) => {
@@ -155,24 +163,47 @@ const createClient = asyncHandler(async (req, res) => {
   const existingUsername = await prisma.clientProfile.findUnique({ where: { username: data.username } });
   if (existingUsername) throw ApiError.conflict('Esa nomenclatura ya está en uso por otro cliente.');
 
+  if (data.withAffiliate) await resolveActiveReferrer(prisma, data.affiliateCode);
+
   const passwordHash = await bcrypt.hash(data.password, 12);
 
-  const user = await prisma.user.create({
-    data: {
-      email: data.email,
-      passwordHash,
-      role: 'CLIENT',
-      clientProfile: {
-        create: {
-          username: data.username,
-          firstName: data.firstName,
-          lastName: data.lastName,
-          notes: data.notes,
-          status: 'PENDING',
+  // Cliente + relación de afiliación (si aplica) en la misma transacción.
+  let user;
+  let referrer = null;
+  try {
+    ({ user, referrer } = await prisma.$transaction(async (tx) => {
+      const activeReferrer = data.withAffiliate ? await resolveActiveReferrer(tx, data.affiliateCode) : null;
+      const created = await tx.user.create({
+        data: {
+          email: data.email,
+          passwordHash,
+          role: 'CLIENT',
+          clientProfile: {
+            create: {
+              username: data.username,
+              firstName: data.firstName,
+              lastName: data.lastName,
+              notes: data.notes,
+              status: 'PENDING',
+              ...(activeReferrer
+                ? { referredByClientId: activeReferrer.id, referredAt: new Date(), referralSource: 'ADMIN' }
+                : {}),
+            },
+          },
         },
-      },
-    },
-    include: { clientProfile: true },
+        include: { clientProfile: true },
+      });
+      return { user: created, referrer: activeReferrer };
+    }));
+  } catch (err) {
+    if (err.code === 'P2002') throw ApiError.conflict('Ya existe un usuario con ese email o esa nomenclatura.');
+    throw err;
+  }
+  await logAffiliateEvent(prisma, {
+    action: referrer ? 'CLIENT_CREATED_BY_ADMIN_WITH_AFFILIATE' : 'CLIENT_CREATED_BY_ADMIN_WITHOUT_AFFILIATE',
+    clientId: user.clientProfile.id,
+    actorUserId: req.user.id,
+    details: referrer ? { referrerClientId: referrer.id, affiliateCode: referrer.affiliateCode } : null,
   });
 
   // GESTIÓN DINÁMICA DE SUBCUENTAS — igual que en el registro público: solo

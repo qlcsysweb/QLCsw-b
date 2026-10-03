@@ -13,6 +13,7 @@ const trackRecordController = require('../controllers/trackRecordController');
 const adminController = require('../controllers/adminController');
 const documentController = require('../controllers/documentController');
 const statementController = require('../controllers/statementController');
+const affiliateController = require('../controllers/affiliateController');
 const paymentController = require('../controllers/paymentController');
 const appointmentController = require('../controllers/appointmentController');
 const supportController = require('../controllers/supportController');
@@ -72,6 +73,16 @@ router.post('/subaccount-requests/:id/reject', apiSubaccountController.rejectReq
 
 // CORREGIR.xlsx CLIENTE 13 — revisión de reportes de distribución de capital
 router.get('/capital-distribution-reports', apiSubaccountController.listCapitalDistributionReports);
+// Afiliados / promotores (relación directa) y comisiones del afiliador directo.
+router.get('/affiliates', affiliateController.listAffiliates);
+router.get('/affiliates/config', affiliateController.getConfig);
+router.put('/affiliates/config', affiliateController.updateConfig);
+router.get('/affiliates/lookup', affiliateController.lookupAffiliates);
+router.get('/affiliates/validate', affiliateController.validateForAdmin);
+router.get('/affiliates/:clientId', affiliateController.getAffiliate);
+router.patch('/affiliates/:clientId', affiliateController.setAffiliateEnabled);
+router.post('/affiliate-commissions', affiliateController.createCommission);
+router.patch('/affiliate-commissions/:id', affiliateController.updateCommissionStatus);
 router.patch('/capital-distribution-reports/:id', apiSubaccountController.reviewCapitalDistributionReport);
 router.delete('/capital-distribution-reports/:id/history', apiSubaccountController.hideCapitalDistributionReportForAdmin);
 // Borrador de la revisión (mismo registro): guardar / descartar.

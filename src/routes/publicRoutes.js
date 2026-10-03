@@ -9,6 +9,7 @@ const appointmentController = require('../controllers/appointmentController');
 const emailConfigController = require('../controllers/emailConfigController');
 const driveConfigController = require('../controllers/driveConfigController');
 const paymentController = require('../controllers/paymentController');
+const affiliateController = require('../controllers/affiliateController');
 
 const router = Router();
 
@@ -28,6 +29,11 @@ router.get('/track-record', trackRecordController.getTrackRecordPublic);
 // UID de recepción Bitget de QLC para el modal informativo de ingreso — solo
 // ese dato (el mismo que QLC publica a sus clientes), nada más de la config.
 router.get('/payment-info', paymentController.getPublicReceiveUid);
+
+// REGISTRO POR INVITACIÓN — valida un código de afiliado (límite estricto
+// para que no se puedan enumerar códigos por fuerza bruta).
+const affiliateValidateLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 30, standardHeaders: true, legacyHeaders: false });
+router.get('/affiliate/validate', affiliateValidateLimiter, affiliateController.validateAffiliateCode);
 
 // Formulario "Solicitar información" / Registro
 router.post('/prospects', publicFormLimiter, prospectController.createProspect);

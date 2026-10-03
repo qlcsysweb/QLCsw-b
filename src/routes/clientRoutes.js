@@ -18,6 +18,7 @@ const messageController = require('../controllers/client/messageController');
 const platformSettingsController = require('../controllers/platformSettingsController');
 const guideController = require('../controllers/client/guideController');
 const processStepController = require('../controllers/processStepController');
+const affiliateController = require('../controllers/client/affiliateController');
 
 const router = Router();
 
@@ -27,6 +28,11 @@ router.use(requireAuth, requireRole('CLIENT'), resolveOwnClientProfile);
 // Perfil / Dashboard
 router.get('/me', profileController.getMe);
 router.get('/dashboard', profileController.getDashboard);
+
+// Afiliados / Panel de promotor — siempre del cliente autenticado (sin IDs en la URL).
+router.get('/affiliate', affiliateController.getMyAffiliate);
+router.post('/affiliate/activate', affiliateController.activateMyAffiliate);
+router.get('/affiliate/qr', affiliateController.getMyAffiliateQr);
 
 // Modelo de participación (lectura, único modelo activo)
 router.get('/models', modelController.listModelsPublic);

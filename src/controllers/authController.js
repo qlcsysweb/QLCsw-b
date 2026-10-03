@@ -6,6 +6,7 @@ const asyncHandler = require('../utils/asyncHandler');
 const { signToken, cookieOptions, clearCookieOptions } = require('../utils/token');
 const { ensurePrincipalSubaccount } = require('../utils/subaccountProvisioning');
 const { notifyAdmins } = require('../utils/notify');
+const { resolveActiveReferrer, logAffiliateEvent } = require('../services/affiliateService');
 const {
   isTwoFactorGloballyEnabled,
   verifyToken,
@@ -194,7 +195,15 @@ async function currentLegalVersions() {
 // (User + ClientProfile + Process/condiciones vacías listas para su primera
 // subcuenta) y deja al visitante con sesión iniciada. Ya NO pasa por
 // "prospecto" — ese flujo queda reservado para quien solo pide información.
+// REGISTRO POR INVITACIÓN — el registro externo exige un código de afiliado
+// válido y ACTIVO (el visitante solo envía el código; nunca un ID). El backend
+// lo valida otra vez aquí aunque el frontend ya lo haya validado.
 const registerSchema = z.object({
+  affiliateCode: z
+    .string({ required_error: 'Para registrarte en QLC necesitas un código o enlace de afiliación válido.' })
+    .trim()
+    .min(1, 'Para registrarte en QLC necesitas un código o enlace de afiliación válido.')
+    .max(64),
   firstName: z.string().min(1, 'El nombre es obligatorio'),
   lastName: z.string().min(1, 'El apellido es obligatorio'),
   email: z.string().email('Email inválido'),
@@ -213,6 +222,9 @@ const registerSchema = z.object({
 const register = asyncHandler(async (req, res) => {
   const data = registerSchema.parse(req.body);
 
+  // Validación temprana (sin crear nada si el código no sirve).
+  await resolveActiveReferrer(prisma, data.affiliateCode);
+
   const existing = await prisma.user.findUnique({ where: { email: data.email } });
   if (existing) throw ApiError.conflict('Ya existe una cuenta con este correo.');
 
@@ -220,25 +232,48 @@ const register = asyncHandler(async (req, res) => {
   const acceptedAt = new Date();
   const legalVersions = await currentLegalVersions();
 
-  const user = await prisma.user.create({
-    data: {
-      email: data.email,
-      passwordHash,
-      role: 'CLIENT',
-      clientProfile: {
-        create: {
-          firstName: data.firstName,
-          lastName: data.lastName,
-          privacyNoticeAcceptedAt: acceptedAt,
-          privacyNoticeVersion: legalVersions.privacy,
-          termsAcceptedAt: acceptedAt,
-          termsVersion: legalVersions.terms,
-          apiAuthorizationAccepted: true,
-          apiAuthorizationAcceptedAt: acceptedAt,
+  // Usuario + perfil + afiliador DIRECTO en la MISMA transacción: el código
+  // se vuelve a resolver dentro (por si se desactivó entre tanto) y nunca
+  // queda una cuenta sin su relación de afiliación. Un doble submit choca
+  // con el índice único del correo y responde 409 (nunca dos cuentas).
+  let user;
+  let referrer;
+  try {
+    ({ user, referrer } = await prisma.$transaction(async (tx) => {
+      const activeReferrer = await resolveActiveReferrer(tx, data.affiliateCode);
+      const created = await tx.user.create({
+        data: {
+          email: data.email,
+          passwordHash,
+          role: 'CLIENT',
+          clientProfile: {
+            create: {
+              firstName: data.firstName,
+              lastName: data.lastName,
+              privacyNoticeAcceptedAt: acceptedAt,
+              privacyNoticeVersion: legalVersions.privacy,
+              termsAcceptedAt: acceptedAt,
+              termsVersion: legalVersions.terms,
+              apiAuthorizationAccepted: true,
+              apiAuthorizationAcceptedAt: acceptedAt,
+              referredByClientId: activeReferrer.id,
+              referredAt: acceptedAt,
+              referralSource: 'AFFILIATE_LINK',
+            },
+          },
         },
-      },
-    },
-    include: { clientProfile: true },
+        include: { clientProfile: true },
+      });
+      return { user: created, referrer: activeReferrer };
+    }));
+  } catch (err) {
+    if (err.code === 'P2002') throw ApiError.conflict('Ya existe una cuenta con este correo.');
+    throw err;
+  }
+  await logAffiliateEvent(prisma, {
+    action: 'CLIENT_REGISTERED_WITH_CODE',
+    clientId: user.clientProfile.id,
+    details: { referrerClientId: referrer.id, affiliateCode: referrer.affiliateCode },
   });
 
   // GESTIÓN DINÁMICA DE SUBCUENTAS — el registro crea únicamente la cuenta

@@ -178,6 +178,8 @@ model User {
   apiSubaccountsDeactivated          ApiSubaccount[]             @relation("ApiSubaccountDeactivatedBy")
   subaccountRequestsMade             SubaccountRequest[]         @relation("SubaccountRequestRequestedBy")
   subaccountRequestsReviewed         SubaccountRequest[]         @relation("SubaccountRequestReviewedBy")
+  affiliateCommissionsCreated        AffiliateCommission[]       @relation("AffiliateCommissionCreatedBy")
+  affiliateConfigsUpdated            AffiliateConfiguration[]    @relation("AffiliateConfigUpdatedBy")
 
   @@map("users")
 }
@@ -273,6 +275,33 @@ model ClientProfile {
   // saber "hay una solicitud sí/no", nunca el motivo ni el historial).
   subaccountRequests SubaccountRequest[]
 
+  // AFILIADOS / PROMOTORES — un CLIENTE (role CLIENT) puede actuar como
+  // promotor; no existe un rol de autenticación aparte. Relación ÚNICAMENTE
+  // DIRECTA (no multinivel): `referredBy` es el afiliador directo y solo él
+  // puede ser beneficiario de una comisión por este cliente.
+  // affiliateCode: se guarda SIEMPRE normalizado en mayúsculas (A-Z0-9), así
+  // que el índice único de la BD también lo protege ante mayúsculas/minúsculas
+  // y ante generación concurrente. Nunca lo edita el cliente.
+  affiliateCode       String?         @unique @db.VarChar(32)
+  affiliateEnabled    Boolean         @default(false)
+  affiliateEnabledAt  DateTime?
+  // Desactivada por ADMIN: el cliente ya no puede reactivarla por su cuenta;
+  // las relaciones históricas se conservan.
+  affiliateDisabledAt DateTime?
+  // Afiliador DIRECTO — se fija una sola vez al crear la cuenta y no cambia.
+  // Null = sin afiliado (clientes históricos o alta administrativa sin
+  // afiliado). La BD impide la autoafiliación (CHECK en la migración).
+  referredByClientId  String?
+  referredBy          ClientProfile?  @relation("ClientReferrals", fields: [referredByClientId], references: [id], onDelete: SetNull)
+  referrals           ClientProfile[] @relation("ClientReferrals")
+  referredAt          DateTime?
+  // 'AFFILIATE_LINK' (registro público con código) | 'ADMIN' (alta administrativa con afiliado)
+  referralSource      String?         @db.VarChar(20)
+
+  affiliateCommissionsEarned    AffiliateCommission[] @relation("AffiliateCommissionReferrer")
+  affiliateCommissionsGenerated AffiliateCommission[] @relation("AffiliateCommissionReferred")
+
+  @@index([referredByClientId])
   @@map("client_profiles")
 }
 
@@ -1301,4 +1330,86 @@ model CapitalDistributionReport {
   adminHiddenAt        DateTime?
 
   @@map("capital_distribution_reports")
+}
+
+// ==========================================================
+// AFILIADOS / PROMOTORES (relación directa, nunca multinivel)
+// ==========================================================
+
+enum AffiliateCommissionType {
+  PERCENTAGE
+  FIXED_AMOUNT
+}
+
+enum AffiliateCommissionStatus {
+  PENDIENTE
+  APROBADA
+  PAGADA
+  CANCELADA
+}
+
+// Configuración del programa (fila única). commissionValue null = QLC todavía
+// no definió el valor: la comisión se captura manualmente al registrarla.
+// Es SIEMPRE la comisión del afiliador DIRECTO (no hay niveles).
+model AffiliateConfiguration {
+  id              String                  @id @default(cuid())
+  enabled         Boolean                 @default(true)
+  commissionType  AffiliateCommissionType @default(PERCENTAGE)
+  commissionValue Decimal?                @db.Decimal(14, 4)
+  updatedByUserId String?
+  updatedBy       User?                   @relation("AffiliateConfigUpdatedBy", fields: [updatedByUserId], references: [id])
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+
+  @@map("affiliate_configuration")
+}
+
+// Comisión del afiliador DIRECTO. referrerClientId lo determina SIEMPRE el
+// backend a partir de referredClient.referredByClientId (nunca el frontend).
+// Registrar a un referido NO genera comisión: solo ADMIN la registra cuando
+// ocurre el evento que QLC considera comisionable.
+model AffiliateCommission {
+  id                String                    @id @default(cuid())
+  referrerClientId  String
+  referrer          ClientProfile             @relation("AffiliateCommissionReferrer", fields: [referrerClientId], references: [id], onDelete: Cascade)
+  referredClientId  String
+  referred          ClientProfile             @relation("AffiliateCommissionReferred", fields: [referredClientId], references: [id], onDelete: Cascade)
+  concept           String                    @db.VarChar(200)
+  // Base sobre la que se aplicó el porcentaje (si aplica) y la regla usada
+  // al registrarla (copia: cambiar la configuración no altera el historial).
+  baseAmount        Decimal?                  @db.Decimal(14, 2)
+  commissionType    AffiliateCommissionType?
+  commissionValue   Decimal?                  @db.Decimal(14, 4)
+  amount            Decimal                   @db.Decimal(14, 2)
+  currency          String                    @default("USDT")
+  status            AffiliateCommissionStatus @default(PENDIENTE)
+  occurredAt        DateTime
+  notes             String?
+  createdByUserId   String
+  createdBy         User                      @relation("AffiliateCommissionCreatedBy", fields: [createdByUserId], references: [id])
+  approvedAt        DateTime?
+  approvedByUserId  String?
+  paidAt            DateTime?
+  paidByUserId      String?
+  cancelledAt       DateTime?
+  cancelledByUserId String?
+  createdAt         DateTime                  @default(now())
+  updatedAt         DateTime                  @updatedAt
+
+  @@index([referrerClientId, status])
+  @@index([referredClientId])
+  @@map("affiliate_commissions")
+}
+
+// Bitácora de acciones del programa de afiliados (nunca guarda secretos).
+model AffiliateAuditLog {
+  id          String   @id @default(cuid())
+  action      String   @db.VarChar(60)
+  clientId    String?
+  actorUserId String?
+  details     Json?
+  createdAt   DateTime @default(now())
+
+  @@index([clientId])
+  @@map("affiliate_audit_logs")
 }
