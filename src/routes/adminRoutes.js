@@ -81,8 +81,13 @@ router.get('/affiliates/lookup', affiliateController.lookupAffiliates);
 router.get('/affiliates/validate', affiliateController.validateForAdmin);
 router.get('/affiliates/:clientId', affiliateController.getAffiliate);
 router.patch('/affiliates/:clientId', affiliateController.setAffiliateEnabled);
+router.patch('/affiliates/:clientId/referrer', affiliateController.reassignReferrer);
+router.post('/affiliates/:clientId/regenerate-code', affiliateController.regenerateCode);
 router.post('/affiliate-commissions', affiliateController.createCommission);
 router.patch('/affiliate-commissions/:id', affiliateController.updateCommissionStatus);
+router.post('/affiliate-payments', singleCaseFile, affiliateController.createPayment);
+router.patch('/affiliate-payments/:id', affiliateController.updatePaymentStatus);
+router.get('/affiliate-payments/:id/proof', affiliateController.downloadPaymentProof);
 router.patch('/capital-distribution-reports/:id', apiSubaccountController.reviewCapitalDistributionReport);
 router.delete('/capital-distribution-reports/:id/history', apiSubaccountController.hideCapitalDistributionReportForAdmin);
 // Borrador de la revisión (mismo registro): guardar / descartar.
@@ -153,6 +158,9 @@ router.post('/api-subaccounts/:apiSubaccountId/statements', singleStatementPdf, 
 router.put('/api-subaccounts/:apiSubaccountId/statements/draft', statementController.saveStatementDraft);
 router.delete('/statements/:id/draft', statementController.deleteStatementDraft);
 router.get('/statements/:id/download', statementController.downloadStatementFile);
+// Adjuntos del estado de cuenta (imágenes o PDF, además del PDF principal).
+router.post('/statements/:id/attachments', messageFiles, statementController.uploadStatementAttachments);
+router.get('/statements/:id/attachments/:attachmentId', statementController.downloadStatementAttachment);
 router.patch('/statements/:id/mark-paid', statementController.markStatementPaid);
 router.delete('/statements/:id/history', statementController.hideStatementForAdmin);
 

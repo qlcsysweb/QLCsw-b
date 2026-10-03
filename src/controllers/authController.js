@@ -259,6 +259,8 @@ const register = asyncHandler(async (req, res) => {
               referredByClientId: activeReferrer.id,
               referredAt: acceptedAt,
               referralSource: 'AFFILIATE_LINK',
+              // Código exacto utilizado en el registro (evidencia de la atribución).
+              referralCodeUsed: activeReferrer.affiliateCode,
             },
           },
         },

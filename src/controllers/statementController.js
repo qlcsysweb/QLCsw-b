@@ -6,6 +6,9 @@ const asyncHandler = require('../utils/asyncHandler');
 const driveStorage = require('../services/driveStorageService');
 const { generateStatementPdf } = require('../utils/pdf/statementPdf');
 const { notifyClient } = require('../utils/notify');
+const { assertSafeFiles } = require('../utils/fileSignature');
+const { safeFileName } = require('../utils/supportCaseFiles');
+const { getEffectiveConfig, computeDistribution, logAffiliateEvent } = require('../services/affiliateService');
 const {
   STATEMENT_DUE_HOURS,
   effectiveStatementStatus,
@@ -35,12 +38,30 @@ const listStatements = asyncHandler(async (req, res) => {
   const statements = await prisma.statement.findMany({
     where: { apiSubaccountId: req.params.apiSubaccountId },
     orderBy: { generatedAt: 'desc' },
+    include: { attachments: { select: { id: true, fileName: true, mimeType: true, sizeBytes: true, createdAt: true }, orderBy: { createdAt: 'asc' } } },
   });
   // El BORRADOR (si existe) va aparte: no es un estado de cuenta emitido, no
   // cuenta en el historial ni en el estado actual.
   const draft = statements.find((s) => s.status === 'BORRADOR') || null;
   const issued = statements.filter((s) => s.status !== 'BORRADOR');
-  res.json({ ok: true, statements: issued.map(shapeStatement), draft, current: currentStatementSummary(issued) });
+  // QLC AFFILIATE PROGRAM — porcentajes vigentes y si el cliente tiene
+  // afiliador directo, para que el formulario muestre la distribución.
+  const [config, owner] = await Promise.all([
+    getEffectiveConfig(),
+    prisma.apiSubaccount.findUnique({ where: { id: req.params.apiSubaccountId }, select: { client: { select: { referredByClientId: true } } } }),
+  ]);
+  res.json({
+    ok: true,
+    statements: issued.map(shapeStatement),
+    draft,
+    current: currentStatementSummary(issued),
+    distribution: {
+      clientSharePct: Number(config.clientSharePct),
+      qlcSharePct: Number(config.qlcSharePct),
+      affiliateSharePct: Number(config.affiliateSharePct),
+      hasReferrer: Boolean(owner?.client?.referredByClientId),
+    },
+  });
 });
 
 const createStatementSchema = z
@@ -204,6 +225,22 @@ const createStatement = asyncHandler(async (req, res) => {
   const generatedAt = new Date();
   const expiresAt = new Date(generatedAt.getTime() + STATEMENT_DUE_HOURS * 60 * 60 * 1000);
 
+  // QLC AFFILIATE PROGRAM — distribución de la rentabilidad generada
+  // registrada en ESTE estado de cuenta (dato validado por QLC; la
+  // plataforma no consulta Bitget). Beneficiario: el afiliador DIRECTO
+  // permanente del cliente, leído de la relación guardada.
+  // Porcentajes de la versión de configuración VIGENTE al emitir (queda
+  // guardado qué versión se usó).
+  const affiliateConfig = await getEffectiveConfig(new Date());
+  const referrerClientId = subaccount.client.referredByClientId || null;
+  const distribution = computeDistribution(data.resultAmount, affiliateConfig);
+  const distributionFields = {
+    ...distribution,
+    affiliateConfigVersionId: affiliateConfig.versionId,
+    // Solo con afiliador directo (y rentabilidad positiva) hay comisión a pagar.
+    affiliateReferrerClientId: distribution.affiliateCommissionAmount > 0 ? referrerClientId : null,
+  };
+
   let statement;
   let fromDraft = false;
   try {
@@ -216,15 +253,35 @@ const createStatement = asyncHandler(async (req, res) => {
         throw ApiError.conflict('Esta subcuenta/API ya tiene un estado de cuenta sin pagar. Confirma su pago antes de generar uno nuevo.');
       }
       const periodStart = await resolvePeriodStart(tx, subaccount.id, data.periodStart, data.periodEnd);
-      const fields = { ...statementFields(data, periodStart), status: 'PENDIENTE_DE_PAGO', generatedAt, expiresAt };
+      const fields = { ...statementFields(data, periodStart), ...distributionFields, status: 'PENDIENTE_DE_PAGO', generatedAt, expiresAt };
       const draft = await tx.statement.findFirst({ where: { apiSubaccountId: subaccount.id, status: 'BORRADOR' } });
-      if (draft) {
-        return { statement: await tx.statement.update({ where: { id: draft.id }, data: fields }), fromDraft: true };
+      const saved = draft
+        ? await tx.statement.update({ where: { id: draft.id }, data: fields })
+        : await tx.statement.create({ data: { ...fields, apiSubaccountId: subaccount.id, createdByUserId: req.user.id } });
+      // Comisión del afiliador directo del periodo, en la MISMA transacción
+      // (una por estado de cuenta: statementId único). Calcularla no es
+      // pagarla: nace PENDIENTE y solo un pago confirmado la marca PAGADA.
+      if (distributionFields.affiliateReferrerClientId) {
+        await tx.affiliateCommission.create({
+          data: {
+            referrerClientId: distributionFields.affiliateReferrerClientId,
+            referredClientId: subaccount.clientId,
+            statementId: saved.id,
+            concept: `Estado de cuenta ${periodStart.toISOString().slice(0, 10)} – ${data.periodEnd.toISOString().slice(0, 10)}`,
+            baseAmount: data.resultAmount,
+            commissionType: 'PERCENTAGE',
+            commissionValue: distribution.affiliateSharePct,
+            amount: distribution.affiliateCommissionAmount,
+            periodStart,
+            periodEnd: data.periodEnd,
+            configVersionId: affiliateConfig.versionId,
+            occurredAt: generatedAt,
+            status: 'PENDIENTE',
+            createdByUserId: req.user.id,
+          },
+        });
       }
-      return {
-        statement: await tx.statement.create({ data: { ...fields, apiSubaccountId: subaccount.id, createdByUserId: req.user.id } }),
-        fromDraft: false,
-      };
+      return { statement: saved, fromDraft: Boolean(draft) };
     }));
   } catch (err) {
     throw periodConflict(err);
@@ -254,6 +311,8 @@ const createStatement = asyncHandler(async (req, res) => {
       // Nunca queda un estado de cuenta "generado" sin su documento: si venía
       // de un borrador vuelve a BORRADOR (no se pierde lo capturado); si se
       // acababa de crear, se retira.
+      // Sin estado de cuenta emitido no hay comisión del periodo.
+      await prisma.affiliateCommission.deleteMany({ where: { statementId: statement.id, paymentId: null } }).catch(() => {});
       if (fromDraft) {
         await prisma.statement.update({ where: { id: statement.id }, data: { status: 'BORRADOR' } }).catch(() => {});
       } else {
@@ -304,6 +363,15 @@ const createStatement = asyncHandler(async (req, res) => {
       apiSubaccountId: subaccount.id,
     },
   });
+
+  if (distributionFields.affiliateReferrerClientId) {
+    await logAffiliateEvent(prisma, {
+      action: 'COMMISSION_CREATED_FROM_STATEMENT',
+      clientId: distributionFields.affiliateReferrerClientId,
+      actorUserId: req.user.id,
+      details: { statementId: statement.id, referredClientId: subaccount.clientId, amount: distribution.affiliateCommissionAmount, affiliateSharePct: distribution.affiliateSharePct },
+    });
+  }
 
   res.status(201).json({
     ok: true,
@@ -392,7 +460,59 @@ const hideStatementForAdmin = asyncHandler(async (req, res) => {
   res.json({ ok: true });
 });
 
+// ADJUNTOS DEL ESTADO DE CUENTA (documento QLC Affiliate Program §8/§11.2):
+// administración puede adjuntar archivos (imágenes o PDF, firma real
+// validada) además del PDF principal. Binarios en Drive (carpeta "Estados de
+// cuenta" del cliente); en NeonDB solo metadata. El cliente los ve en su
+// estado de cuenta; el afiliador nunca.
+const uploadStatementAttachments = asyncHandler(async (req, res) => {
+  const files = req.files || [];
+  if (!files.length) throw ApiError.badRequest('Adjunta al menos un archivo.');
+  assertSafeFiles(files, { maxBytes: 10 * 1024 * 1024, maxLabel: '10 MB' });
+  const statement = await prisma.statement.findUnique({
+    where: { id: req.params.id },
+    include: { apiSubaccount: { include: { client: true } } },
+  });
+  if (!statement) throw ApiError.notFound('Estado de cuenta no encontrado');
+  if (!(await driveStorage.isConfigured())) {
+    throw ApiError.serviceUnavailable('No pudimos conectar con Google Drive para guardar los adjuntos.');
+  }
+  const folderId = await driveStorage.getOrCreateSubfolder(statement.apiSubaccount.client, 'statements');
+  const uploaded = [];
+  try {
+    for (const file of files) {
+      const fileName = safeFileName(`Adjunto_estado_${statement.periodEnd.toISOString().slice(0, 10)}_${file.originalname}`);
+      const saved = await driveStorage.uploadFileToDrive(file.buffer, { folderId, fileName, mimeType: file.mimetype });
+      uploaded.push({ fileName, mimeType: file.mimetype, sizeBytes: file.size, driveFileId: saved.id, driveFolderId: folderId });
+    }
+  } catch {
+    await Promise.all(uploaded.map((f) => driveStorage.deleteDriveFileOnlyWhenAuthorized(f.driveFileId, { authorized: true }).catch(() => {})));
+    throw ApiError.serviceUnavailable('No se pudieron guardar los adjuntos en Google Drive. Intenta nuevamente.');
+  }
+  await prisma.statementAttachment.createMany({
+    data: uploaded.map((f) => ({ ...f, statementId: statement.id, uploadedByUserId: req.user.id })),
+  });
+  const attachments = await prisma.statementAttachment.findMany({
+    where: { statementId: statement.id },
+    select: { id: true, fileName: true, mimeType: true, sizeBytes: true, createdAt: true },
+    orderBy: { createdAt: 'asc' },
+  });
+  res.status(201).json({ ok: true, attachments });
+});
+
+const downloadStatementAttachment = asyncHandler(async (req, res) => {
+  const att = await prisma.statementAttachment.findFirst({ where: { id: req.params.attachmentId, statementId: req.params.id } });
+  if (!att) throw ApiError.notFound('Adjunto no encontrado');
+  const { stream, fileName, mimeType } = await driveStorage.downloadFileFromDrive(att.driveFileId);
+  res.setHeader('Content-Type', mimeType || att.mimeType);
+  res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(fileName || att.fileName)}"`);
+  stream.on('error', () => res.status(500).end());
+  stream.pipe(res);
+});
+
 module.exports = {
+  uploadStatementAttachments,
+  downloadStatementAttachment,
   hideStatementForAdmin,
   listStatements,
   createStatement,

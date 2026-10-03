@@ -282,24 +282,32 @@ model ClientProfile {
   // affiliateCode: se guarda SIEMPRE normalizado en mayúsculas (A-Z0-9), así
   // que el índice único de la BD también lo protege ante mayúsculas/minúsculas
   // y ante generación concurrente. Nunca lo edita el cliente.
-  affiliateCode       String?         @unique @db.VarChar(32)
-  affiliateEnabled    Boolean         @default(false)
-  affiliateEnabledAt  DateTime?
+  affiliateCode               String?         @unique @db.VarChar(32)
+  affiliateEnabled            Boolean         @default(false)
+  affiliateEnabledAt          DateTime?
   // Desactivada por ADMIN: el cliente ya no puede reactivarla por su cuenta;
   // las relaciones históricas se conservan.
-  affiliateDisabledAt DateTime?
+  affiliateDisabledAt         DateTime?
   // Afiliador DIRECTO — se fija una sola vez al crear la cuenta y no cambia.
   // Null = sin afiliado (clientes históricos o alta administrativa sin
   // afiliado). La BD impide la autoafiliación (CHECK en la migración).
-  referredByClientId  String?
-  referredBy          ClientProfile?  @relation("ClientReferrals", fields: [referredByClientId], references: [id], onDelete: SetNull)
-  referrals           ClientProfile[] @relation("ClientReferrals")
-  referredAt          DateTime?
+  referredByClientId          String?
+  referredBy                  ClientProfile?  @relation("ClientReferrals", fields: [referredByClientId], references: [id], onDelete: SetNull)
+  referrals                   ClientProfile[] @relation("ClientReferrals")
+  referredAt                  DateTime?
   // 'AFFILIATE_LINK' (registro público con código) | 'ADMIN' (alta administrativa con afiliado)
-  referralSource      String?         @db.VarChar(20)
+  referralSource              String?         @db.VarChar(20)
+  // Código de afiliación EXACTO que se usó al registrarse (además del ID del
+  // afiliador): evidencia de la atribución aunque el código cambie después.
+  referralCodeUsed            String?         @db.VarChar(32)
+  // UID de Bitget del AFILIADOR: dato de RECEPCIÓN de sus comisiones
+  // (requisito para crear su liga). La plataforma nunca se conecta a Bitget.
+  affiliateBitgetUid          String?         @db.VarChar(40)
+  affiliateBitgetUidUpdatedAt DateTime?
 
   affiliateCommissionsEarned    AffiliateCommission[] @relation("AffiliateCommissionReferrer")
   affiliateCommissionsGenerated AffiliateCommission[] @relation("AffiliateCommissionReferred")
+  affiliatePayments             AffiliatePayment[]    @relation("AffiliatePaymentReferrer")
 
   @@index([referredByClientId])
   @@map("client_profiles")
@@ -877,6 +885,22 @@ model Statement {
 
   paymentReports PaymentReport[]
 
+  // QLC AFFILIATE PROGRAM — distribución de la RENTABILIDAD GENERADA
+  // (resultAmount validado por QLC, nunca consultado a Bitget), calculada al
+  // emitir con los porcentajes vigentes (copia). Sin afiliador directo, la
+  // parte del afiliado corresponde a QLC.
+  clientSharePct            Decimal?              @db.Decimal(5, 2)
+  qlcSharePct               Decimal?              @db.Decimal(5, 2)
+  affiliateSharePct         Decimal?              @db.Decimal(5, 2)
+  clientResultAmount        Decimal?              @db.Decimal(14, 2)
+  qlcCommissionAmount       Decimal?              @db.Decimal(14, 2)
+  affiliateCommissionAmount Decimal?              @db.Decimal(14, 2)
+  affiliateReferrerClientId String?
+  // Versión de la configuración (AffiliateConfigurationHistory) usada en el cálculo.
+  affiliateConfigVersionId  String?
+  attachments               StatementAttachment[]
+  affiliateCommission       AffiliateCommission?
+
   // El CLIENTE lo borró de "Estados de cuenta anteriores" (solo pagados y
   // nunca el actual). Se conserva: el admin lo sigue viendo completo.
   clientHiddenAt DateTime?
@@ -1352,14 +1376,23 @@ enum AffiliateCommissionStatus {
 // no definió el valor: la comisión se captura manualmente al registrarla.
 // Es SIEMPRE la comisión del afiliador DIRECTO (no hay niveles).
 model AffiliateConfiguration {
-  id              String                  @id @default(cuid())
-  enabled         Boolean                 @default(true)
-  commissionType  AffiliateCommissionType @default(PERCENTAGE)
-  commissionValue Decimal?                @db.Decimal(14, 4)
-  updatedByUserId String?
-  updatedBy       User?                   @relation("AffiliateConfigUpdatedBy", fields: [updatedByUserId], references: [id])
-  createdAt       DateTime                @default(now())
-  updatedAt       DateTime                @updatedAt
+  id                String                  @id @default(cuid())
+  enabled           Boolean                 @default(true)
+  commissionType    AffiliateCommissionType @default(PERCENTAGE)
+  commissionValue   Decimal?                @db.Decimal(14, 4)
+  // Distribución de la rentabilidad generada (referencia inicial del
+  // documento QLC Affiliate Program: 50 / 40 / 10). Editable por ADMIN; cada
+  // cambio queda en AffiliateConfigurationHistory con su fecha de vigencia.
+  clientSharePct    Decimal                 @default(50) @db.Decimal(5, 2)
+  qlcSharePct       Decimal                 @default(40) @db.Decimal(5, 2)
+  affiliateSharePct Decimal                 @default(10) @db.Decimal(5, 2)
+  // Antigüedad máxima (días) del dato registrado de capital/saldo antes de
+  // mostrarse como "Sin actualizar" en el Affiliate Dashboard.
+  balanceStaleDays  Int                     @default(31)
+  updatedByUserId   String?
+  updatedBy         User?                   @relation("AffiliateConfigUpdatedBy", fields: [updatedByUserId], references: [id])
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
 
   @@map("affiliate_configuration")
 }
@@ -1393,6 +1426,16 @@ model AffiliateCommission {
   paidByUserId      String?
   cancelledAt       DateTime?
   cancelledByUserId String?
+  // Origen: estado de cuenta emitido (una comisión por estado de cuenta) o
+  // ajuste manual justificado por ADMIN (statementId null).
+  statementId       String?                   @unique
+  statement         Statement?                @relation(fields: [statementId], references: [id], onDelete: SetNull)
+  periodStart       DateTime?
+  periodEnd         DateTime?
+  // Versión de la configuración usada en el cálculo (trazabilidad).
+  configVersionId   String?
+  paymentId         String?
+  payment           AffiliatePayment?         @relation(fields: [paymentId], references: [id], onDelete: SetNull)
   createdAt         DateTime                  @default(now())
   updatedAt         DateTime                  @updatedAt
 
@@ -1412,4 +1455,74 @@ model AffiliateAuditLog {
 
   @@index([clientId])
   @@map("affiliate_audit_logs")
+}
+
+// Versión de la configuración del programa vigente desde `effectiveFrom`
+// (nunca se sobrescribe: auditoría de porcentajes).
+model AffiliateConfigurationHistory {
+  id                String   @id @default(cuid())
+  enabled           Boolean
+  clientSharePct    Decimal  @db.Decimal(5, 2)
+  qlcSharePct       Decimal  @db.Decimal(5, 2)
+  affiliateSharePct Decimal  @db.Decimal(5, 2)
+  balanceStaleDays  Int?
+  effectiveFrom     DateTime @default(now())
+  updatedByUserId   String?
+  createdAt         DateTime @default(now())
+
+  @@map("affiliate_configuration_history")
+}
+
+enum AffiliatePaymentStatus {
+  PENDIENTE
+  PROCESADO
+  PAGADO
+  RECHAZADO
+}
+
+// PAGO al afiliador (registro separado de la comisión: calcular no es
+// pagar). Solo ADMIN lo registra; las comisiones incluidas pasan a PAGADA
+// únicamente cuando el pago se confirma como PAGADO.
+model AffiliatePayment {
+  id               String                 @id @default(cuid())
+  referrerClientId String
+  referrer         ClientProfile          @relation("AffiliatePaymentReferrer", fields: [referrerClientId], references: [id], onDelete: Cascade)
+  amount           Decimal                @db.Decimal(14, 2)
+  currency         String                 @default("USDT")
+  periodLabel      String                 @db.VarChar(120)
+  // UID de Bitget de destino (copia del UID registrado por el afiliador).
+  destinationUid   String?                @db.VarChar(40)
+  reference        String?                @db.VarChar(200)
+  proofDriveFileId String?
+  proofFileName    String?
+  proofMimeType    String?
+  status           AffiliatePaymentStatus @default(PENDIENTE)
+  statusUpdatedAt  DateTime?
+  paidAt           DateTime?
+  createdByUserId  String
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+
+  commissions AffiliateCommission[]
+
+  @@index([referrerClientId, status])
+  @@map("affiliate_payments")
+}
+
+// ADJUNTOS de un estado de cuenta (además de su PDF principal). Binario en
+// Google Drive (carpeta "Estados de cuenta" del cliente); aquí solo metadata.
+model StatementAttachment {
+  id               String    @id @default(cuid())
+  statementId      String
+  statement        Statement @relation(fields: [statementId], references: [id], onDelete: Cascade)
+  fileName         String
+  mimeType         String
+  sizeBytes        Int
+  driveFileId      String
+  driveFolderId    String?
+  uploadedByUserId String?
+  createdAt        DateTime  @default(now())
+
+  @@index([statementId])
+  @@map("statement_attachments")
 }

@@ -33,6 +33,8 @@ router.get('/dashboard', profileController.getDashboard);
 router.get('/affiliate', affiliateController.getMyAffiliate);
 router.post('/affiliate/activate', affiliateController.activateMyAffiliate);
 router.get('/affiliate/qr', affiliateController.getMyAffiliateQr);
+router.put('/affiliate/uid', affiliateController.updateMyBitgetUid);
+router.get('/affiliate/payments/:id/proof', affiliateController.downloadMyPaymentProof);
 
 // Modelo de participación (lectura, único modelo activo)
 router.get('/models', modelController.listModelsPublic);
@@ -80,6 +82,7 @@ router.delete('/payment-reports/:id', paymentController.hidePaymentReport);
 // DE PAGO / PAGADO / VENCIDO SIN PAGAR) y descarga del PDF.
 router.get('/api-subaccounts/:apiSubaccountId/statements', statementController.listStatements);
 router.get('/statements/:id/download', statementController.downloadStatementFile);
+router.get('/statements/:id/attachments/:attachmentId', statementController.downloadStatementAttachment);
 router.delete('/statements/:id', statementController.hideStatement);
 
 // Liga hacia la plataforma externa (CORRECCIÓN 10) — solo lectura para el cliente

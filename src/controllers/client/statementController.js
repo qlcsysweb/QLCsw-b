@@ -44,6 +44,14 @@ const listStatements = asyncHandler(async (req, res) => {
       paidAt: true,
       pdfDriveFileId: true,
       clientHiddenAt: true,
+      // Distribución de la rentabilidad (importes; nunca el afiliador).
+      clientSharePct: true,
+      qlcSharePct: true,
+      affiliateSharePct: true,
+      clientResultAmount: true,
+      qlcCommissionAmount: true,
+      affiliateCommissionAmount: true,
+      attachments: { select: { id: true, fileName: true, mimeType: true, sizeBytes: true, createdAt: true }, orderBy: { createdAt: 'asc' } },
     },
   });
   // Los borrados por el cliente se envían marcados (clientHidden) en vez de
@@ -94,4 +102,19 @@ const hideStatement = asyncHandler(async (req, res) => {
   res.json({ ok: true });
 });
 
-module.exports = { listStatements, downloadStatementFile, hideStatement };
+// Adjunto de un estado de cuenta PROPIO (pertenencia validada; nunca borradores).
+const downloadStatementAttachment = asyncHandler(async (req, res) => {
+  const att = await prisma.statementAttachment.findFirst({
+    where: { id: req.params.attachmentId, statementId: req.params.id },
+    include: { statement: { select: { apiSubaccountId: true, status: true } } },
+  });
+  if (!att || att.statement.status === 'BORRADOR') throw ApiError.notFound('Adjunto no encontrado');
+  await assertOwnsSubaccount(req.clientProfile.id, att.statement.apiSubaccountId);
+  const { stream, fileName, mimeType } = await driveStorage.downloadFileFromDrive(att.driveFileId);
+  res.setHeader('Content-Type', mimeType || att.mimeType);
+  res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(fileName || att.fileName)}"`);
+  stream.on('error', () => res.status(500).end());
+  stream.pipe(res);
+});
+
+module.exports = { listStatements, downloadStatementFile, downloadStatementAttachment, hideStatement };

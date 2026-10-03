@@ -24,13 +24,15 @@ const ACTIVE_WHERE = { deactivatedAt: null };
 // propio a la subcuenta (mismo valor que muestra el panel del cliente).
 const DEFAULT_REQUIRED_CAPITAL = 100;
 
-// Lo que ve el CLIENTE de su subcuenta: nunca las claves cifradas ni el
-// identificador interno del admin (ej. PCB-1-A-1, ver utils/subaccountLabels).
+// Lo que ve el CLIENTE de su subcuenta: nunca las claves cifradas. El código
+// PCB que QLC asigna al registrar la API (ej. PCB-1-A-1) se muestra como `pcb`
+// (QLC Affiliate Program §1/§15: el PCB coincide en cliente, afiliado y admin).
 function shape(subaccount) {
   // eslint-disable-next-line no-unused-vars
   const { apiKeyEncrypted, apiSecretEncrypted, apiPassphraseEncrypted, identifier, ...rest } = subaccount;
   return {
     ...rest,
+    pcb: identifier || null,
     hasApiKey: Boolean(apiKeyEncrypted),
     hasApiSecret: Boolean(apiSecretEncrypted),
     hasApiPassphrase: Boolean(apiPassphraseEncrypted),

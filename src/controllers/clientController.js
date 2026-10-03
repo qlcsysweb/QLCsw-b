@@ -186,7 +186,7 @@ const createClient = asyncHandler(async (req, res) => {
               notes: data.notes,
               status: 'PENDING',
               ...(activeReferrer
-                ? { referredByClientId: activeReferrer.id, referredAt: new Date(), referralSource: 'ADMIN' }
+                ? { referredByClientId: activeReferrer.id, referredAt: new Date(), referralSource: 'ADMIN', referralCodeUsed: activeReferrer.affiliateCode }
                 : {}),
             },
           },

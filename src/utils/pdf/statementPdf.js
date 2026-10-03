@@ -63,6 +63,18 @@ function generateStatementPdf({ client, identifier, model, statement }) {
     if (!isPaid && statement.expiresAt) doc.text(`Fecha límite de pago: ${formatCdmx(new Date(statement.expiresAt))}`);
     doc.moveDown(1);
 
+    // QLC AFFILIATE PROGRAM — distribución de la rentabilidad generada
+    // (calculada y guardada al emitir sobre el resultado validado por QLC).
+    if (statement.clientResultAmount !== null && statement.clientResultAmount !== undefined) {
+      doc.fontSize(13).text('Distribución de la rentabilidad generada', { underline: true });
+      doc.moveDown(0.4);
+      doc.fontSize(10);
+      doc.text(`Resultado del cliente (${Number(statement.clientSharePct)}%): ${statement.clientResultAmount} USDT`);
+      doc.text(`Comisión de QLC (${Number(statement.qlcSharePct)}%): ${statement.qlcCommissionAmount} USDT`);
+      doc.text(`Comisión de QLC Affiliate Program (${Number(statement.affiliateSharePct)}%): ${statement.affiliateCommissionAmount} USDT`);
+      doc.moveDown(1);
+    }
+
     if (statement.activityNotes) {
       doc.fontSize(13).text('Actividad del periodo', { underline: true });
       doc.moveDown(0.4);
