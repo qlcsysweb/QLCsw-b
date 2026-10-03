@@ -77,6 +77,9 @@ const createStatementSchema = z
     volatility: z.string().optional(),
     netResult: z.coerce.number().optional(),
     commission: z.coerce.number().min(0).default(0),
+    // Comisión del AFILIADOR directo del periodo (USDT). El formulario la
+    // propone con el % vigente; el admin puede ajustarla. Vacía = % vigente.
+    affiliateCommission: z.preprocess((v) => (v === '' || v === null ? undefined : v), z.coerce.number().min(0, 'La comisión del afiliador no puede ser negativa.').optional()),
     activityNotes: z.string().optional(),
     adminNotes: z.string().optional(),
   })
@@ -100,6 +103,7 @@ const draftStatementSchema = z
     volatility: z.string().optional(),
     netResult: optionalNumber,
     commission: optionalNumber,
+    affiliateCommission: optionalNumber,
     activityNotes: z.string().optional(),
     adminNotes: z.string().optional(),
   })
@@ -143,6 +147,8 @@ function statementFields(data, periodStart) {
     volatility: data.volatility || null,
     netResult: data.netResult ?? null,
     commission: data.commission ?? 0,
+    // En un borrador se conserva lo capturado; al emitir lo reemplaza la distribución final.
+    affiliateCommissionAmount: data.affiliateCommission ?? null,
     activityNotes: data.activityNotes || null,
     adminNotes: data.adminNotes || null,
   };
@@ -234,6 +240,18 @@ const createStatement = asyncHandler(async (req, res) => {
   const affiliateConfig = await getEffectiveConfig(new Date());
   const referrerClientId = subaccount.client.referredByClientId || null;
   const distribution = computeDistribution(data.resultAmount, affiliateConfig);
+  // COMISIÓN DEL AFILIADOR capturada por el admin (si la ajustó): reemplaza la
+  // calculada con el % vigente y la parte de QLC se recalcula para que la
+  // suma siga siendo la rentabilidad generada. Sin afiliador directo no aplica.
+  if (referrerClientId && data.affiliateCommission !== undefined) {
+    const profit = Number(data.resultAmount) > 0 ? Number(data.resultAmount) : 0;
+    const affiliateAmount = Math.round(data.affiliateCommission * 100) / 100;
+    if (affiliateAmount > Math.round((profit - distribution.clientResultAmount) * 100) / 100) {
+      throw ApiError.badRequest('La comisión del afiliador no puede superar la parte disponible de la rentabilidad (rentabilidad − resultado del cliente).');
+    }
+    distribution.affiliateCommissionAmount = affiliateAmount;
+    distribution.qlcCommissionAmount = Math.round((profit - distribution.clientResultAmount - affiliateAmount) * 100) / 100;
+  }
   const distributionFields = {
     ...distribution,
     affiliateConfigVersionId: affiliateConfig.versionId,
@@ -365,6 +383,15 @@ const createStatement = asyncHandler(async (req, res) => {
   });
 
   if (distributionFields.affiliateReferrerClientId) {
+    // El afiliador directo recibe el aviso al mismo tiempo que el cliente
+    // (su Affiliate Dashboard ya muestra la comisión: misma transacción).
+    await notifyClient(distributionFields.affiliateReferrerClientId, {
+      title: 'Nueva comisión de afiliado',
+      message: `Se emitió el estado de cuenta de uno de tus referidos. Tu comisión del periodo es de ${distribution.affiliateCommissionAmount} USDT (pendiente de aprobación y pago por QLC).`,
+      type: 'info',
+      templateKey: 'affiliate_commission_created',
+      templateParams: { amount: String(distribution.affiliateCommissionAmount) },
+    }).catch(() => {});
     await logAffiliateEvent(prisma, {
       action: 'COMMISSION_CREATED_FROM_STATEMENT',
       clientId: distributionFields.affiliateReferrerClientId,
