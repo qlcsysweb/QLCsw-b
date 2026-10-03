@@ -1,3 +1,4 @@
+const { syncClientStatus } = require('../utils/clientStatus');
 const { z } = require('zod');
 const { clientSubaccountLabel } = require('../utils/subaccountLabels');
 const { syncConnectionFromCondition } = require('../utils/apiConnectionSync');
@@ -80,10 +81,7 @@ const activateSubaccount = asyncHandler(async (req, res) => {
     data: { isActivated: true, activatedAt: new Date() },
   });
 
-  await prisma.clientProfile.update({
-    where: { id: process.apiSubaccount.clientId },
-    data: { status: 'ACTIVE' },
-  });
+  await syncClientStatus(process.apiSubaccount.clientId);
 
   await notifyClient(process.apiSubaccount.clientId, {
     title: 'Cuenta activada',
@@ -108,10 +106,9 @@ const deactivateSubaccount = asyncHandler(async (req, res) => {
     data: { isActivated: false, activatedAt: null },
   });
 
-  await prisma.clientProfile.update({
-    where: { id: process.apiSubaccount.clientId },
-    data: { status: 'REVIEW' },
-  });
+  // En revisión solo si ya no le queda ninguna otra cuenta activada.
+  await prisma.clientProfile.update({ where: { id: process.apiSubaccount.clientId }, data: { status: 'REVIEW' } });
+  await syncClientStatus(process.apiSubaccount.clientId);
 
   const identifier = clientSubaccountLabel(process.apiSubaccount);
   await notifyClient(process.apiSubaccount.clientId, {

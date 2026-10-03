@@ -6,6 +6,7 @@ const asyncHandler = require('../utils/asyncHandler');
 const driveStorage = require('../services/driveStorageService');
 const { enforceCommissionDeadline, currentStatementSummary } = require('../utils/connectionDeadlines');
 const { ensurePrincipalSubaccount } = require('../utils/subaccountProvisioning');
+const { syncClientStatus, computeClientStatus } = require('../utils/clientStatus');
 const { resolveActiveReferrer, logAffiliateEvent } = require('../services/affiliateService');
 
 // Resumen de avance de UNA subcuenta/API — para el indicador de "lista
@@ -99,7 +100,11 @@ const listClients = asyncHandler(async (req, res) => {
     prisma.clientProfile.count({ where }),
   ]);
 
-  const items = rows.map((c) => ({ ...c, subaccountsSummary: summarizeSubaccounts(c.apiSubaccounts) }));
+  const items = rows.map((c) => ({
+    ...c,
+    status: computeClientStatus({ userIsActive: c.user?.isActive, storedStatus: c.status, subaccounts: c.apiSubaccounts }),
+    subaccountsSummary: summarizeSubaccounts(c.apiSubaccounts.filter((s) => !s.deactivatedAt)),
+  }));
 
   res.json({ ok: true, items, total, page: Number(page), pageSize: take });
 });
@@ -136,6 +141,8 @@ const getClient = asyncHandler(async (req, res) => {
     ok: true,
     client: {
       ...client,
+      // Estado calculado con sus cuentas reales (ver utils/clientStatus).
+      status: computeClientStatus({ userIsActive: client.user?.isActive, storedStatus: client.status, subaccounts: client.apiSubaccounts }),
       apiSubaccounts: client.apiSubaccounts.map((s) => ({
         ...s,
         // Nunca se envía el ciphertext crudo — solo indicadores de presencia.
@@ -331,10 +338,10 @@ const setClientActive = asyncHandler(async (req, res) => {
   if (!client) throw ApiError.notFound('Cliente no encontrado');
 
   await prisma.user.update({ where: { id: client.userId }, data: { isActive } });
-  const updated = await prisma.clientProfile.update({
-    where: { id: req.params.id },
-    data: { status: isActive ? 'ACTIVE' : 'INACTIVE' },
-  });
+  // El estado se recalcula con sus cuentas reales: reactivar el acceso ya no
+  // marca "ACTIVA" a un cliente que no tiene ninguna cuenta activada.
+  await syncClientStatus(client.id);
+  const updated = await prisma.clientProfile.findUnique({ where: { id: req.params.id } });
 
   res.json({ ok: true, client: updated });
 });

@@ -8,6 +8,7 @@
  * eliminación: "desactivar" y "activar" son reversibles y jamás borran la
  * fila ni su historial (estados de cuenta, pagos, documentos).
  */
+const { syncClientStatus } = require('../utils/clientStatus');
 const { clientSubaccountLabel } = require('../utils/subaccountLabels');
 const prisma = require('../config/prisma');
 const ApiError = require('../utils/ApiError');
@@ -235,6 +236,8 @@ async function deactivateSubaccount({ clientId, apiSubaccountId, deactivatedByUs
     where: { id: apiSubaccountId },
     data: { deactivatedAt: new Date(), deactivatedByUserId },
   });
+  // El estado del cliente se recalcula con sus cuentas vigentes.
+  await syncClientStatus(deactivated.clientId);
 
   if (linkedRequestId) {
     await prisma.subaccountRequest.update({
@@ -293,6 +296,8 @@ async function activateSubaccount({ clientId, apiSubaccountId, activatedByUserId
     where: { id: apiSubaccountId },
     data: { deactivatedAt: null, deactivatedByUserId: null, updatedByUserId: activatedByUserId },
   });
+  // El estado del cliente se recalcula con sus cuentas vigentes.
+  await syncClientStatus(activated.clientId);
 
   await notifyClient(clientId, {
     title: 'Subcuenta activada',
