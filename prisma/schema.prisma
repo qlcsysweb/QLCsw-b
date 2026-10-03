@@ -404,6 +404,7 @@ model ApiSubaccount {
   connectionEvents           ApiConnectionEvent[]
   appointments               Appointment[]
   capitalDistributionReports CapitalDistributionReport[]
+  qlcDeposits                QlcDeposit[]
   deactivationRequests       SubaccountRequest[]
 
   @@unique([clientId, slotIndex])
@@ -1147,6 +1148,9 @@ model TrackRecord {
   // sitio muestra "—"; nunca se inventa una cifra.
   roi30d        Decimal? @db.Decimal(10, 2)
   winRate       Decimal? @db.Decimal(5, 2)
+  // Maximum Drawdown (%) mostrado en el hero/Resultados — lo captura el
+  // ADMIN en Admin → Track Record (no se consulta a ninguna API).
+  maxDrawdown   Decimal? @db.Decimal(5, 2)
   isActive      Boolean  @default(true)
   updatedAt     DateTime @updatedAt
 
@@ -1544,4 +1548,27 @@ model EmailVerificationCode {
 
   @@index([email, purpose])
   @@map("email_verification_codes")
+}
+
+// DEPÓSITOS QUE QLC REALIZA AL CLIENTE (por subcuenta/API). Los registra el
+// ADMIN (fecha, monto, referencia); los ve el cliente en su subcuenta y el
+// afiliador directo en el "Historial registrado por QLC" de su referido.
+// Nunca se borran: un registro erróneo se ANULA (voidedAt) con trazabilidad.
+model QlcDeposit {
+  id              String        @id @default(cuid())
+  apiSubaccountId String
+  apiSubaccount   ApiSubaccount @relation(fields: [apiSubaccountId], references: [id], onDelete: Cascade)
+  amount          Decimal       @db.Decimal(14, 2)
+  currency        String        @default("USDT")
+  depositedAt     DateTime
+  reference       String?       @db.VarChar(200)
+  note            String?       @db.VarChar(500)
+  createdByUserId String
+  voidedAt        DateTime?
+  voidedByUserId  String?
+  voidReason      String?       @db.VarChar(300)
+  createdAt       DateTime      @default(now())
+
+  @@index([apiSubaccountId, depositedAt])
+  @@map("qlc_deposits")
 }

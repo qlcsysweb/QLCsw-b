@@ -57,27 +57,18 @@ function shapeReferralAccount(s, staleDays) {
   candidates.sort((x, y) => new Date(y.updatedAt) - new Date(x.updatedAt));
   const latest = candidates[0] || null;
 
-  // HISTORIAL REGISTRADO POR QLC (fecha, tipo de movimiento y resultado):
-  // cierres de periodo de los estados de cuenta emitidos y confirmaciones de
-  // capital aprobadas. Sin órdenes, estrategia ni datos de otras cuentas.
-  const history = [
-    ...statements.map((st) => ({
-      date: st.generatedAt,
-      type: 'CIERRE_DE_PERIODO',
-      periodStart: st.periodStart,
-      periodEnd: st.periodEnd,
-      amount: Number(st.resultAmount),
-      status: effectiveStatementStatus(st),
-    })),
-    ...capitals.map((c) => ({
-      date: c.reviewedAt || c.reportedAt,
-      type: 'CAPITAL_CONFIRMADO',
-      periodStart: null,
-      periodEnd: null,
-      amount: Number(c.amount),
-      status: 'APROBADO',
-    })),
-  ].sort((x, y) => new Date(y.date) - new Date(x.date));
+  // HISTORIAL REGISTRADO POR QLC: los DEPÓSITOS que QLC realiza al cliente
+  // en esta API (fecha, tipo de movimiento e importe), registrados por
+  // administración. Nunca movimientos consultados a Bitget; los anulados no
+  // se muestran.
+  const history = (s.qlcDeposits || []).map((d) => ({
+    date: d.depositedAt,
+    type: 'DEPOSITO_QLC',
+    periodStart: null,
+    periodEnd: null,
+    amount: Number(d.amount),
+    status: 'REGISTRADO',
+  }));
 
   return {
     // PCB asignado por QLC al registrar la API (formato actual del sistema).
@@ -113,6 +104,12 @@ const REFERRAL_ACCOUNT_SELECT = {
     orderBy: { reviewedAt: 'desc' },
     take: 12,
     select: { amount: true, reviewedAt: true, reportedAt: true },
+  },
+  qlcDeposits: {
+    where: { voidedAt: null },
+    orderBy: { depositedAt: 'desc' },
+    take: 24,
+    select: { amount: true, depositedAt: true },
   },
   statements: {
     where: { status: { not: 'BORRADOR' } },

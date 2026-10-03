@@ -14,6 +14,7 @@ const adminController = require('../controllers/adminController');
 const documentController = require('../controllers/documentController');
 const statementController = require('../controllers/statementController');
 const affiliateController = require('../controllers/affiliateController');
+const qlcDepositController = require('../controllers/qlcDepositController');
 const paymentController = require('../controllers/paymentController');
 const appointmentController = require('../controllers/appointmentController');
 const supportController = require('../controllers/supportController');
@@ -73,6 +74,10 @@ router.post('/subaccount-requests/:id/reject', apiSubaccountController.rejectReq
 
 // CORREGIR.xlsx CLIENTE 13 — revisión de reportes de distribución de capital
 router.get('/capital-distribution-reports', apiSubaccountController.listCapitalDistributionReports);
+// Depósitos que QLC realiza al cliente (registro administrativo por subcuenta).
+router.get('/api-subaccounts/:id/qlc-deposits', qlcDepositController.listForAdmin);
+router.post('/api-subaccounts/:id/qlc-deposits', qlcDepositController.createDeposit);
+router.patch('/qlc-deposits/:depositId/void', qlcDepositController.voidDeposit);
 // Afiliados / promotores (relación directa) y comisiones del afiliador directo.
 router.get('/affiliates', affiliateController.listAffiliates);
 router.get('/affiliates/config', affiliateController.getConfig);

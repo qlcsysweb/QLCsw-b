@@ -19,6 +19,7 @@ const platformSettingsController = require('../controllers/platformSettingsContr
 const guideController = require('../controllers/client/guideController');
 const processStepController = require('../controllers/processStepController');
 const affiliateController = require('../controllers/client/affiliateController');
+const qlcDepositController = require('../controllers/qlcDepositController');
 
 const router = Router();
 
@@ -47,6 +48,7 @@ router.get('/api-subaccounts/requests', apiSubaccountController.listMyRequests);
 router.post('/api-subaccounts/requests', apiSubaccountController.requestNewSubaccount);
 router.post('/api-subaccounts/:id/requests/deactivate', apiSubaccountController.requestDeactivateSubaccount);
 router.get('/api-subaccounts/:id', apiSubaccountController.getMine);
+router.get('/api-subaccounts/:id/qlc-deposits', qlcDepositController.listForClient);
 router.patch('/api-subaccounts/:id', apiSubaccountController.updateMine);
 router.post('/api-subaccounts/:id/report-capital-ready', apiSubaccountController.reportCapitalReady);
 // CORREGIR.xlsx CLIENTE 13 — reporte real de distribución de capital

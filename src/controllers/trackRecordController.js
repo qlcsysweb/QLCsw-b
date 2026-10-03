@@ -45,6 +45,7 @@ const updateSchema = z.object({
   ranking: z.string().min(1).optional(),
   roi30d: percentField(-100, 99999999),
   winRate: percentField(0, 100),
+  maxDrawdown: percentField(0, 100),
   isActive: z.boolean().optional(),
 });
 
