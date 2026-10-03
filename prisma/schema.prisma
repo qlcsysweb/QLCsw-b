@@ -903,6 +903,7 @@ model Statement {
   affiliateConfigVersionId  String?
   attachments               StatementAttachment[]
   affiliateCommission       AffiliateCommission?
+  affiliatePrepayment       AffiliatePayment?     @relation("AffiliatePrepaymentStatement")
 
   // El CLIENTE lo borró de "Estados de cuenta anteriores" (solo pagados y
   // nunca el actual). Se conserva: el admin lo sigue viendo completo.
@@ -1511,7 +1512,16 @@ model AffiliatePayment {
 
   commissions AffiliateCommission[]
 
+  // PAGO PREVIO de la comisión de UN estado de cuenta: el admin lo registra
+  // (con comprobante) ANTES de generar el estado de cuenta de esa subcuenta;
+  // al generarlo queda ligado (statementId) y la comisión nace PAGADA.
+  apiSubaccountId String?
+  statementId     String?    @unique
+  statement       Statement? @relation("AffiliatePrepaymentStatement", fields: [statementId], references: [id], onDelete: SetNull)
+  voidReason      String?    @db.VarChar(300)
+
   @@index([referrerClientId, status])
+  @@index([apiSubaccountId])
   @@map("affiliate_payments")
 }
 

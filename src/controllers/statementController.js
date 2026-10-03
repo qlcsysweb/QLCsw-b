@@ -9,6 +9,16 @@ const { notifyClient } = require('../utils/notify');
 const { assertSafeFiles } = require('../utils/fileSignature');
 const { safeFileName } = require('../utils/supportCaseFiles');
 const { getEffectiveConfig, computeDistribution, logAffiliateEvent } = require('../services/affiliateService');
+
+// Lazy para evitar dependencia circular de módulos.
+async function getPrepaymentInfo(apiSubaccountId) {
+  const { prepaymentContext } = require('./affiliatePrepaymentController');
+  const { referrer, prepayment } = await prepaymentContext(apiSubaccountId);
+  return {
+    referrer: referrer ? { id: referrer.id, name: `${referrer.firstName} ${referrer.lastName}`, affiliateCode: referrer.affiliateCode, bitgetUid: referrer.affiliateBitgetUid || null } : null,
+    prepayment: prepayment ? { ...prepayment, amount: Number(prepayment.amount) } : null,
+  };
+}
 const {
   STATEMENT_DUE_HOURS,
   effectiveStatementStatus,
@@ -61,6 +71,8 @@ const listStatements = asyncHandler(async (req, res) => {
       affiliateSharePct: Number(config.affiliateSharePct),
       hasReferrer: Boolean(owner?.client?.referredByClientId),
     },
+    // Paso obligatorio previo: promotor afiliador (nombre, UID) y su pago registrado.
+    affiliatePrepayment: owner?.client?.referredByClientId ? await getPrepaymentInfo(req.params.apiSubaccountId) : null,
   });
 });
 
@@ -240,8 +252,24 @@ const createStatement = asyncHandler(async (req, res) => {
   const affiliateConfig = await getEffectiveConfig(new Date());
   const referrerClientId = subaccount.client.referredByClientId || null;
   const distribution = computeDistribution(data.resultAmount, affiliateConfig);
-  // COMISIÓN DEL AFILIADOR capturada por el admin (si la ajustó): reemplaza la
-  // calculada con el % vigente y la parte de QLC se recalcula para que la
+  // PAGO PREVIO OBLIGATORIO AL AFILIADOR: con afiliador directo y
+  // rentabilidad positiva, el estado de cuenta solo se genera si el admin ya
+  // pagó la comisión y cargó el comprobante (ver affiliatePrepaymentController).
+  // La comisión del periodo es EXACTAMENTE lo pagado y nace ya PAGADA.
+  const profitPositive = Number(data.resultAmount) > 0;
+  let prepayment = null;
+  if (referrerClientId && profitPositive) {
+    prepayment = await prisma.affiliatePayment.findFirst({
+      where: { apiSubaccountId: subaccount.id, statementId: null, status: 'PAGADO' },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!prepayment) {
+      throw ApiError.badRequest('Primero paga la comisión al promotor afiliador (a su UID de Bitget) y carga el comprobante; después podrás generar el estado de cuenta.');
+    }
+    data.affiliateCommission = Number(prepayment.amount);
+  }
+  // COMISIÓN DEL AFILIADOR (la pagada, o la capturada por el admin): reemplaza
+  // la calculada con el % vigente y la parte de QLC se recalcula para que la
   // suma siga siendo la rentabilidad generada. Sin afiliador directo no aplica.
   if (referrerClientId && data.affiliateCommission !== undefined) {
     const profit = Number(data.resultAmount) > 0 ? Number(data.resultAmount) : 0;
@@ -277,8 +305,18 @@ const createStatement = asyncHandler(async (req, res) => {
         ? await tx.statement.update({ where: { id: draft.id }, data: fields })
         : await tx.statement.create({ data: { ...fields, apiSubaccountId: subaccount.id, createdByUserId: req.user.id } });
       // Comisión del afiliador directo del periodo, en la MISMA transacción
-      // (una por estado de cuenta: statementId único). Calcularla no es
-      // pagarla: nace PENDIENTE y solo un pago confirmado la marca PAGADA.
+      // (una por estado de cuenta: statementId único). Con pago previo nace
+      // PAGADA y ligada a ese pago; el pago queda ligado a este estado de cuenta.
+      if (prepayment) {
+        const { count } = await tx.affiliatePayment.updateMany({
+          where: { id: prepayment.id, statementId: null, status: 'PAGADO' },
+          data: {
+            statementId: saved.id,
+            periodLabel: `Estado de cuenta ${periodStart.toISOString().slice(0, 10)} – ${data.periodEnd.toISOString().slice(0, 10)}`,
+          },
+        });
+        if (!count) throw ApiError.conflict('El pago de la comisión cambió mientras se generaba el estado de cuenta. Intenta nuevamente.');
+      }
       if (distributionFields.affiliateReferrerClientId) {
         await tx.affiliateCommission.create({
           data: {
@@ -294,7 +332,9 @@ const createStatement = asyncHandler(async (req, res) => {
             periodEnd: data.periodEnd,
             configVersionId: affiliateConfig.versionId,
             occurredAt: generatedAt,
-            status: 'PENDIENTE',
+            ...(prepayment
+              ? { status: 'PAGADA', approvedAt: generatedAt, approvedByUserId: req.user.id, paidAt: prepayment.paidAt || generatedAt, paidByUserId: req.user.id, paymentId: prepayment.id }
+              : { status: 'PENDIENTE' }),
             createdByUserId: req.user.id,
           },
         });
@@ -330,7 +370,9 @@ const createStatement = asyncHandler(async (req, res) => {
       // de un borrador vuelve a BORRADOR (no se pierde lo capturado); si se
       // acababa de crear, se retira.
       // Sin estado de cuenta emitido no hay comisión del periodo.
-      await prisma.affiliateCommission.deleteMany({ where: { statementId: statement.id, paymentId: null } }).catch(() => {});
+      await prisma.affiliateCommission.deleteMany({ where: { statementId: statement.id } }).catch(() => {});
+      // El pago previo vuelve a quedar disponible para el siguiente intento.
+      await prisma.affiliatePayment.updateMany({ where: { statementId: statement.id }, data: { statementId: null } }).catch(() => {});
       if (fromDraft) {
         await prisma.statement.update({ where: { id: statement.id }, data: { status: 'BORRADOR' } }).catch(() => {});
       } else {
@@ -386,8 +428,10 @@ const createStatement = asyncHandler(async (req, res) => {
     // El afiliador directo recibe el aviso al mismo tiempo que el cliente
     // (su Affiliate Dashboard ya muestra la comisión: misma transacción).
     await notifyClient(distributionFields.affiliateReferrerClientId, {
-      title: 'Nueva comisión de afiliado',
-      message: `Se emitió el estado de cuenta de uno de tus referidos. Tu comisión del periodo es de ${distribution.affiliateCommissionAmount} USDT (pendiente de aprobación y pago por QLC).`,
+      title: prepayment ? 'Comisión de afiliado pagada' : 'Nueva comisión de afiliado',
+      message: prepayment
+        ? `Se emitió el estado de cuenta de uno de tus referidos. Tu comisión del periodo (${distribution.affiliateCommissionAmount} USDT) ya fue PAGADA por QLC a tu UID de Bitget.`
+        : `Se emitió el estado de cuenta de uno de tus referidos. Tu comisión del periodo es de ${distribution.affiliateCommissionAmount} USDT (pendiente de aprobación y pago por QLC).`,
       type: 'info',
       templateKey: 'affiliate_commission_created',
       templateParams: { amount: String(distribution.affiliateCommissionAmount) },

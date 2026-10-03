@@ -15,6 +15,7 @@ const documentController = require('../controllers/documentController');
 const statementController = require('../controllers/statementController');
 const affiliateController = require('../controllers/affiliateController');
 const qlcDepositController = require('../controllers/qlcDepositController');
+const affiliatePrepaymentController = require('../controllers/affiliatePrepaymentController');
 const paymentController = require('../controllers/paymentController');
 const appointmentController = require('../controllers/appointmentController');
 const supportController = require('../controllers/supportController');
@@ -78,6 +79,10 @@ router.get('/capital-distribution-reports', apiSubaccountController.listCapitalD
 router.get('/api-subaccounts/:id/qlc-deposits', qlcDepositController.listForAdmin);
 router.post('/api-subaccounts/:id/qlc-deposits', qlcDepositController.createDeposit);
 router.patch('/qlc-deposits/:depositId/void', qlcDepositController.voidDeposit);
+// Pago previo de la comisión del afiliador (obligatorio antes del estado de cuenta).
+router.get('/api-subaccounts/:id/affiliate-prepayment', affiliatePrepaymentController.getPrepayment);
+router.post('/api-subaccounts/:id/affiliate-prepayment', singleCaseFile, affiliatePrepaymentController.createPrepayment);
+router.patch('/affiliate-prepayments/:paymentId/void', affiliatePrepaymentController.voidPrepayment);
 // Afiliados / promotores (relación directa) y comisiones del afiliador directo.
 router.get('/affiliates', affiliateController.listAffiliates);
 router.get('/affiliates/config', affiliateController.getConfig);

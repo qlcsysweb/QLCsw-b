@@ -413,7 +413,16 @@ const deleteClient = asyncHandler(async (req, res) => {
     }
   }
 
-  await prisma.user.delete({ where: { id: client.user.id } });
+  // Primero el PERFIL del cliente (arrastra en cascada todo lo suyo:
+  // documentos, subcuentas, estados de cuenta, casos, chats, solicitudes…) y
+  // después su USUARIO, en la misma transacción. Al revés fallaba: esos
+  // registros apuntan al usuario que los creó (documentos que el cliente
+  // subió, sus mensajes, sus solicitudes) y la BD impedía borrarlo primero.
+  // Sus referidos se conservan como clientes sin afiliador (SET NULL).
+  await prisma.$transaction(async (tx) => {
+    await tx.clientProfile.delete({ where: { id: client.id } });
+    await tx.user.delete({ where: { id: client.user.id } });
+  });
 
   res.json({ ok: true, driveDeletionStatus, driveDeletionError });
 });

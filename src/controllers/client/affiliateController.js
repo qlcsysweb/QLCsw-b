@@ -171,7 +171,13 @@ const getMyAffiliate = asyncHandler(async (req, res) => {
         referred: { select: { firstName: true, lastName: true } },
       },
     }),
-    prisma.affiliatePayment.findMany({ where: { referrerClientId: me.id }, orderBy: { createdAt: 'desc' }, select: PAYMENT_SELECT }),
+    prisma.affiliatePayment.findMany({
+      // Un pago previo se muestra al afiliador cuando su estado de cuenta se
+      // genera (llega junto con la comisión); los anulados nunca.
+      where: { referrerClientId: me.id, NOT: [{ apiSubaccountId: { not: null }, statementId: null }], status: { not: 'RECHAZADO' } },
+      orderBy: { createdAt: 'desc' },
+      select: PAYMENT_SELECT,
+    }),
   ]);
 
   // COMISIONES INDIVIDUALES POR API: cada comisión de periodo pertenece a la
