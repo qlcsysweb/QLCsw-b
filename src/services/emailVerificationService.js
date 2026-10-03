@@ -9,6 +9,8 @@
  * los 15 minutos, máximo 5 intentos, y 60 s de espera entre reenvíos.
  */
 const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
 const prisma = require('../config/prisma');
 const ApiError = require('../utils/ApiError');
 const { resolveCredentials, sendMailUnified } = require('../config/emailConfig');
@@ -22,20 +24,38 @@ const normalizeEmail = (email) => String(email || '').trim().toLowerCase();
 const hashCode = (email, code) =>
   crypto.createHmac('sha256', process.env.JWT_SECRET || 'qlc').update(`${normalizeEmail(email)}:${code}`).digest('hex');
 
-const COPY = {
-  es: {
-    subject: 'QLC — Código de verificación de tu correo',
-    text: (code) =>
-      `Tu código de verificación de Quantum Liquidity Capital (QLC) es: ${code}\n\nEscríbelo en la pantalla de registro para confirmar tu correo. El código vence en 15 minutos.\n\nSi tú no solicitaste este registro, ignora este mensaje.\n\n— Quantum Liquidity Capital (QLC)`,
-  },
-  en: {
-    subject: 'QLC — Your email verification code',
-    text: (code) =>
-      `Your Quantum Liquidity Capital (QLC) verification code is: ${code}\n\nEnter it on the registration screen to confirm your email. The code expires in 15 minutes.\n\nIf you did not request this registration, please ignore this message.\n\n— Quantum Liquidity Capital (QLC)`,
-  },
-};
+// Correo del código: en INGLÉS (idioma universal para todos los clientes),
+// con el logo de QLC incrustado (CID, no depende de imágenes externas).
+const LOGO_PATH = path.join(__dirname, '..', 'assets', 'email', 'qlc-logo.png');
+let logoBuffer = null;
+function logoAttachment() {
+  if (!logoBuffer) {
+    try {
+      logoBuffer = fs.readFileSync(LOGO_PATH);
+    } catch {
+      return null;
+    }
+  }
+  return { filename: 'qlc-logo.png', content: logoBuffer, contentType: 'image/png', cid: 'qlc-logo', contentDisposition: 'inline' };
+}
 
-async function sendRegistrationCode(email, language = 'es') {
+const SUBJECT = 'QLC — Your email verification code';
+const textBody = (code) =>
+  `Quantum Liquidity Capital (QLC)\n\nYour verification code is: ${code}\n\nEnter it on the registration screen to confirm your email address. The code expires in 15 minutes.\n\nIf you did not request this registration, you can safely ignore this message.\n\n— Quantum Liquidity Capital (QLC)\nSupport: soporte@qlctrade.net`;
+const htmlBody = (code, withLogo) => `<!doctype html>
+<html><body style="margin:0;padding:0;background:#05070a;font-family:Arial,Helvetica,sans-serif;color:#f4f7fb;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#05070a;padding:32px 12px;">
+<tr><td align="center">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;background:#0d131a;border:1px solid #1f2a35;border-radius:16px;padding:28px 24px;">
+${withLogo ? '<tr><td align="center" style="padding-bottom:18px;"><img src="cid:qlc-logo" width="180" alt="Quantum Liquidity Capital" style="display:block;border:0;max-width:180px;height:auto;"></td></tr>' : ''}
+<tr><td align="center" style="font-size:18px;font-weight:bold;padding-bottom:8px;">Verify your email</td></tr>
+<tr><td align="center" style="font-size:14px;color:#9ca9b7;padding-bottom:20px;line-height:1.5;">Enter this code on the registration screen to confirm your email address.</td></tr>
+<tr><td align="center" style="padding-bottom:20px;"><div style="display:inline-block;font-size:32px;letter-spacing:8px;font-weight:bold;color:#5bd4ff;background:#05070a;border:1px solid #0076b8;border-radius:12px;padding:14px 22px;">${code}</div></td></tr>
+<tr><td align="center" style="font-size:13px;color:#9ca9b7;line-height:1.5;padding-bottom:16px;">The code expires in <strong style="color:#f4f7fb;">15 minutes</strong>.<br>If you did not request this registration, you can safely ignore this message.</td></tr>
+<tr><td align="center" style="font-size:12px;color:#6f7c89;border-top:1px solid #1f2a35;padding-top:14px;">Quantum Liquidity Capital (QLC) · Support: soporte@qlctrade.net</td></tr>
+</table></td></tr></table></body></html>`;
+
+async function sendRegistrationCode(email) {
   const normalized = normalizeEmail(email);
   const last = await prisma.emailVerificationCode.findFirst({
     where: { email: normalized, purpose: PURPOSE },
@@ -58,9 +78,15 @@ async function sendRegistrationCode(email, language = 'es') {
   const row = await prisma.emailVerificationCode.create({
     data: { email: normalized, purpose: PURPOSE, codeHash: hashCode(normalized, code), expiresAt: new Date(Date.now() + CODE_TTL_MS) },
   });
-  const copy = COPY[language === 'en' ? 'en' : 'es'];
+  const logo = logoAttachment();
   try {
-    await sendMailUnified(creds, { to: String(email).trim(), subject: copy.subject, text: copy.text(code) });
+    await sendMailUnified(creds, {
+      to: String(email).trim(),
+      subject: SUBJECT,
+      text: textBody(code),
+      html: htmlBody(code, Boolean(logo)),
+      attachments: logo ? [logo] : [],
+    });
   } catch {
     await prisma.emailVerificationCode.update({ where: { id: row.id }, data: { consumedAt: new Date() } }).catch(() => {});
     throw ApiError.serviceUnavailable('No pudimos enviar el código a ese correo. Revisa que esté bien escrito e intenta de nuevo.');

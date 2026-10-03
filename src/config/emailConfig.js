@@ -255,18 +255,19 @@ function buildRawMimeMessage({ from, to, subject, text }) {
 
 // Con adjuntos (ej. PDF del estado de cuenta) el mensaje MIME multipart lo
 // arma el MailComposer de nodemailer — mismo formato que usa el envío SMTP.
-async function buildRawMimeWithAttachments({ from, to, subject, text, attachments }) {
-  const message = await new MailComposer({ from, to, subject, text, attachments }).compile().build();
+async function buildRawMimeWithAttachments({ from, to, subject, text, html, attachments }) {
+  const message = await new MailComposer({ from, to, subject, text, ...(html ? { html } : {}), attachments }).compile().build();
   return message.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-async function sendViaGmailApi(creds, { to, subject, text, attachments }) {
+async function sendViaGmailApi(creds, { to, subject, text, html, attachments }) {
   const client = createOAuth2Client(creds.clientId, creds.clientSecret);
   client.setCredentials({ refresh_token: creds.refreshToken });
   const gmail = google.gmail({ version: 'v1', auth: client });
   const from = `"${creds.senderName}" <${creds.user}>`;
-  const raw = attachments?.length
-    ? await buildRawMimeWithAttachments({ from, to, subject, text, attachments })
+  // Con HTML (p. ej. logo incrustado) o adjuntos, el MIME lo arma MailComposer.
+  const raw = attachments?.length || html
+    ? await buildRawMimeWithAttachments({ from, to, subject, text, html, attachments: attachments || [] })
     : buildRawMimeMessage({ from, to, subject, text });
   const res = await gmail.users.messages.send({ userId: 'me', requestBody: { raw } });
   return res.data;
@@ -276,14 +277,15 @@ async function sendViaGmailApi(creds, { to, subject, text, attachments }) {
 // emailService.js (notificaciones, bienvenida, estados de cuenta) — así
 // "Guardar/Probar" y el envío real de la plataforma NUNCA pueden divergir,
 // sin importar cuál de los dos métodos (SMTP u OAuth2) esté activo.
-// `attachments` (opcional): formato de nodemailer [{ filename, content, contentType }].
-async function sendMailUnified(creds, { to, subject, text, attachments }) {
+// `attachments` (opcional): formato de nodemailer [{ filename, content, contentType, cid }].
+// `html` (opcional): versión HTML del mensaje; `text` siempre se envía como respaldo.
+async function sendMailUnified(creds, { to, subject, text, html, attachments }) {
   if (creds.method === 'oauth2') {
-    return sendViaGmailApi(creds, { to, subject, text, attachments });
+    return sendViaGmailApi(creds, { to, subject, text, html, attachments });
   }
   const transport = createGmailTransport(creds);
   const from = `"${creds.senderName}" <${creds.user}>`;
-  return transport.sendMail({ from, to, subject, text, ...(attachments?.length ? { attachments } : {}) });
+  return transport.sendMail({ from, to, subject, text, ...(html ? { html } : {}), ...(attachments?.length ? { attachments } : {}) });
 }
 
 // Equivalente a transport.verify() sin importar el método activo.

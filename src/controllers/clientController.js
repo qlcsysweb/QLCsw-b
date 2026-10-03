@@ -284,20 +284,29 @@ const assignUsernameSchema = z.object({
 });
 
 const assignUsername = asyncHandler(async (req, res) => {
-  const { username } = assignUsernameSchema.parse(req.body);
+  const username = assignUsernameSchema.parse(req.body).username.trim();
+  if (!username) throw ApiError.badRequest('La nomenclatura única es obligatoria');
   const client = await prisma.clientProfile.findUnique({ where: { id: req.params.id } });
   if (!client) throw ApiError.notFound('Cliente no encontrado');
-  if (client.username) {
-    throw ApiError.conflict('Este cliente ya tiene una nomenclatura asignada. No puede cambiarse.');
+  // EDITABLE por el admin (asignar o corregir). Sigue siendo ÚNICA: no puede
+  // repetirse entre clientes (lo garantiza también el índice único de la BD).
+  if (client.username === username) {
+    return res.json({ ok: true, client });
   }
 
   const clash = await prisma.clientProfile.findUnique({ where: { username } });
-  if (clash) throw ApiError.conflict('Esa nomenclatura ya está en uso por otro cliente.');
+  if (clash && clash.id !== client.id) throw ApiError.conflict('Esa nomenclatura ya está en uso por otro cliente.');
 
-  const updated = await prisma.clientProfile.update({
-    where: { id: req.params.id },
-    data: { username },
-  });
+  let updated;
+  try {
+    updated = await prisma.clientProfile.update({
+      where: { id: req.params.id },
+      data: { username },
+    });
+  } catch (err) {
+    if (err.code === 'P2002') throw ApiError.conflict('Esa nomenclatura ya está en uso por otro cliente.');
+    throw err;
+  }
 
   // IMPLEMENTACIÓN DEFINITIVA DE GOOGLE DRIVE — best-effort, nunca bloquea
   // la asignación: si ya existe una carpeta (nombre provisional con el ID),

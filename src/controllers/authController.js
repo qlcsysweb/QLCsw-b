@@ -239,7 +239,7 @@ const sendRegisterCode = asyncHandler(async (req, res) => {
   await resolveActiveReferrer(prisma, data.affiliateCode);
   const existing = await prisma.user.findFirst({ where: { email: { equals: data.email, mode: 'insensitive' } }, select: { id: true } });
   if (existing) throw ApiError.conflict('Ya existe una cuenta con este correo.');
-  const { expiresAt } = await sendRegistrationCode(data.email, data.language);
+  const { expiresAt } = await sendRegistrationCode(data.email);
   res.json({ ok: true, expiresAt });
 });
 
