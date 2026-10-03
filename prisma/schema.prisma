@@ -133,14 +133,16 @@ enum NotificationKind {
 // mientras esté desactivada el login ignora estos campos por completo.
 
 model User {
-  id           String    @id @default(cuid())
-  email        String    @unique
-  passwordHash String
-  role         Role
-  isActive     Boolean   @default(true)
-  lastLoginAt  DateTime?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  id              String    @id @default(cuid())
+  email           String    @unique
+  passwordHash    String
+  role            Role
+  isActive        Boolean   @default(true)
+  lastLoginAt     DateTime?
+  // Correo confirmado con el código enviado al registrarse (registro público).
+  emailVerifiedAt DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   // 2FA (Google Authenticator / TOTP) — preparado, no activo por defecto.
   twoFactorEnabled                Boolean @default(false)
@@ -1525,4 +1527,21 @@ model StatementAttachment {
 
   @@index([statementId])
   @@map("statement_attachments")
+}
+
+// CÓDIGO DE VERIFICACIÓN DE CORREO del registro público: 6 dígitos enviados
+// por e-mail; aquí solo se guarda su HMAC (nunca el código en claro). Un solo
+// uso, vence a los 15 minutos y admite como máximo 5 intentos.
+model EmailVerificationCode {
+  id         String    @id @default(cuid())
+  email      String
+  purpose    String    @default("REGISTER") @db.VarChar(20)
+  codeHash   String
+  expiresAt  DateTime
+  attempts   Int       @default(0)
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([email, purpose])
+  @@map("email_verification_codes")
 }

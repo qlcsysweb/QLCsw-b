@@ -100,6 +100,8 @@ function shapeReferralAccount(s, staleDays) {
 // Select ACOTADO de cada subcuenta del referido: apiKeyEncrypted solo para
 // calcular la terminación en el backend; ni Secret ni Passphrase se leen.
 const REFERRAL_ACCOUNT_SELECT = {
+  // Solo para agrupar comisiones por cuenta en el backend; no se envía.
+  id: true,
   identifier: true,
   isPrincipal: true,
   status: true,
@@ -166,20 +168,43 @@ const getMyAffiliate = asyncHandler(async (req, res) => {
         periodStart: true,
         periodEnd: true,
         paidAt: true,
+        referredClientId: true,
+        // Cuenta (API) del estado de cuenta que originó la comisión.
+        statement: { select: { apiSubaccountId: true } },
         referred: { select: { firstName: true, lastName: true } },
       },
     }),
     prisma.affiliatePayment.findMany({ where: { referrerClientId: me.id }, orderBy: { createdAt: 'desc' }, select: PAYMENT_SELECT }),
   ]);
 
-  const items = referrals.map((r) => ({
-    // Clave opaca solo para la lista (no da acceso a nada).
-    key: r.id.slice(-8),
-    initials: promoterVisibleName(r),
-    registeredAt: r.createdAt,
-    status: referralStatus(r),
-    accounts: r.apiSubaccounts.map((acc) => shapeReferralAccount(acc, config.balanceStaleDays)),
-  }));
+  // COMISIONES INDIVIDUALES POR API: cada comisión de periodo pertenece a la
+  // cuenta (API) de su estado de cuenta; los ajustes manuales quedan a nivel
+  // del referido. Totales por estado en cada nivel.
+  const shapeCommission = ({ referred, statement, referredClientId, ...c }) => ({ ...c, amount: Number(c.amount) });
+  const totalsOf = (list) =>
+    list.reduce(
+      (acc, c) => ({ ...acc, [c.status]: Math.round((acc[c.status] + Number(c.amount)) * 100) / 100 }),
+      { PENDIENTE: 0, APROBADA: 0, PAGADA: 0, CANCELADA: 0 }
+    );
+  const items = referrals.map((r) => {
+    const mine = commissions.filter((c) => c.referredClientId === r.id);
+    const accountIds = new Set(r.apiSubaccounts.map((a) => a.id));
+    const adjustments = mine.filter((c) => !c.statement || !accountIds.has(c.statement.apiSubaccountId));
+    return {
+      // Clave opaca solo para la lista (no da acceso a nada).
+      key: r.id.slice(-8),
+      initials: promoterVisibleName(r),
+      registeredAt: r.createdAt,
+      status: referralStatus(r),
+      accounts: r.apiSubaccounts.map((acc) => {
+        const accCommissions = mine.filter((c) => c.statement?.apiSubaccountId === acc.id);
+        const { id, ...shaped } = { id: acc.id, ...shapeReferralAccount(acc, config.balanceStaleDays) };
+        return { ...shaped, commissions: { totals: totalsOf(accCommissions), history: accCommissions.map(shapeCommission) } };
+      }),
+      // Ajustes manuales justificados por QLC (no ligados a una API).
+      adjustments: { totals: totalsOf(adjustments), history: adjustments.map(shapeCommission) },
+    };
+  });
   const origin = resolveFrontendOrigin(req.get('origin'));
   const suspended = Boolean(me.affiliateDisabledAt) && !me.affiliateEnabled;
 
@@ -205,7 +230,7 @@ const getMyAffiliate = asyncHandler(async (req, res) => {
     referrals: items,
     commissions: {
       totals: commissionTotals(groups),
-      history: commissions.map(({ referred, ...c }) => ({ ...c, amount: Number(c.amount), referredInitials: promoterVisibleName(referred) })),
+      history: commissions.map(({ referred, statement, referredClientId, ...c }) => ({ ...c, amount: Number(c.amount), referredInitials: promoterVisibleName(referred) })),
     },
     payments: payments.map(shapePayment),
   });

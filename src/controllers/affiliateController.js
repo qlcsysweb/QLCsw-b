@@ -39,6 +39,21 @@ const validateAffiliateCode = asyncHandler(async (req, res) => {
   res.json({ ok: true, valid: true, code: referrer.affiliateCode });
 });
 
+// Reparto PÚBLICO de la ganancia generada (cliente / QLC / promotor
+// afiliador) vigente hoy — el mismo que se aplica en los estados de cuenta.
+// Solo porcentajes; ningún dato privado.
+const getPublicDistribution = asyncHandler(async (req, res) => {
+  const c = await getEffectiveConfig(new Date());
+  res.json({
+    ok: true,
+    distribution: {
+      clientSharePct: Number(c.clientSharePct),
+      qlcSharePct: Number(c.qlcSharePct),
+      affiliateSharePct: Number(c.affiliateSharePct),
+    },
+  });
+});
+
 // ==========================================================
 // ADMIN — configuración del programa (versionada)
 // ==========================================================
@@ -695,6 +710,7 @@ const downloadPaymentProof = asyncHandler(async (req, res) => {
 
 module.exports = {
   validateAffiliateCode,
+  getPublicDistribution,
   getConfig,
   updateConfig,
   listAffiliates,

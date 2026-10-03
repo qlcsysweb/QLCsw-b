@@ -34,6 +34,8 @@ router.get('/payment-info', paymentController.getPublicReceiveUid);
 // para que no se puedan enumerar códigos por fuerza bruta).
 const affiliateValidateLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 30, standardHeaders: true, legacyHeaders: false });
 router.get('/affiliate/validate', affiliateValidateLimiter, affiliateController.validateAffiliateCode);
+// Reparto vigente de la ganancia (cliente / QLC / promotor afiliador) para el modelo de participación.
+router.get('/affiliate/distribution', affiliateController.getPublicDistribution);
 
 // Formulario "Solicitar información" / Registro
 router.post('/prospects', publicFormLimiter, prospectController.createProspect);

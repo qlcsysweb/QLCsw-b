@@ -9,6 +9,7 @@ const {
   me,
   changePassword,
   register,
+  sendRegisterCode,
   verifyPasswordReset,
   completePasswordReset,
 } = require('../controllers/authController');
@@ -47,6 +48,16 @@ router.post('/password-reset/verify', passwordResetLimiter, verifyPasswordReset)
 router.post('/password-reset/complete', passwordResetLimiter, completePasswordReset);
 router.post('/login/2fa', loginLimiter, loginWithTwoFactor);
 router.post('/login/code', loginLimiter, loginWithCode);
+// Código de verificación del correo (límite propio para que no se use para
+// enviar correos masivos).
+const registerCodeLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 6,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { ok: false, message: 'Demasiadas solicitudes de código. Intenta más tarde.' },
+});
+router.post('/register/email-code', registerCodeLimiter, sendRegisterCode);
 router.post('/register', registerLimiter, register);
 router.post('/logout', requireAuth, logout);
 router.get('/me', requireAuth, me);

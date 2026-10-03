@@ -7,6 +7,7 @@ const { signToken, cookieOptions, clearCookieOptions } = require('../utils/token
 const { ensurePrincipalSubaccount } = require('../utils/subaccountProvisioning');
 const { notifyAdmins } = require('../utils/notify');
 const { resolveActiveReferrer, logAffiliateEvent } = require('../services/affiliateService');
+const { sendRegistrationCode, checkRegistrationCode, consumeRegistrationCode } = require('../services/emailVerificationService');
 const {
   isTwoFactorGloballyEnabled,
   verifyToken,
@@ -206,7 +207,13 @@ const registerSchema = z.object({
     .max(64),
   firstName: z.string().min(1, 'El nombre es obligatorio'),
   lastName: z.string().min(1, 'El apellido es obligatorio'),
-  email: z.string().email('Email inválido'),
+  email: z.string().trim().email('Email inválido'),
+  // Código de 6 dígitos enviado al correo (confirma que el correo es real
+  // y está bien escrito antes de crear la cuenta).
+  emailCode: z
+    .string({ required_error: 'Escribe el código de verificación que enviamos a tu correo.' })
+    .trim()
+    .regex(/^\d{6}$/, 'El código de verificación debe tener 6 dígitos.'),
   password: z.string().min(8, 'La contraseña debe tener al menos 8 caracteres'),
   privacyAccepted: z.literal(true, {
     errorMap: () => ({ message: 'Debes aceptar el Aviso de Privacidad para continuar.' }),
@@ -219,14 +226,34 @@ const registerSchema = z.object({
   }),
 });
 
+// ENVIAR CÓDIGO DE VERIFICACIÓN — solo para un registro por invitación válido
+// (exige el código de afiliación activo) y un correo todavía no registrado.
+const sendRegisterCodeSchema = z.object({
+  email: z.string().trim().email('Email inválido'),
+  affiliateCode: z.string({ required_error: 'Para registrarte en QLC necesitas un código o enlace de afiliación válido.' }).trim().min(1).max(64),
+  language: z.enum(['es', 'en']).optional(),
+});
+
+const sendRegisterCode = asyncHandler(async (req, res) => {
+  const data = sendRegisterCodeSchema.parse(req.body);
+  await resolveActiveReferrer(prisma, data.affiliateCode);
+  const existing = await prisma.user.findFirst({ where: { email: { equals: data.email, mode: 'insensitive' } }, select: { id: true } });
+  if (existing) throw ApiError.conflict('Ya existe una cuenta con este correo.');
+  const { expiresAt } = await sendRegistrationCode(data.email, data.language);
+  res.json({ ok: true, expiresAt });
+});
+
 const register = asyncHandler(async (req, res) => {
   const data = registerSchema.parse(req.body);
 
   // Validación temprana (sin crear nada si el código no sirve).
   await resolveActiveReferrer(prisma, data.affiliateCode);
 
-  const existing = await prisma.user.findUnique({ where: { email: data.email } });
+  const existing = await prisma.user.findFirst({ where: { email: { equals: data.email, mode: 'insensitive' } }, select: { id: true } });
   if (existing) throw ApiError.conflict('Ya existe una cuenta con este correo.');
+
+  // El correo debe estar confirmado con el código que se le envió.
+  const emailCodeId = await checkRegistrationCode(data.email, data.emailCode);
 
   const passwordHash = await bcrypt.hash(data.password, 12);
   const acceptedAt = new Date();
@@ -241,9 +268,11 @@ const register = asyncHandler(async (req, res) => {
   try {
     ({ user, referrer } = await prisma.$transaction(async (tx) => {
       const activeReferrer = await resolveActiveReferrer(tx, data.affiliateCode);
+      await consumeRegistrationCode(tx, emailCodeId);
       const created = await tx.user.create({
         data: {
           email: data.email,
+          emailVerifiedAt: acceptedAt,
           passwordHash,
           role: 'CLIENT',
           clientProfile: {
@@ -359,6 +388,7 @@ module.exports = {
   me,
   changePassword,
   register,
+  sendRegisterCode,
   verifyPasswordReset,
   completePasswordReset,
 };
