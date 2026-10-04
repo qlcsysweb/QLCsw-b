@@ -120,9 +120,16 @@ const PAYMENT_SELECT = {
   paidAt: true,
   createdAt: true,
   // Cuenta (API) del referido a la que corresponde el pago (vía su estado de cuenta).
-  statement: { select: { apiSubaccountId: true } },
+  statement: { select: { apiSubaccountId: true, pdfDriveFileId: true } },
 };
-const shapePayment = ({ proofDriveFileId, statement, ...p }) => ({ ...p, amount: Number(p.amount), hasProof: Boolean(proofDriveFileId) });
+// hasStatementPdf: el PDF del estado de cuenta que se le envió al cliente
+// referido por el periodo de este pago (detalle de movimientos).
+const shapePayment = ({ proofDriveFileId, statement, ...p }) => ({
+  ...p,
+  amount: Number(p.amount),
+  hasProof: Boolean(proofDriveFileId),
+  hasStatementPdf: Boolean(statement?.pdfDriveFileId),
+});
 
 const getMyAffiliate = asyncHandler(async (req, res) => {
   const me = req.clientProfile;
@@ -309,4 +316,21 @@ const downloadMyPaymentProof = asyncHandler(async (req, res) => {
   stream.pipe(res);
 });
 
-module.exports = { getMyAffiliate, updateMyBitgetUid, activateMyAffiliate, getMyAffiliateQr, downloadMyPaymentProof };
+// PDF del estado de cuenta ligado a un pago PROPIO (el mismo que recibió el
+// cliente referido). Solo se sirve si el pago pertenece a este afiliador y
+// está pagado; nunca se puede pedir un estado de cuenta arbitrario.
+const downloadMyPaymentStatementPdf = asyncHandler(async (req, res) => {
+  const payment = await prisma.affiliatePayment.findFirst({
+    where: { id: req.params.id, referrerClientId: req.clientProfile.id, status: 'PAGADO' },
+    select: { statement: { select: { pdfDriveFileId: true, pdfFileName: true } } },
+  });
+  const pdf = payment?.statement;
+  if (!pdf || !pdf.pdfDriveFileId) throw ApiError.notFound('El PDF de este estado de cuenta no está disponible');
+  const { stream, fileName } = await driveStorage.downloadFileFromDrive(pdf.pdfDriveFileId);
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(fileName || pdf.pdfFileName || 'estado-de-cuenta.pdf')}"`);
+  stream.on('error', () => res.status(500).end());
+  stream.pipe(res);
+});
+
+module.exports = { getMyAffiliate, updateMyBitgetUid, activateMyAffiliate, getMyAffiliateQr, downloadMyPaymentProof, downloadMyPaymentStatementPdf };

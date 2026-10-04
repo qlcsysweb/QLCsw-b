@@ -35,6 +35,7 @@ router.post('/affiliate/activate', affiliateController.activateMyAffiliate);
 router.get('/affiliate/qr', affiliateController.getMyAffiliateQr);
 router.put('/affiliate/uid', affiliateController.updateMyBitgetUid);
 router.get('/affiliate/payments/:id/proof', affiliateController.downloadMyPaymentProof);
+router.get('/affiliate/payments/:id/statement-pdf', affiliateController.downloadMyPaymentStatementPdf);
 
 // Modelo de participación (lectura, único modelo activo)
 router.get('/models', modelController.listModelsPublic);
