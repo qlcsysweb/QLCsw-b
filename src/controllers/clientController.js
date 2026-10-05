@@ -9,6 +9,7 @@ const { ensurePrincipalSubaccount } = require('../utils/subaccountProvisioning')
 const { syncClientStatus, computeClientStatus } = require('../utils/clientStatus');
 const { isAccountActivated } = require('../utils/accountActivation');
 const { resolveActiveReferrer, logAffiliateEvent } = require('../services/affiliateService');
+const { recordReferralLock } = require('../utils/referralLock');
 
 // Resumen de avance de UNA subcuenta/API — para el indicador de "lista
 // para activar" (una subcuenta está lista cuando todas sus condiciones
@@ -201,6 +202,17 @@ const createClient = asyncHandler(async (req, res) => {
         },
         include: { clientProfile: true },
       });
+      if (activeReferrer) {
+        await recordReferralLock(tx, {
+          clientId: created.clientProfile.id,
+          email: data.email,
+          firstName: data.firstName,
+          lastName: data.lastName,
+          referrerClientId: activeReferrer.id,
+          referrerCode: activeReferrer.affiliateCode,
+          source: 'ADMIN',
+        });
+      }
       return { user: created, referrer: activeReferrer };
     }));
   } catch (err) {
@@ -380,7 +392,7 @@ const deleteClient = asyncHandler(async (req, res) => {
   const client = await prisma.clientProfile.findUnique({
     where: { id: req.params.id },
     include: {
-      user: { select: { id: true, role: true, isActive: true } },
+      user: { select: { id: true, role: true, isActive: true, email: true } },
     },
   });
   if (!client) throw ApiError.notFound('Cliente no encontrado');
@@ -428,6 +440,19 @@ const deleteClient = asyncHandler(async (req, res) => {
   // subió, sus mensajes, sus solicitudes) y la BD impedía borrarlo primero.
   // Sus referidos se conservan como clientes sin afiliador (SET NULL).
   await prisma.$transaction(async (tx) => {
+    // CANDADO DE AFILIACIÓN — se conserva (o se crea) ANTES de borrar: si la
+    // persona vuelve a inscribirse, solo podrá hacerlo con la liga original.
+    if (client.referredByClientId) {
+      await recordReferralLock(tx, {
+        clientId: client.id,
+        email: client.user.email,
+        firstName: client.firstName,
+        lastName: client.lastName,
+        referrerClientId: client.referredByClientId,
+        referrerCode: client.referralCodeUsed,
+        source: client.referralSource || 'BACKFILL',
+      });
+    }
     await tx.clientProfile.delete({ where: { id: client.id } });
     await tx.user.delete({ where: { id: client.user.id } });
   });

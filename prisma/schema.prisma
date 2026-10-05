@@ -310,6 +310,8 @@ model ClientProfile {
   affiliateCommissionsEarned    AffiliateCommission[] @relation("AffiliateCommissionReferrer")
   affiliateCommissionsGenerated AffiliateCommission[] @relation("AffiliateCommissionReferred")
   affiliatePayments             AffiliatePayment[]    @relation("AffiliatePaymentReferrer")
+  // Candados de las personas que se inscribieron con la liga de este afiliador.
+  referralLocks                 AffiliateReferralLock[] @relation("ReferralLockReferrer")
 
   @@index([referredByClientId])
   @@map("client_profiles")
@@ -1583,4 +1585,28 @@ model QlcDeposit {
 
   @@index([apiSubaccountId, depositedAt])
   @@map("qlc_deposits")
+}
+
+// CANDADO DE AFILIACIÓN — una persona inscrita con la liga de un afiliador
+// solo puede volver a inscribirse (tras darse de baja) con la liga ORIGINAL
+// de ese afiliador. NO se borra al eliminar la cuenta: se reconoce a la
+// persona por correo o nombre completo normalizados (ver utils/referralLock).
+model AffiliateReferralLock {
+  id                 String         @id @default(cuid())
+  // Cliente inscrito (id simple, sin FK: el candado sobrevive a su eliminación).
+  referredClientId   String?        @unique
+  email              String
+  emailNormalized    String
+  fullName           String
+  fullNameNormalized String
+  referrerClientId   String?
+  referrer           ClientProfile? @relation("ReferralLockReferrer", fields: [referrerClientId], references: [id], onDelete: SetNull)
+  referrerCode       String?        @db.VarChar(32)
+  // 'AFFILIATE_LINK' | 'ADMIN' | 'BACKFILL'
+  source             String?        @db.VarChar(20)
+  createdAt          DateTime       @default(now())
+
+  @@index([emailNormalized])
+  @@index([fullNameNormalized])
+  @@map("affiliate_referral_locks")
 }

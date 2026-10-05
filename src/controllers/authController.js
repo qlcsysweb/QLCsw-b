@@ -7,6 +7,7 @@ const { signToken, cookieOptions, clearCookieOptions } = require('../utils/token
 const { ensurePrincipalSubaccount } = require('../utils/subaccountProvisioning');
 const { notifyAdmins } = require('../utils/notify');
 const { resolveActiveReferrer, logAffiliateEvent } = require('../services/affiliateService');
+const { assertReferralAllowed, recordReferralLock } = require('../utils/referralLock');
 const { sendRegistrationCode, checkRegistrationCode, consumeRegistrationCode } = require('../services/emailVerificationService');
 const {
   isTwoFactorGloballyEnabled,
@@ -231,14 +232,20 @@ const registerSchema = z.object({
 const sendRegisterCodeSchema = z.object({
   email: z.string().trim().email('Email inválido'),
   affiliateCode: z.string({ required_error: 'Para registrarte en QLC necesitas un código o enlace de afiliación válido.' }).trim().min(1).max(64),
+  // Opcionales: si ya se escribieron, el candado de afiliación se revisa
+  // también por nombre completo antes de enviar el código.
+  firstName: z.string().trim().max(120).optional(),
+  lastName: z.string().trim().max(120).optional(),
   language: z.enum(['es', 'en']).optional(),
 });
 
 const sendRegisterCode = asyncHandler(async (req, res) => {
   const data = sendRegisterCodeSchema.parse(req.body);
-  await resolveActiveReferrer(prisma, data.affiliateCode);
+  const referrer = await resolveActiveReferrer(prisma, data.affiliateCode);
   const existing = await prisma.user.findFirst({ where: { email: { equals: data.email, mode: 'insensitive' } }, select: { id: true } });
   if (existing) throw ApiError.conflict('Ya existe una cuenta con este correo.');
+  // Quien ya estuvo inscrito con otro afiliador solo puede usar la liga original.
+  await assertReferralAllowed(prisma, { email: data.email, firstName: data.firstName, lastName: data.lastName, referrerClientId: referrer.id });
   const { expiresAt } = await sendRegistrationCode(data.email);
   res.json({ ok: true, expiresAt });
 });
@@ -247,10 +254,19 @@ const register = asyncHandler(async (req, res) => {
   const data = registerSchema.parse(req.body);
 
   // Validación temprana (sin crear nada si el código no sirve).
-  await resolveActiveReferrer(prisma, data.affiliateCode);
+  const earlyReferrer = await resolveActiveReferrer(prisma, data.affiliateCode);
 
   const existing = await prisma.user.findFirst({ where: { email: { equals: data.email, mode: 'insensitive' } }, select: { id: true } });
   if (existing) throw ApiError.conflict('Ya existe una cuenta con este correo.');
+
+  // CANDADO DE AFILIACIÓN — si esta persona (mismo correo o nombre completo)
+  // ya estuvo inscrita con otro afiliador, solo puede usar la liga original.
+  await assertReferralAllowed(prisma, {
+    email: data.email,
+    firstName: data.firstName,
+    lastName: data.lastName,
+    referrerClientId: earlyReferrer.id,
+  });
 
   // El correo debe estar confirmado con el código que se le envió.
   const emailCodeId = await checkRegistrationCode(data.email, data.emailCode);
@@ -294,6 +310,15 @@ const register = asyncHandler(async (req, res) => {
           },
         },
         include: { clientProfile: true },
+      });
+      await recordReferralLock(tx, {
+        clientId: created.clientProfile.id,
+        email: data.email,
+        firstName: data.firstName,
+        lastName: data.lastName,
+        referrerClientId: activeReferrer.id,
+        referrerCode: activeReferrer.affiliateCode,
+        source: 'AFFILIATE_LINK',
       });
       return { user: created, referrer: activeReferrer };
     }));
