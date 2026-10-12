@@ -143,4 +143,41 @@ async function notifyUser(userId, { title, message, type = 'info', templateKey =
   return notification;
 }
 
-module.exports = { notifyClient, notifyAdmins, notifyUser };
+/*
+ * Aviso "Permisos de API" para un CLIENTE NUEVO — se crea una sola vez, en
+ * la MISMA transacción que da de alta al usuario (registro por invitación o
+ * alta manual por ADMIN): si la cuenta existe, el aviso existe. Idempotente
+ * por templateKey + userId, así que un reintento nunca lo duplica, y como
+ * solo se llama al crear la cuenta, iniciar sesión/recargar no genera otro
+ * ni los clientes existentes lo reciben retroactivamente. Al abrirlo, el
+ * frontend lleva a /client/guides?guide=permisos-api (notificationLinks.js).
+ */
+const API_PERMISSIONS_NOTICE_KEY = 'api_permissions_guide';
+
+async function createApiPermissionsNotice(tx, userId) {
+  const existing = await tx.notification.findFirst({
+    where: { userId, templateKey: API_PERMISSIONS_NOTICE_KEY },
+    select: { id: true },
+  });
+  if (existing) return null;
+  return tx.notification.create({
+    data: {
+      userId,
+      title: 'IMPORTANTE — Configura correctamente los permisos de tu API',
+      message:
+        'Antes de registrar o configurar tu API de Bitget, revisa la Guía de Uso — Permisos de API. Ahí encontrarás los permisos correspondientes a tu tipo de cuenta y las indicaciones sobre cuándo debes agregar una dirección IP.',
+      type: 'warning',
+      templateKey: API_PERMISSIONS_NOTICE_KEY,
+      templateParams: { guide: 'permisos-api' },
+    },
+  });
+}
+
+// Correo "best effort" de una notificación ya creada (p. ej. dentro de una
+// transacción) — mismo mecanismo que notifyClient, nunca bloquea el flujo.
+async function emailExistingNotification(notification, email) {
+  if (!notification || !email) return notification;
+  return dispatchEmail(notification, email);
+}
+
+module.exports = { notifyClient, notifyAdmins, notifyUser, createApiPermissionsNotice, emailExistingNotification };

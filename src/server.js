@@ -4,6 +4,7 @@ const { startStatementExpirySweep } = require('./utils/connectionDeadlines');
 const { migrateAppointmentsToUtc } = require('./utils/appointmentsUtc');
 const { startKeepAlive } = require('./utils/keepAlive');
 const { backfillReferralLocks } = require('./utils/referralLock');
+const { ensureSystemGuides } = require('./utils/systemGuides');
 
 const PORT = process.env.PORT || 4000;
 
@@ -17,6 +18,14 @@ app.listen(PORT, () => {
   backfillReferralLocks()
     .then((n) => n && console.log(`[afiliación] candados creados: ${n}`))
     .catch((err) => console.error('[afiliación] no se pudieron crear candados:', err.message));
+  // Guías de sistema (p. ej. "Guía de Uso — Permisos de API"): se crean una
+  // sola vez si faltan, sin tocar las demás. SKIP_SYSTEM_GUIDES_SYNC=true la
+  // omite (pruebas locales contra la base de producción antes de desplegar).
+  if (process.env.SKIP_SYSTEM_GUIDES_SYNC !== 'true') {
+    ensureSystemGuides()
+      .then((rows) => rows.forEach((g) => console.log(`[guías] creada "${g.titleEs}" en la posición ${g.displayOrder}`)))
+      .catch((err) => console.error('[guías] no se pudieron crear las guías de sistema:', err.message));
+  }
   // Citas antiguas (hora de México) → UTC, una sola vez. SKIP_APPOINTMENTS_UTC_MIGRATION
   // =true la omite (pruebas locales contra la base de producción antes de desplegar).
   if (process.env.SKIP_APPOINTMENTS_UTC_MIGRATION !== 'true') {

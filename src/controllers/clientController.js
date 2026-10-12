@@ -10,6 +10,7 @@ const { syncClientStatus, computeClientStatus } = require('../utils/clientStatus
 const { isAccountActivated } = require('../utils/accountActivation');
 const { resolveActiveReferrer, logAffiliateEvent } = require('../services/affiliateService');
 const { recordReferralLock } = require('../utils/referralLock');
+const { createApiPermissionsNotice, emailExistingNotification } = require('../utils/notify');
 
 // Resumen de avance de UNA subcuenta/API — para el indicador de "lista
 // para activar" (una subcuenta está lista cuando todas sus condiciones
@@ -179,8 +180,9 @@ const createClient = asyncHandler(async (req, res) => {
   // Cliente + relación de afiliación (si aplica) en la misma transacción.
   let user;
   let referrer = null;
+  let apiNotice = null;
   try {
-    ({ user, referrer } = await prisma.$transaction(async (tx) => {
+    ({ user, referrer, apiNotice } = await prisma.$transaction(async (tx) => {
       const activeReferrer = data.withAffiliate ? await resolveActiveReferrer(tx, data.affiliateCode) : null;
       const created = await tx.user.create({
         data: {
@@ -213,7 +215,9 @@ const createClient = asyncHandler(async (req, res) => {
           source: 'ADMIN',
         });
       }
-      return { user: created, referrer: activeReferrer };
+      // Aviso único "Permisos de API" del cliente nuevo (ver utils/notify).
+      const apiNotice = await createApiPermissionsNotice(tx, created.id);
+      return { user: created, referrer: activeReferrer, apiNotice };
     }));
   } catch (err) {
     if (err.code === 'P2002') throw ApiError.conflict('Ya existe un usuario con ese email o esa nomenclatura.');
@@ -240,6 +244,9 @@ const createClient = asyncHandler(async (req, res) => {
         .catch(() => {});
     });
   }
+
+  // Correo del aviso "Permisos de API" (best effort, nunca bloquea el alta).
+  await emailExistingNotification(apiNotice, data.email);
 
   res.status(201).json({ ok: true, client: user.clientProfile });
 });

@@ -5,7 +5,7 @@ const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const { signToken, cookieOptions, clearCookieOptions } = require('../utils/token');
 const { ensurePrincipalSubaccount } = require('../utils/subaccountProvisioning');
-const { notifyAdmins } = require('../utils/notify');
+const { notifyAdmins, createApiPermissionsNotice, emailExistingNotification } = require('../utils/notify');
 const { resolveActiveReferrer, logAffiliateEvent } = require('../services/affiliateService');
 const { assertReferralAllowed, recordReferralLock } = require('../utils/referralLock');
 const { sendRegistrationCode, checkRegistrationCode, consumeRegistrationCode } = require('../services/emailVerificationService');
@@ -281,8 +281,9 @@ const register = asyncHandler(async (req, res) => {
   // con el índice único del correo y responde 409 (nunca dos cuentas).
   let user;
   let referrer;
+  let apiNotice;
   try {
-    ({ user, referrer } = await prisma.$transaction(async (tx) => {
+    ({ user, referrer, apiNotice } = await prisma.$transaction(async (tx) => {
       const activeReferrer = await resolveActiveReferrer(tx, data.affiliateCode);
       await consumeRegistrationCode(tx, emailCodeId);
       const created = await tx.user.create({
@@ -320,7 +321,9 @@ const register = asyncHandler(async (req, res) => {
         referrerCode: activeReferrer.affiliateCode,
         source: 'AFFILIATE_LINK',
       });
-      return { user: created, referrer: activeReferrer };
+      // Aviso único "Permisos de API" del cliente nuevo (ver utils/notify).
+      const apiNotice = await createApiPermissionsNotice(tx, created.id);
+      return { user: created, referrer: activeReferrer, apiNotice };
     }));
   } catch (err) {
     if (err.code === 'P2002') throw ApiError.conflict('Ya existe una cuenta con este correo.');
@@ -349,6 +352,9 @@ const register = asyncHandler(async (req, res) => {
   // después) — nunca se bloquea al cliente por falta de nomenclatura.
 
   await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
+
+  // Correo del aviso "Permisos de API" (best effort, nunca bloquea el registro).
+  await emailExistingNotification(apiNotice, data.email);
 
   await notifyAdmins({
     title: 'Nuevo cliente registrado',
