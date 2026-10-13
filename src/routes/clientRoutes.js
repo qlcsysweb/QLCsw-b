@@ -1,4 +1,5 @@
 const { Router } = require('express');
+const rateLimit = require('express-rate-limit');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { resolveOwnClientProfile } = require('../middleware/clientAuth');
 const { uploadDocument: uploadDocumentFile, singleCaseFile, evidenceFiles, chatFile } = require('../middleware/upload');
@@ -19,6 +20,7 @@ const platformSettingsController = require('../controllers/platformSettingsContr
 const guideController = require('../controllers/client/guideController');
 const processStepController = require('../controllers/processStepController');
 const affiliateController = require('../controllers/client/affiliateController');
+const accountDeletionController = require('../controllers/client/accountDeletionController');
 
 const router = Router();
 
@@ -28,6 +30,19 @@ router.use(requireAuth, requireRole('CLIENT'), resolveOwnClientProfile);
 // Perfil / Dashboard
 router.get('/me', profileController.getMe);
 router.get('/dashboard', profileController.getDashboard);
+
+// Eliminación de cuenta (autoservicio del titular: contraseña + Google
+// Authenticator). Límite estricto POR CLIENTE autenticado, además del IP,
+// para que la contraseña y el código no puedan adivinarse por fuerza bruta.
+const accountDeletionLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => `account-deletion:${req.user.id}`,
+  message: { ok: false, message: 'Demasiados intentos de verificación. Intenta de nuevo en 15 minutos.' },
+});
+router.post('/account/deletion-request', accountDeletionLimiter, accountDeletionController.requestAccountDeletion);
 
 // Afiliados / Panel de promotor — siempre del cliente autenticado (sin IDs en la URL).
 router.get('/affiliate', affiliateController.getMyAffiliate);

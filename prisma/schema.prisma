@@ -290,6 +290,17 @@ model ClientProfile {
   // Desactivada por ADMIN: el cliente ya no puede reactivarla por su cuenta;
   // las relaciones históricas se conservan.
   affiliateDisabledAt         DateTime?
+
+  // ELIMINACIÓN DE CUENTA SOLICITADA POR EL CLIENTE (autoservicio con
+  // contraseña + Google Authenticator). Nunca es un borrado en cascada: se
+  // registra la solicitud, se desactiva el acceso y los datos quedan
+  // retenidos hasta su anonimización conforme a la política aplicable.
+  // accountDeletionStatus: null (sin solicitud) | 'REQUESTED' | 'ANONYMIZED'.
+  // ADMIN no puede eliminar ni reactivar una cuenta con solicitud registrada.
+  accountDeletionStatus       String?         @db.VarChar(20)
+  accountDeletionRequestedAt  DateTime?
+  accountDeactivatedAt        DateTime?
+  accountAnonymizedAt         DateTime?
   // Afiliador DIRECTO — se fija una sola vez al crear la cuenta y no cambia.
   // Null = sin afiliado (clientes históricos o alta administrativa sin
   // afiliado). La BD impide la autoafiliación (CHECK en la migración).

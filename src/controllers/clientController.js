@@ -274,6 +274,8 @@ const updateClient = asyncHandler(async (req, res) => {
   const data = updateClientSchema.parse(req.body);
   const client = await prisma.clientProfile.findUnique({ where: { id: req.params.id }, include: { user: true } });
   if (!client) throw ApiError.notFound('Cliente no encontrado');
+  // Notas sí; estado, correo o contraseña no, si el titular pidió eliminarla.
+  if (data.status || data.email || data.password) assertNoDeletionRequest(client);
 
   if (data.email && data.email !== client.user.email) {
     const clash = await prisma.user.findUnique({ where: { email: data.email } });
@@ -356,6 +358,7 @@ const setClientActive = asyncHandler(async (req, res) => {
 
   const client = await prisma.clientProfile.findUnique({ where: { id: req.params.id } });
   if (!client) throw ApiError.notFound('Cliente no encontrado');
+  assertNoDeletionRequest(client);
 
   await prisma.user.update({ where: { id: client.userId }, data: { isActive } });
   // El estado se recalcula con sus cuentas reales: reactivar el acceso ya no
@@ -366,106 +369,24 @@ const setClientActive = asyncHandler(async (req, res) => {
   res.json({ ok: true, client: updated });
 });
 
-// Eliminación REAL y permanente del cliente (su cuenta, perfil y TODO lo
-// dependiente) — nunca una simple desactivación. Las relaciones hijas de
-// ClientProfile (Document, Appointment→SetNull, SupportCase, ChatSession,
-// ApiSubaccount→ClientModel/Process/PaymentReport/Statement/
-// ApiConnectionEvent/SubaccountRequest) están definidas con onDelete:
-// Cascade (excepto Appointment, que usa SetNull a propósito para conservar
-// el historial de citas), así que un solo DELETE del User cascada de forma
-// atómica y segura sin huérfanos — Postgres garantiza esto dentro de la
-// misma sentencia, sin necesitar una transacción explícita adicional.
-//
-// Esta ruta SOLO puede alcanzar clientes: un ClientProfile nunca existe
-// para una cuenta ADMIN, así que es estructuralmente imposible borrar un
-// administrador desde aquí. El :id de la ruta es la única fuente del
-// cliente objetivo — nunca se toma un ID de otro lado del body.
-// AUTORIZACIÓN: la ruta ya exige sesión válida + rol ADMIN (requireAuth +
-// requireRole en adminRoutes; identidad y rol salen del token verificado,
-// nunca del body). Además, SOLO el administrador general puede eliminar
-// clientes — permiso comprobado aquí contra la BD. Ya NO se pide una
-// contraseña adicional: la confirmación contra clics accidentales es el
-// modal del panel.
-async function assertCanDeleteClients(userId) {
-  const profile = await prisma.adminProfile.findUnique({ where: { userId }, select: { isGeneralAdmin: true } });
-  if (!profile?.isGeneralAdmin) {
-    throw ApiError.forbidden('Solo el administrador general puede eliminar clientes.');
+// ADMIN NO PUEDE ELIMINAR CUENTAS DE CLIENTES — regla definitiva. La antigua
+// eliminación real (borrado en cascada de perfil, subcuentas, documentos,
+// estados de cuenta y la carpeta completa de Drive) se retiró por completo:
+// la ruta DELETE /admin/clients/:id responde 403 siempre, aunque el admin
+// tenga sesión válida y permisos completos (incluido el admin general).
+// La eliminación solo la solicita el propio titular desde su perfil, con
+// contraseña + Google Authenticator (client/accountDeletionController).
+const rejectClientDeletion = asyncHandler(async () => {
+  throw ApiError.forbidden('Los administradores no pueden eliminar cuentas de clientes. Solo el titular puede solicitar la eliminación desde su perfil.');
+});
+
+// Cuenta con solicitud de eliminación registrada por su titular: ADMIN puede
+// consultarla, pero no reactivarla ni cambiar su acceso/credenciales.
+function assertNoDeletionRequest(client) {
+  if (client?.accountDeletionStatus) {
+    throw ApiError.forbidden('Esta cuenta tiene una solicitud de eliminación registrada por su titular: su acceso no puede reactivarse ni modificarse.');
   }
 }
-
-const deleteClient = asyncHandler(async (req, res) => {
-  await assertCanDeleteClients(req.user.id);
-
-  const client = await prisma.clientProfile.findUnique({
-    where: { id: req.params.id },
-    include: {
-      user: { select: { id: true, role: true, isActive: true, email: true } },
-    },
-  });
-  if (!client) throw ApiError.notFound('Cliente no encontrado');
-  if (client.user.role !== 'CLIENT') {
-    // Defensa adicional: nunca debería ocurrir dado el modelo de datos.
-    throw ApiError.badRequest('Esta acción solo puede eliminar cuentas de cliente.');
-  }
-  if (client.user.isActive) {
-    throw ApiError.badRequest('Primero debes desactivar a este cliente antes de poder eliminarlo.');
-  }
-
-  // IMPLEMENTACIÓN DEFINITIVA DE GOOGLE DRIVE — borra la carpeta COMPLETA
-  // del cliente (y todo su contenido: documentos, comprobantes, estados de
-  // cuenta, QR) ANTES de borrar las filas en NeonDB — una vez cascadeada la
-  // eliminación en BD, el driveClientFolderId ya no existiría en ningún
-  // lado para poder limpiarlo. Nunca afirma "eliminada" si no se confirmó
-  // de verdad: driveDeletionStatus refleja el resultado real.
-  //   - "not_configured": Drive no está conectado — no se intentó nada.
-  //   - "no_folder": el cliente nunca llegó a tener una carpeta en Drive.
-  //   - "deleted": la llamada a Drive respondió sin error.
-  //   - "error": se intentó y Drive devolvió un error (detalle en driveDeletionError).
-  let driveDeletionStatus = 'not_configured';
-  let driveDeletionError = null;
-  if (await driveStorage.isConfigured()) {
-    if (client.driveClientFolderId) {
-      try {
-        // Autorizado: ruta exclusiva de ADMIN GENERAL con sesión válida,
-        // verificada arriba antes de llegar aquí. Borrar la carpeta borra en
-        // cascada TODO su contenido en Drive.
-        await driveStorage.deleteDriveFileOnlyWhenAuthorized(client.driveClientFolderId, { authorized: true });
-        driveDeletionStatus = 'deleted';
-      } catch (err) {
-        driveDeletionStatus = 'error';
-        driveDeletionError = err.message;
-      }
-    } else {
-      driveDeletionStatus = 'no_folder';
-    }
-  }
-
-  // Primero el PERFIL del cliente (arrastra en cascada todo lo suyo:
-  // documentos, subcuentas, estados de cuenta, casos, chats, solicitudes…) y
-  // después su USUARIO, en la misma transacción. Al revés fallaba: esos
-  // registros apuntan al usuario que los creó (documentos que el cliente
-  // subió, sus mensajes, sus solicitudes) y la BD impedía borrarlo primero.
-  // Sus referidos se conservan como clientes sin afiliador (SET NULL).
-  await prisma.$transaction(async (tx) => {
-    // CANDADO DE AFILIACIÓN — se conserva (o se crea) ANTES de borrar: si la
-    // persona vuelve a inscribirse, solo podrá hacerlo con la liga original.
-    if (client.referredByClientId) {
-      await recordReferralLock(tx, {
-        clientId: client.id,
-        email: client.user.email,
-        firstName: client.firstName,
-        lastName: client.lastName,
-        referrerClientId: client.referredByClientId,
-        referrerCode: client.referralCodeUsed,
-        source: client.referralSource || 'BACKFILL',
-      });
-    }
-    await tx.clientProfile.delete({ where: { id: client.id } });
-    await tx.user.delete({ where: { id: client.user.id } });
-  });
-
-  res.json({ ok: true, driveDeletionStatus, driveDeletionError });
-});
 
 module.exports = {
   listClients,
@@ -474,5 +395,5 @@ module.exports = {
   updateClient,
   assignUsername,
   setClientActive,
-  deleteClient,
+  rejectClientDeletion,
 };

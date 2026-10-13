@@ -51,7 +51,9 @@ router.post('/clients/:id/assign-username', clientController.assignUsername);
 router.patch('/clients/:id/active', clientController.setClientActive);
 // Eliminación de cliente: sesión válida + rol ADMIN (middleware de arriba)
 // + permiso de administrador general (en el controlador). Sin contraseña extra.
-router.delete('/clients/:id', clientController.deleteClient);
+// ADMIN NO PUEDE ELIMINAR CUENTAS DE CLIENTES: la ruta antigua responde 403
+// siempre (la eliminación solo la solicita el titular desde su perfil).
+router.delete('/clients/:id', clientController.rejectClientDeletion);
 
 // Subcuentas / API — GESTIÓN DINÁMICA: cada cliente nace con únicamente su
 // cuenta PRINCIPAL; cualquier subcuenta adicional nace de una solicitud del
