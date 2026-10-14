@@ -200,7 +200,7 @@ const correctDocument = asyncHandler(async (req, res) => {
     message: `${client.firstName} ${client.lastName} envió una corrección de su documento de la categoría "${document.category}".`,
     type: 'info',
     templateKey: 'document_corrected_admin',
-    templateParams: { clientName: `${client.firstName} ${client.lastName}`, category: document.category, clientId: req.clientProfile.id },
+    templateParams: { clientName: `${client.firstName} ${client.lastName}`, category: document.category, clientId: req.clientProfile.id, i18n: 1 },
   });
 
   res.json({ ok: true, document: updated });

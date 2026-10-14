@@ -101,7 +101,7 @@ const setDocumentUnlock = asyncHandler(async (req, res) => {
       message: `QLC habilitó temporalmente tu documento de "${document.category}" para que puedas eliminarlo y volver a enviarlo.`,
       type: 'info',
       templateKey: 'document_unlocked',
-      templateParams: { category: document.category },
+      templateParams: { category: document.category, i18n: 1 },
     });
   }
 

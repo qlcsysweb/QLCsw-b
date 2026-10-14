@@ -24,7 +24,7 @@ const normalizeEmail = (email) => String(email || '').trim().toLowerCase();
 const hashCode = (email, code) =>
   crypto.createHmac('sha256', process.env.JWT_SECRET || 'qlc').update(`${normalizeEmail(email)}:${code}`).digest('hex');
 
-// Correo del código: en INGLÉS (idioma universal para todos los clientes),
+// Correo del código en el idioma elegido al registrarse (ver COPY abajo),
 // con el logo de QLC incrustado (CID, no depende de imágenes externas).
 const LOGO_PATH = path.join(__dirname, '..', 'assets', 'email', 'qlc-logo.png');
 let logoBuffer = null;
@@ -39,23 +39,48 @@ function logoAttachment() {
   return { filename: 'qlc-logo.png', content: logoBuffer, contentType: 'image/png', cid: 'qlc-logo', contentDisposition: 'inline' };
 }
 
-const SUBJECT = 'QLC — Your email verification code';
-const textBody = (code) =>
-  `Quantum Liquidity Capital (QLC)\n\nYour verification code is: ${code}\n\nEnter it on the registration screen to confirm your email address. The code expires in 15 minutes.\n\nIf you did not request this registration, you can safely ignore this message.\n\n— Quantum Liquidity Capital (QLC)\nSupport: soporte@qlctrade.net`;
-const htmlBody = (code, withLogo) => `<!doctype html>
+// Idioma: el que la persona eligió en el sitio al registrarse ('es' | 'en').
+// Si no llega (versiones anteriores del portal), inglés, como hasta ahora.
+const COPY = {
+  en: {
+    subject: 'QLC — Your email verification code',
+    codeIs: 'Your verification code is:',
+    heading: 'Verify your email',
+    intro: 'Enter this code on the registration screen to confirm your email address.',
+    expiresText: 'Enter it on the registration screen to confirm your email address. The code expires in 15 minutes.',
+    expiresHtml: 'The code expires in <strong style="color:#f4f7fb;">15 minutes</strong>.',
+    ignore: 'If you did not request this registration, you can safely ignore this message.',
+    support: 'Support',
+  },
+  es: {
+    subject: 'QLC — Tu código de verificación de correo',
+    codeIs: 'Tu código de verificación es:',
+    heading: 'Verifica tu correo',
+    intro: 'Escribe este código en la pantalla de registro para confirmar tu correo electrónico.',
+    expiresText: 'Escríbelo en la pantalla de registro para confirmar tu correo electrónico. El código vence en 15 minutos.',
+    expiresHtml: 'El código vence en <strong style="color:#f4f7fb;">15 minutos</strong>.',
+    ignore: 'Si no solicitaste este registro, puedes ignorar este mensaje.',
+    support: 'Soporte',
+  },
+};
+const copyFor = (language) => COPY[language === 'es' ? 'es' : 'en'];
+
+const textBody = (code, c) =>
+  `Quantum Liquidity Capital (QLC)\n\n${c.codeIs} ${code}\n\n${c.expiresText}\n\n${c.ignore}\n\n— Quantum Liquidity Capital (QLC)\n${c.support}: soporte@qlctrade.net`;
+const htmlBody = (code, withLogo, c) => `<!doctype html>
 <html><body style="margin:0;padding:0;background:#05070a;font-family:Arial,Helvetica,sans-serif;color:#f4f7fb;">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#05070a;padding:32px 12px;">
 <tr><td align="center">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;background:#0d131a;border:1px solid #1f2a35;border-radius:16px;padding:28px 24px;">
 ${withLogo ? '<tr><td align="center" style="padding-bottom:18px;"><img src="cid:qlc-logo" width="180" alt="Quantum Liquidity Capital" style="display:block;border:0;max-width:180px;height:auto;"></td></tr>' : ''}
-<tr><td align="center" style="font-size:18px;font-weight:bold;padding-bottom:8px;">Verify your email</td></tr>
-<tr><td align="center" style="font-size:14px;color:#9ca9b7;padding-bottom:20px;line-height:1.5;">Enter this code on the registration screen to confirm your email address.</td></tr>
+<tr><td align="center" style="font-size:18px;font-weight:bold;padding-bottom:8px;">${c.heading}</td></tr>
+<tr><td align="center" style="font-size:14px;color:#9ca9b7;padding-bottom:20px;line-height:1.5;">${c.intro}</td></tr>
 <tr><td align="center" style="padding-bottom:20px;"><div style="display:inline-block;font-size:32px;letter-spacing:8px;font-weight:bold;color:#5bd4ff;background:#05070a;border:1px solid #0076b8;border-radius:12px;padding:14px 22px;">${code}</div></td></tr>
-<tr><td align="center" style="font-size:13px;color:#9ca9b7;line-height:1.5;padding-bottom:16px;">The code expires in <strong style="color:#f4f7fb;">15 minutes</strong>.<br>If you did not request this registration, you can safely ignore this message.</td></tr>
-<tr><td align="center" style="font-size:12px;color:#6f7c89;border-top:1px solid #1f2a35;padding-top:14px;">Quantum Liquidity Capital (QLC) · Support: soporte@qlctrade.net</td></tr>
+<tr><td align="center" style="font-size:13px;color:#9ca9b7;line-height:1.5;padding-bottom:16px;">${c.expiresHtml}<br>${c.ignore}</td></tr>
+<tr><td align="center" style="font-size:12px;color:#6f7c89;border-top:1px solid #1f2a35;padding-top:14px;">Quantum Liquidity Capital (QLC) · ${c.support}: soporte@qlctrade.net</td></tr>
 </table></td></tr></table></body></html>`;
 
-async function sendRegistrationCode(email) {
+async function sendRegistrationCode(email, language) {
   const normalized = normalizeEmail(email);
   const last = await prisma.emailVerificationCode.findFirst({
     where: { email: normalized, purpose: PURPOSE },
@@ -82,9 +107,9 @@ async function sendRegistrationCode(email) {
   try {
     await sendMailUnified(creds, {
       to: String(email).trim(),
-      subject: SUBJECT,
-      text: textBody(code),
-      html: htmlBody(code, Boolean(logo)),
+      subject: copyFor(language).subject,
+      text: textBody(code, copyFor(language)),
+      html: htmlBody(code, Boolean(logo), copyFor(language)),
       attachments: logo ? [logo] : [],
     });
   } catch {

@@ -51,7 +51,7 @@ async function requestCreateSubaccount({ clientId, reason, requestedByUserId }) 
     message: `${clientDisplayName(client)} solicitó una subcuenta/API adicional (tiene ${activeCount}/${MAX_SUBACCOUNTS_PER_CLIENT} activas)${reason ? `. Motivo: ${reason}` : '.'}`,
     type: 'info',
     templateKey: 'subaccount_request_created_admin',
-    templateParams: { clientName: clientDisplayName(client), clientId, requestId: request.id },
+    templateParams: { clientName: clientDisplayName(client), clientId, requestId: request.id, activeCount, max: MAX_SUBACCOUNTS_PER_CLIENT, ...(reason ? { reason } : {}), i18n: 1 },
   });
 
   return request;
@@ -90,7 +90,15 @@ async function requestDeactivateSubaccount({ clientId, apiSubaccountId, reason, 
     message: `${clientDisplayName(client)} solicitó desactivar la subcuenta/API ${subaccount.identifier || `#${subaccount.slotIndex}`}${reason ? `. Motivo: ${reason}` : '.'}`,
     type: 'warning',
     templateKey: 'subaccount_deactivate_request_created_admin',
-    templateParams: { clientName: clientDisplayName(client), clientId, apiSubaccountId, requestId: request.id },
+    templateParams: {
+      clientName: clientDisplayName(client),
+      clientId,
+      apiSubaccountId,
+      requestId: request.id,
+      subaccount: subaccount.identifier || `#${subaccount.slotIndex}`,
+      ...(reason ? { reason } : {}),
+      i18n: 1,
+    },
   });
 
   return request;
@@ -171,7 +179,7 @@ async function approveCreateRequest({ requestId, identifier, requiredCapital, re
     message: `QLC aprobó tu solicitud de subcuenta adicional${requiredCapital != null ? ` — capital operativo requerido: ${requiredCapital} USDT` : ''}.`,
     type: 'success',
     templateKey: 'subaccount_request_approved',
-    templateParams: { apiSubaccountId: subaccount.id },
+    templateParams: { apiSubaccountId: subaccount.id, ...(requiredCapital != null ? { requiredCapital: String(requiredCapital) } : {}), i18n: 1 },
   });
 
   return { request: updatedRequest, subaccount };
@@ -205,7 +213,12 @@ async function rejectRequest({ requestId, reviewNote, reviewedByUserId }) {
       : `QLC revisó tu solicitud de subcuenta adicional y, por ahora, no fue posible habilitarla.${reviewNote ? ` Motivo: ${reviewNote}` : ''}`,
     type: 'warning',
     templateKey: isDeactivate ? 'subaccount_deactivate_request_rejected' : 'subaccount_request_rejected',
-    templateParams: { apiSubaccountId: request.apiSubaccountId },
+    templateParams: {
+      apiSubaccountId: request.apiSubaccountId,
+      ...(request.apiSubaccount?.isPrincipal ? { principal: 1 } : request.apiSubaccount ? { slot: request.apiSubaccount.slotIndex } : {}),
+      ...(reviewNote ? { reason: reviewNote } : {}),
+      i18n: 1,
+    },
   });
 
   return updated;
@@ -304,7 +317,7 @@ async function activateSubaccount({ clientId, apiSubaccountId, activatedByUserId
     message: `QLC activó la ${clientSubaccountLabel(subaccount)}. Ya puedes verla en tu panel.`,
     type: 'success',
     templateKey: 'subaccount_activated',
-    templateParams: { apiSubaccountId },
+    templateParams: { apiSubaccountId, ...(subaccount?.isPrincipal ? { principal: 1 } : { slot: subaccount?.slotIndex }), i18n: 1 },
   });
 
   return activated;

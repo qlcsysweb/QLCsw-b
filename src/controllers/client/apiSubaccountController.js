@@ -281,6 +281,8 @@ const reportCapitalDistribution = asyncHandler(async (req, res) => {
       amount: String(report.amount),
       apiSubaccountId: subaccount.id,
       clientId: req.clientProfile.id,
+      ...(subaccount.identifier ? { identifier: subaccount.identifier } : {}),
+      i18n: 1,
     },
   });
 

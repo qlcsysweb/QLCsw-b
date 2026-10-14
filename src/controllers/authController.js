@@ -36,6 +36,7 @@ function shapeUser(user) {
     // 2FA obligatorio: true = debe configurar Google Authenticator antes de
     // usar el panel (el backend ya bloquea el resto de rutas, ver auth.js).
     twoFactorSetupRequired: isTwoFactorGloballyEnabled() && !user.twoFactorEnabled,
+    preferredLanguage: user.preferredLanguage || null,
   };
 }
 
@@ -225,6 +226,8 @@ const registerSchema = z.object({
   apiAuthorizationAccepted: z.literal(true, {
     errorMap: () => ({ message: 'Debes autorizar la conexión API para continuar.' }),
   }),
+  // Idioma elegido en el sitio: define el idioma de sus correos.
+  language: z.enum(['es', 'en']).optional(),
 });
 
 // ENVIAR CÓDIGO DE VERIFICACIÓN — solo para un registro por invitación válido
@@ -246,7 +249,7 @@ const sendRegisterCode = asyncHandler(async (req, res) => {
   if (existing) throw ApiError.conflict('Ya existe una cuenta con este correo.');
   // Quien ya estuvo inscrito con otro afiliador solo puede usar la liga original.
   await assertReferralAllowed(prisma, { email: data.email, firstName: data.firstName, lastName: data.lastName, referrerClientId: referrer.id });
-  const { expiresAt } = await sendRegistrationCode(data.email);
+  const { expiresAt } = await sendRegistrationCode(data.email, data.language);
   res.json({ ok: true, expiresAt });
 });
 
@@ -290,6 +293,7 @@ const register = asyncHandler(async (req, res) => {
         data: {
           email: data.email,
           emailVerifiedAt: acceptedAt,
+          preferredLanguage: data.language || null,
           passwordHash,
           role: 'CLIENT',
           clientProfile: {
@@ -354,7 +358,7 @@ const register = asyncHandler(async (req, res) => {
   await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
 
   // Correo del aviso "Permisos de API" (best effort, nunca bloquea el registro).
-  await emailExistingNotification(apiNotice, data.email);
+  await emailExistingNotification(apiNotice, data.email, data.language);
 
   await notifyAdmins({
     title: 'Nuevo cliente registrado',
@@ -411,7 +415,16 @@ const completePasswordReset = asyncHandler(async (req, res) => {
   res.json({ ok: true, message: 'Contraseña actualizada correctamente.' });
 });
 
+// IDIOMA DE LOS CORREOS — el portal lo guarda cada vez que el usuario elige
+// idioma (y al iniciar sesión, si difiere). Siempre sobre su propia cuenta.
+const updateLanguage = asyncHandler(async (req, res) => {
+  const { language } = z.object({ language: z.enum(['es', 'en']) }).parse(req.body);
+  await prisma.user.update({ where: { id: req.user.id }, data: { preferredLanguage: language } });
+  res.json({ ok: true, preferredLanguage: language });
+});
+
 module.exports = {
+  updateLanguage,
   login,
   loginWithTwoFactor,
   loginWithCode,

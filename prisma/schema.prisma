@@ -141,6 +141,10 @@ model User {
   lastLoginAt     DateTime?
   // Correo confirmado con el código enviado al registrarse (registro público).
   emailVerifiedAt DateTime?
+  // Idioma elegido por el usuario en QLC ('es' | 'en') — define el idioma de
+  // sus correos. Se guarda al registrarse y cada vez que cambia de idioma en
+  // su panel. Null (cuentas anteriores) = español.
+  preferredLanguage String?  @db.VarChar(2)
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 

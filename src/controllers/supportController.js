@@ -142,7 +142,7 @@ const sendCaseMessage = asyncHandler(async (req, res) => {
     message: content,
     type: 'info',
     templateKey: 'support_case_message',
-    templateParams: { caseNumber: String(supportCase.caseNumber), caseId: supportCase.id },
+    templateParams: { caseNumber: String(supportCase.caseNumber), caseId: supportCase.id, content, i18n: 1 },
   });
 
   res.status(201).json({ ok: true, message });
@@ -170,7 +170,7 @@ const uploadCaseFile = asyncHandler(async (req, res) => {
     message: `QLC adjuntó "${file.fileName}".`,
     type: 'info',
     templateKey: 'support_case_message',
-    templateParams: { caseNumber: String(supportCase.caseNumber), caseId: supportCase.id },
+    templateParams: { caseNumber: String(supportCase.caseNumber), caseId: supportCase.id, fileName: file.fileName, i18n: 1 },
   });
 
   res.status(201).json({ ok: true, file: { id: file.id, fileName: file.fileName, mimeType: file.mimeType, sizeBytes: file.sizeBytes, createdAt: file.createdAt } });

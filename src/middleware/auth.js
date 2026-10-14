@@ -7,7 +7,7 @@ const { isTwoFactorGloballyEnabled } = require('../utils/twoFactor');
 // configuró Google Authenticator solo puede usar estas rutas (ver su sesión,
 // configurar el 2FA y cerrar sesión). Todo lo demás responde 403 hasta que
 // lo active. El frontend la lleva directo a la pantalla de configuración.
-const TWO_FACTOR_SETUP_PATHS = ['/api/auth/me', '/api/auth/logout', '/api/auth/2fa/'];
+const TWO_FACTOR_SETUP_PATHS = ['/api/auth/me', '/api/auth/logout', '/api/auth/language', '/api/auth/2fa/'];
 function isTwoFactorSetupPath(url) {
   const path = String(url || '').split('?')[0];
   return TWO_FACTOR_SETUP_PATHS.some((p) => (p.endsWith('/') ? path.startsWith(p) : path === p));

@@ -294,7 +294,7 @@ const reviewCapitalDistributionReport = asyncHandler(async (req, res) => {
     message: `Tu reporte de distribución de capital (${report.amount} USDT) fue marcado como: ${status}`,
     type: status === 'APROBADO' ? 'success' : 'warning',
     templateKey: 'capital_distribution_report_updated',
-    templateParams: { amount: String(report.amount), status, apiSubaccountId: report.apiSubaccountId },
+    templateParams: { amount: String(report.amount), status, apiSubaccountId: report.apiSubaccountId, i18n: 1 },
   });
 
   res.json({ ok: true, report: updated });

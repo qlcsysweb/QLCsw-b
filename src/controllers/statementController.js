@@ -434,7 +434,7 @@ const createStatement = asyncHandler(async (req, res) => {
         : `Se emitió el estado de cuenta de uno de tus referidos. Tu comisión del periodo es de ${distribution.affiliateCommissionAmount} USDT (pendiente de aprobación y pago por QLC).`,
       type: 'info',
       templateKey: 'affiliate_commission_created',
-      templateParams: { amount: String(distribution.affiliateCommissionAmount) },
+      templateParams: { amount: String(distribution.affiliateCommissionAmount), ...(prepayment ? { prepaid: 1 } : { pending: 1 }), i18n: 1 },
     }).catch(() => {});
     await logAffiliateEvent(prisma, {
       action: 'COMMISSION_CREATED_FROM_STATEMENT',

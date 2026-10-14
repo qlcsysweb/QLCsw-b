@@ -7,6 +7,7 @@ const {
   loginWithCode,
   logout,
   me,
+  updateLanguage,
   changePassword,
   register,
   sendRegisterCode,
@@ -61,6 +62,7 @@ router.post('/register/email-code', registerCodeLimiter, sendRegisterCode);
 router.post('/register', registerLimiter, register);
 router.post('/logout', requireAuth, logout);
 router.get('/me', requireAuth, me);
+router.patch('/language', requireAuth, updateLanguage);
 router.post('/change-password', requireAuth, changePassword);
 
 // 2FA (Google Authenticator) — obligatorio (ver utils/twoFactor.js).

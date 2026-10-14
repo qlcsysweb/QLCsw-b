@@ -661,7 +661,7 @@ function notifyPaid(referrerClientId, payment) {
     message: `QLC registró el pago de tu comisión de afiliado (${Number(payment.amount)} ${payment.currency}, periodo ${payment.periodLabel}).`,
     type: 'success',
     templateKey: 'affiliate_payment_paid',
-    templateParams: { amount: String(Number(payment.amount)), period: payment.periodLabel },
+    templateParams: { amount: String(Number(payment.amount)), currency: payment.currency, period: payment.periodLabel, i18n: 1 },
   }).catch(() => {});
 }
 

@@ -52,7 +52,7 @@ const createSupportCase = asyncHandler(async (req, res) => {
     message: `${client.firstName} ${client.lastName} registró el caso #${supportCase.caseNumber}: "${data.subject}"`,
     type: 'info',
     templateKey: 'support_case_created',
-    templateParams: { caseNumber: String(supportCase.caseNumber), clientName: `${client.firstName} ${client.lastName}`, caseId: supportCase.id },
+    templateParams: { caseNumber: String(supportCase.caseNumber), clientName: `${client.firstName} ${client.lastName}`, caseId: supportCase.id, subject: data.subject, i18n: 1 },
   });
 
   await notifyClient(req.clientProfile.id, {
@@ -107,7 +107,7 @@ const sendCaseMessage = asyncHandler(async (req, res) => {
     message: `${client.firstName} ${client.lastName}: ${content}`,
     type: 'info',
     templateKey: 'support_case_message_admin',
-    templateParams: { caseNumber: String(supportCase.caseNumber), clientName: `${client.firstName} ${client.lastName}`, caseId: supportCase.id },
+    templateParams: { caseNumber: String(supportCase.caseNumber), clientName: `${client.firstName} ${client.lastName}`, caseId: supportCase.id, content, i18n: 1 },
   });
 
   res.status(201).json({ ok: true, message });
@@ -142,7 +142,7 @@ const uploadCaseFile = asyncHandler(async (req, res) => {
     message: `${client.firstName} ${client.lastName} adjuntó "${file.fileName}".`,
     type: 'info',
     templateKey: 'support_case_message_admin',
-    templateParams: { caseNumber: String(supportCase.caseNumber), clientName: `${client.firstName} ${client.lastName}`, caseId: supportCase.id },
+    templateParams: { caseNumber: String(supportCase.caseNumber), clientName: `${client.firstName} ${client.lastName}`, caseId: supportCase.id, fileName: file.fileName, i18n: 1 },
   });
 
   res.status(201).json({ ok: true, file: { id: file.id, fileName: file.fileName, mimeType: file.mimeType, sizeBytes: file.sizeBytes, createdAt: file.createdAt } });

@@ -49,6 +49,22 @@ async function sendProspectWelcomeEmail(prospect, language) {
 // plataforma — nunca se inventa contenido adicional.
 // `attachments` (opcional): archivos que acompañan al aviso — p. ej. el PDF
 // del estado de cuenta, que así llega completo al correo del cliente.
+// `user.language`: idioma elegido por el usuario ('en' | 'es'; sin preferencia
+// → español). El título/mensaje ya llegan en ese idioma (utils/notificationI18n.js).
+const NOTIFICATION_COPY = {
+  es: {
+    footer: 'Este es un aviso automático, generado también como notificación dentro de tu panel de QLC.',
+    manualSubject: 'QLC — Tienes un nuevo mensaje',
+    manualBody: 'Tienes un nuevo mensaje dentro de QLC.\n\nIngresa a tu panel para consultarlo y responder.',
+  },
+  en: {
+    footer: 'This is an automatic notice, also shown as a notification in your QLC panel.',
+    manualSubject: 'QLC — You have a new message',
+    manualBody: 'You have a new message in QLC.\n\nSign in to your panel to read it and reply.',
+  },
+};
+const copyFor = (language) => NOTIFICATION_COPY[language === 'en' ? 'en' : 'es'];
+
 async function sendNotificationEmail(user, { title, message, attachments }) {
   if (!user?.email) return { sent: false, reason: 'El usuario no tiene correo registrado' };
   const creds = await resolveCredentials();
@@ -57,7 +73,7 @@ async function sendNotificationEmail(user, { title, message, attachments }) {
   await sendMailUnified(creds, {
     to: user.email,
     subject: `QLC — ${title}`,
-    text: `${message}\n\n— Quantum Liquidity Capital (QLC)\nEste es un aviso automático, generado también como notificación dentro de tu panel de QLC.`,
+    text: `${message}\n\n— Quantum Liquidity Capital (QLC)\n${copyFor(user.language).footer}`,
     attachments,
   });
   return { sent: true };
@@ -74,8 +90,8 @@ async function sendManualMessageEmail(user) {
 
   await sendMailUnified(creds, {
     to: user.email,
-    subject: 'QLC — Tienes un nuevo mensaje',
-    text: 'Tienes un nuevo mensaje dentro de QLC.\n\nIngresa a tu panel para consultarlo y responder.\n\n— Quantum Liquidity Capital (QLC)',
+    subject: copyFor(user.language).manualSubject,
+    text: `${copyFor(user.language).manualBody}\n\n— Quantum Liquidity Capital (QLC)`,
   });
   return { sent: true };
 }

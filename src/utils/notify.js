@@ -1,5 +1,6 @@
 const prisma = require('../config/prisma');
 const { sendNotificationEmail, sendManualMessageEmail } = require('../services/emailService');
+const { renderNotificationText } = require('./notificationI18n');
 
 /*
  * AUDITORÍA QLC PARTE 12 — cada notificación interna intenta además enviar
@@ -18,12 +19,15 @@ const { sendNotificationEmail, sendManualMessageEmail } = require('../services/e
 // el cuerpo redactado por la otra persona. Las notificaciones SYSTEM (todo
 // el resto: pagos, estados de cuenta, citas, etc.) siguen enviando su propio
 // título/mensaje tal cual, sin cambios.
-async function dispatchEmail(notification, email, attachments) {
+// IDIOMA — cada destinatario recibe el correo en el idioma que eligió en QLC
+// (`language` = User.preferredLanguage; sin preferencia → español). La
+// notificación interna no cambia: el panel ya la muestra en el idioma activo.
+async function dispatchEmail(notification, email, attachments, language) {
   try {
     const result =
       notification.kind === 'MANUAL'
-        ? await sendManualMessageEmail({ email })
-        : await sendNotificationEmail({ email }, { title: notification.title, message: notification.message, attachments });
+        ? await sendManualMessageEmail({ email, language })
+        : await sendNotificationEmail({ email, language }, { ...renderNotificationText(notification, language), attachments });
     return await prisma.notification.update({
       where: { id: notification.id },
       data: result.sent
@@ -60,14 +64,14 @@ async function notifyClient(
 ) {
   const client = await prisma.clientProfile.findUnique({
     where: { id: clientProfileId },
-    select: { userId: true, user: { select: { email: true, isActive: true } } },
+    select: { userId: true, user: { select: { email: true, isActive: true, preferredLanguage: true } } },
   });
   if (!client) return null;
   const notification = await prisma.notification.create({
     data: { userId: client.userId, title, message, type, templateKey, templateParams },
   });
   if (!skipEmail && client.user?.isActive && client.user.email) {
-    return dispatchEmail(notification, client.user.email, attachments);
+    return dispatchEmail(notification, client.user.email, attachments, client.user.preferredLanguage);
   }
   return notification;
 }
@@ -91,7 +95,7 @@ async function notifyAdmins({
 }) {
   const admins = await prisma.user.findMany({
     where: { role: 'ADMIN', isActive: true, ...(excludeUserId ? { id: { not: excludeUserId } } : {}) },
-    select: { id: true, email: true },
+    select: { id: true, email: true, preferredLanguage: true },
   });
   const notifications = await Promise.all(
     admins.map((admin) =>
@@ -110,7 +114,7 @@ async function notifyAdmins({
     )
   );
   if (!skipEmail) {
-    await Promise.all(notifications.map((n, i) => dispatchEmail(n, admins[i].email)));
+    await Promise.all(notifications.map((n, i) => dispatchEmail(n, admins[i].email, undefined, admins[i].preferredLanguage)));
   }
   return notifications;
 }
@@ -119,7 +123,7 @@ async function notifyAdmins({
 // admin→ClientProfile "genérica" (ej. mensajería manual de un caso, con
 // kind/senderUserId propios) — mismo mecanismo de correo, sin duplicar lógica.
 async function notifyUser(userId, { title, message, type = 'info', templateKey = null, templateParams = null, kind, senderUserId, skipEmail = false }) {
-  const user = await prisma.user.findUnique({ where: { id: userId }, select: { email: true, isActive: true } });
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { email: true, isActive: true, preferredLanguage: true } });
   const notification = await prisma.notification.create({
     data: {
       userId,
@@ -133,7 +137,7 @@ async function notifyUser(userId, { title, message, type = 'info', templateKey =
     },
   });
   if (!skipEmail && user?.isActive && user.email) {
-    return dispatchEmail(notification, user.email);
+    return dispatchEmail(notification, user.email, undefined, user.preferredLanguage);
   }
   if (!skipEmail) {
     return prisma.notification
@@ -175,9 +179,9 @@ async function createApiPermissionsNotice(tx, userId) {
 
 // Correo "best effort" de una notificación ya creada (p. ej. dentro de una
 // transacción) — mismo mecanismo que notifyClient, nunca bloquea el flujo.
-async function emailExistingNotification(notification, email) {
+async function emailExistingNotification(notification, email, language) {
   if (!notification || !email) return notification;
-  return dispatchEmail(notification, email);
+  return dispatchEmail(notification, email, undefined, language);
 }
 
 module.exports = { notifyClient, notifyAdmins, notifyUser, createApiPermissionsNotice, emailExistingNotification };
