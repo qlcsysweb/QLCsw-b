@@ -20,7 +20,12 @@ const { notifyClient, notifyAdmins } = require('./notify');
 const STATEMENT_DUE_HOURS = 72;
 // Umbral de aviso anticipado ("quedan pocas horas") antes del vencimiento.
 const WARNING_THRESHOLD_HOURS = 24;
-const SWEEP_INTERVAL_MS = 5 * 60 * 1000;
+// Cada 30 min (antes 5): con 5 min NeonDB nunca llegaba a suspenderse y se
+// cobraba cómputo las 24 h. El estado mostrado no depende del barrido (ver
+// effectiveStatementStatus) y cada consulta de la subcuenta aplica el plazo
+// al momento (enforceCommissionDeadline); el barrido solo cubre las cuentas
+// que nadie está consultando. STATEMENT_SWEEP_INTERVAL_MIN permite ajustarlo.
+const SWEEP_INTERVAL_MS = (Number(process.env.STATEMENT_SWEEP_INTERVAL_MIN) || 30) * 60 * 1000;
 
 // Estado efectivo — cubre el intervalo entre barridos: si ya pasó expiresAt,
 // se reporta VENCIDO aunque la fila todavía no se haya actualizado.

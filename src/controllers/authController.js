@@ -8,6 +8,7 @@ const { ensurePrincipalSubaccount } = require('../utils/subaccountProvisioning')
 const { notifyAdmins, createApiPermissionsNotice, emailExistingNotification } = require('../utils/notify');
 const { resolveActiveReferrer, logAffiliateEvent } = require('../services/affiliateService');
 const { assertReferralAllowed, recordReferralLock } = require('../utils/referralLock');
+const { LEGAL_VERSIONS } = require('../utils/legalVersions');
 const { sendRegistrationCode, checkRegistrationCode, consumeRegistrationCode } = require('../services/emailVerificationService');
 const {
   isTwoFactorGloballyEnabled,
@@ -174,24 +175,11 @@ const changePassword = asyncHandler(async (req, res) => {
 // aceptación electrónica del Aviso de Privacidad y los Términos y
 // Condiciones del Servicio de Copytrading (incluye la autorización de
 // conexión API sin facultad de retiro). Las versiones vigentes se fijan
-// aquí para poder auditar qué versión aceptó cada cliente y cuándo.
-const PRIVACY_NOTICE_VERSION = '2026-09-12';
-const TERMS_VERSION = '2026-09-12';
-
-// Los textos son editables por el ADMIN (CMS → sección "legal"). La versión
-// aceptada es la fecha/hora de la última edición del texto vigente, para
-// poder auditar exactamente qué versión aceptó cada cliente; si nunca se ha
-// editado, es la versión oficial original.
+// en utils/legalVersions.js para poder auditar qué versión aceptó cada
+// cliente y cuándo. Los textos legales viven en el código (ya no en el CMS),
+// así que esto ya no consulta NeonDB.
 async function currentLegalVersions() {
-  const rows = await prisma.publicContent.findMany({
-    where: { section: 'legal', key: { in: ['privacy_title', 'privacy_body', 'terms_title', 'terms_body'] } },
-    select: { key: true, updatedAt: true },
-  });
-  const latest = (prefix) => {
-    const dates = rows.filter((r) => r.key.startsWith(prefix)).map((r) => r.updatedAt.getTime());
-    return dates.length ? new Date(Math.max(...dates)).toISOString() : null;
-  };
-  return { privacy: latest('privacy_') || PRIVACY_NOTICE_VERSION, terms: latest('terms_') || TERMS_VERSION };
+  return { ...LEGAL_VERSIONS };
 }
 
 // CORRECCIÓN 5: registro público directo — crea la cuenta CLIENT completa

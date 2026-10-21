@@ -1,5 +1,6 @@
 const { Router } = require('express');
 const { requireAuth, requireRole } = require('../middleware/auth');
+const { clearPublicCacheAfterAdminWrite } = require('../utils/publicCache');
 const { uploadDocument: uploadDocumentFile, uploadMedia, singleCaseFile, singleStatementPdf, messageFiles, chatFile } = require('../middleware/upload');
 
 const dashboardController = require('../controllers/dashboardController');
@@ -38,6 +39,8 @@ const twoFactorController = require('../controllers/twoFactorController');
 const router = Router();
 
 router.use(requireAuth, requireRole('ADMIN'));
+// Cualquier cambio guardado por un admin vacía la caché del sitio público.
+router.use(clearPublicCacheAfterAdminWrite);
 
 // Dashboard
 router.get('/dashboard', dashboardController.getSummary);
