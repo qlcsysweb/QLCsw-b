@@ -46,10 +46,15 @@ function clearPublicCache() {
 // Para adminRoutes: tras cualquier escritura exitosa de un admin (CMS,
 // multimedia, modelos, FAQ, track record, datos de pago…) se vacía la caché,
 // de modo que el sitio público refleja el cambio en la siguiente visita.
+// También se vuelve a publicar site-data.json (lo que lee el sitio público
+// sin consultar este backend, ver services/publicSiteSnapshot.js).
 function clearPublicCacheAfterAdminWrite(req, res, next) {
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     res.on('finish', () => {
-      if (res.statusCode < 400) clearPublicCache();
+      if (res.statusCode < 400) {
+        clearPublicCache();
+        require('../services/publicSiteSnapshot').schedulePublicSiteSnapshot();
+      }
     });
   }
   next();

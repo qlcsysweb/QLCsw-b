@@ -22,11 +22,13 @@ const FOLDERS = {
   GUIDES: 'qlc/guides',
 };
 
-function uploadBuffer(buffer, { folder, resourceType = 'auto', publicId } = {}) {
+// `invalidate`: purga la caché del CDN al sobrescribir un archivo con URL fija
+// (p. ej. los datos del sitio público, ver services/publicSiteSnapshot.js).
+function uploadBuffer(buffer, { folder, resourceType = 'auto', publicId, invalidate = false } = {}) {
   const streamifier = require('streamifier');
   return new Promise((resolve, reject) => {
     const uploadStream = cloudinary.uploader.upload_stream(
-      { folder, resource_type: resourceType, public_id: publicId, overwrite: true },
+      { folder, resource_type: resourceType, public_id: publicId, overwrite: true, ...(invalidate ? { invalidate: true } : {}) },
       (error, result) => {
         if (error) return reject(error);
         resolve(result);

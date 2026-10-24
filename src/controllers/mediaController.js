@@ -5,9 +5,15 @@ const asyncHandler = require('../utils/asyncHandler');
 const mediaStorage = require('../services/mediaStorage');
 
 // Fuente única de verdad de ubicaciones válidas — debe reflejar las
-// secciones reales de la página pública (ver PublicHomePage.jsx) + "logo".
+// secciones reales de la página pública (ver PublicHomePage.jsx) + logos.
+// LOGO POR IDIOMA: "logo" = español (el que ya existía), "logo_en" = inglés.
+// Cada uno admite una IMAGEN y un VIDEO principales (4 archivos en total);
+// el sitio muestra el del idioma activo (video si hay, si no la imagen).
+const LOGO_LOCATIONS = ['logo', 'logo_en'];
+const isLogoLocation = (location) => LOGO_LOCATIONS.includes(location);
 const LOCATIONS = [
   'logo',
+  'logo_en',
   'hero',
   'modelo',
   'como_funciona',
@@ -42,7 +48,7 @@ const createMedia = asyncHandler(async (req, res) => {
   const { location, title, description } = createMediaSchema.parse(req.body);
 
   const uploaded = await mediaStorage.uploadMedia(req.file.buffer, req.file.mimetype, {
-    isLogo: location === 'logo',
+    isLogo: isLogoLocation(location),
   });
 
   const siblingCount = await prisma.mediaAsset.count({ where: { location } });
@@ -84,8 +90,9 @@ const updateMedia = asyncHandler(async (req, res) => {
 
   const updated = await prisma.$transaction(async (tx) => {
     if (data.isPrimary === true) {
+      // En los logos el principal es por tipo: una imagen y un video por idioma.
       await tx.mediaAsset.updateMany({
-        where: { location: targetLocation, NOT: { id: existing.id } },
+        where: { location: targetLocation, NOT: { id: existing.id }, ...(isLogoLocation(targetLocation) ? { type: existing.type } : {}) },
         data: { isPrimary: false },
       });
     }
@@ -104,7 +111,7 @@ const replaceMediaFile = asyncHandler(async (req, res) => {
   if (!existing) throw ApiError.notFound('Este recurso multimedia ya no existe');
 
   const uploaded = await mediaStorage.uploadMedia(req.file.buffer, req.file.mimetype, {
-    isLogo: existing.location === 'logo',
+    isLogo: isLogoLocation(existing.location),
   });
 
   // Se sube el nuevo archivo primero; solo si todo sale bien se borra el

@@ -61,7 +61,7 @@ const bulkUpsertContent = asyncHandler(async (req, res) => {
 // Nunca expone publicId de Cloudinary ni IDs técnicos innecesarios.
 const listMediaPublic = asyncHandler(async (req, res) => {
   const rows = await prisma.mediaAsset.findMany({
-    where: { isPublished: true, NOT: { location: 'logo' } },
+    where: { isPublished: true, location: { notIn: ['logo', 'logo_en'] } },
     orderBy: [{ location: 'asc' }, { order: 'asc' }],
     select: { id: true, type: true, url: true, location: true, order: true, isPrimary: true, title: true },
   });
