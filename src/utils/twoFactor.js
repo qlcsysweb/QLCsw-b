@@ -58,10 +58,11 @@ function verifyTwoFactorChallenge(token) {
   return payload.sub;
 }
 
-// RESTABLECER CONTRASEÑA — token de un solo propósito emitido SOLO después
-// de validar correo + código de Google Authenticator. Lleva una huella del
-// hash de contraseña actual: en cuanto la contraseña cambia, el token deja de
-// servir (uso único), y caduca a los 10 minutos.
+function secretFingerprint(encryptedSecret) {
+  if (!encryptedSecret) return null;
+  return crypto.createHash('sha256').update(String(encryptedSecret)).digest('hex').slice(0, 16);
+}
+
 function passwordFingerprint(passwordHash) {
   return crypto.createHash('sha256').update(String(passwordHash)).digest('hex').slice(0, 16);
 }
@@ -89,6 +90,7 @@ module.exports = {
   decryptSecret,
   signTwoFactorChallenge,
   verifyTwoFactorChallenge,
+  secretFingerprint,
   passwordFingerprint,
   signPasswordResetToken,
   verifyPasswordResetToken,

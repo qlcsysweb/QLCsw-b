@@ -1,7 +1,7 @@
 const jwt = require('jsonwebtoken');
 const ApiError = require('../utils/ApiError');
 const prisma = require('../config/prisma');
-const { isTwoFactorGloballyEnabled } = require('../utils/twoFactor');
+const { isTwoFactorGloballyEnabled, secretFingerprint } = require('../utils/twoFactor');
 
 // 2FA OBLIGATORIO — una cuenta que todavía no
 // configuró Google Authenticator solo puede usar estas rutas (ver su sesión,
@@ -41,6 +41,9 @@ async function requireAuth(req, res, next) {
 
     const user = await prisma.user.findUnique({ where: { id: payload.sub } });
     if (!user || !user.isActive) throw ApiError.unauthorized('Sesión inválida');
+    if (payload.tfs && payload.tfs !== secretFingerprint(user.twoFactorSecretEncrypted)) {
+      throw ApiError.unauthorized('Sesión inválida o expirada');
+    }
 
     req.user = { id: user.id, role: user.role, email: user.email, username: user.username };
     if (isTwoFactorGloballyEnabled() && !user.twoFactorEnabled && !isTwoFactorSetupPath(req.originalUrl)) {

@@ -142,17 +142,8 @@ async function disconnect(userId) {
   });
 }
 
-// Paso 1 del OAuth2: genera la URL de consentimiento de Google. Exige que ya
-// se haya guardado el correo remitente esperado Y el Client ID/Secret de la
-// app OAuth2 (Google Cloud Console) — así el paso 2 (completeOAuth) tiene
-// contra qué comparar el correo que Google realmente autorice.
 async function startOAuth(userId) {
   const row = await getEmailConfigRow();
-  if (!row.gmailUser) {
-    throw new OAuthConfigError(
-      'Primero guarda el correo Gmail (Correo remitente) que va a autorizar el envío, antes de pulsar "Conectar con Google".'
-    );
-  }
   if (!row.googleOAuthClientId || !row.googleOAuthClientSecretEncrypted) {
     throw new OAuthConfigError(
       'Primero guarda el Client ID y el Client Secret de tu aplicación OAuth2 de Google Cloud, antes de pulsar "Conectar con Google".'
@@ -169,10 +160,6 @@ async function startOAuth(userId) {
   return { url };
 }
 
-// Paso 2: Google redirige aquí con ?code=...&state=.... Intercambia el code,
-// confirma CON GOOGLE cuál correo autorizó realmente, y RECHAZA guardar nada
-// si no coincide exactamente con el correo configurado (gmailUser) — nunca
-// se envía "como" una cuenta distinta a la que el admin configuró.
 async function completeOAuth({ code, state }) {
   if (!code || !state) {
     throw new OAuthConfigError('Falta el código de autorización o el parámetro state en la respuesta de Google.');
@@ -190,7 +177,7 @@ async function completeOAuth({ code, state }) {
   const userId = payload.sub;
 
   const row = await getEmailConfigRow();
-  if (!row.gmailUser || !row.googleOAuthClientId || !row.googleOAuthClientSecretEncrypted) {
+  if (!row.googleOAuthClientId || !row.googleOAuthClientSecretEncrypted) {
     throw new OAuthConfigError('La configuración de correo cambió antes de completar la conexión. Vuelve a intentarlo desde el panel.');
   }
   const clientSecret = decryptOrThrow(row.googleOAuthClientSecretEncrypted, 'No se pudo descifrar el Client Secret guardado.');
@@ -205,7 +192,7 @@ async function completeOAuth({ code, state }) {
 
   if (!tokens.refresh_token) {
     throw new OAuthConfigError(
-      `Google no devolvió un refresh token para ${row.gmailUser}. Esto pasa si esa cuenta ya había autorizado esta misma app antes sin revocarla. Entra a https://myaccount.google.com/permissions con la cuenta ${row.gmailUser}, quita el acceso de esta aplicación, y vuelve a pulsar "Conectar con Google".`
+      'Google no devolvió un refresh token. Esto pasa si esa cuenta ya había autorizado esta misma app antes sin revocarla. Entra a https://myaccount.google.com/permissions con esa cuenta, quita el acceso de esta aplicación, y vuelve a pulsar "Conectar con Google".'
     );
   }
 
@@ -223,13 +210,6 @@ async function completeOAuth({ code, state }) {
 
   if (!authorizedEmail) {
     throw new OAuthConfigError('Google no devolvió el correo autorizado (falta el permiso de email en el consentimiento otorgado).');
-  }
-
-  if (authorizedEmail.toLowerCase() !== row.gmailUser.trim().toLowerCase()) {
-    throw new OAuthConfigError(
-      `Autorizaste con la cuenta ${authorizedEmail}, pero el correo configurado en QLC es ${row.gmailUser}. No se guardó nada. ` +
-        `Debes iniciar sesión en Google específicamente con ${row.gmailUser} (si tu navegador ya tiene otra cuenta de Google abierta, usa una ventana de incógnito) y volver a pulsar "Conectar con Google".`
-    );
   }
 
   // Google concede EXACTAMENTE los scopes que el consentimiento autorizó, sin
@@ -252,6 +232,8 @@ async function completeOAuth({ code, state }) {
     where: { id: row.id },
     data: {
       authMethod: 'OAUTH2',
+      isEnabled: true,
+      gmailUser: authorizedEmail,
       googleOAuthRefreshTokenEncrypted: encrypt(tokens.refresh_token),
       oauthConnectedEmail: authorizedEmail,
       lastTestStatus: null,

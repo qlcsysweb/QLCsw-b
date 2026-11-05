@@ -9,7 +9,14 @@ const { notifyAdmins, createApiPermissionsNotice, emailExistingNotification } = 
 const { resolveActiveReferrer, logAffiliateEvent } = require('../services/affiliateService');
 const { assertReferralAllowed, recordReferralLock } = require('../utils/referralLock');
 const { LEGAL_VERSIONS } = require('../utils/legalVersions');
-const { sendRegistrationCode, checkRegistrationCode, consumeRegistrationCode } = require('../services/emailVerificationService');
+const {
+  sendRegistrationCode,
+  checkRegistrationCode,
+  consumeRegistrationCode,
+  sendPasswordResetCode,
+  verifyPasswordResetCode,
+} = require('../services/emailVerificationService');
+const { resolveCredentials } = require('../config/emailConfig');
 const {
   isTwoFactorGloballyEnabled,
   verifyToken,
@@ -361,11 +368,28 @@ const register = asyncHandler(async (req, res) => {
   res.status(201).json({ ok: true, token, user: shapeUser(user) });
 });
 
-// RESTABLECER CONTRASEÑA DESDE EL LOGIN (sin sesión) — correo + código de
-// Google Authenticator. Mismo error genérico para correo inexistente, cuenta
-// inactiva, cuenta sin Authenticator o código incorrecto: nunca revela si un
-// correo está registrado. Con el código válido se emite un token temporal
-// de un solo uso para fijar la contraseña nueva.
+const findUserByEmail = (email) => prisma.user.findFirst({ where: { email: { equals: email, mode: 'insensitive' } } });
+
+const resetRequestSchema = z.object({
+  email: z.string().email('Email inválido'),
+  language: z.enum(['es', 'en']).optional(),
+});
+
+const requestPasswordReset = asyncHandler(async (req, res) => {
+  const { email, language } = resetRequestSchema.parse(req.body);
+  const creds = await resolveCredentials();
+  if (!creds) {
+    throw ApiError.serviceUnavailable('No pudimos enviar el código de verificación en este momento. Intenta más tarde o contacta a soporte@qlctrade.net.');
+  }
+  const user = await findUserByEmail(email);
+  if (user?.isActive) {
+    sendPasswordResetCode(user.email, user.preferredLanguage || language || 'es').catch((err) => {
+      console.error('[password-reset]', err?.message);
+    });
+  }
+  res.json({ ok: true });
+});
+
 const resetVerifySchema = z.object({
   email: z.string().email('Email inválido'),
   code: z.string().regex(/^\d{6}$/, 'El código debe tener 6 dígitos.'),
@@ -373,11 +397,9 @@ const resetVerifySchema = z.object({
 
 const verifyPasswordReset = asyncHandler(async (req, res) => {
   const { email, code } = resetVerifySchema.parse(req.body);
-  const user = await prisma.user.findUnique({ where: { email } });
-  const secret = user?.isActive && user.twoFactorEnabled ? decryptSecret(user.twoFactorSecretEncrypted) : null;
-  if (!secret || !verifyToken(secret, code)) {
-    throw ApiError.unauthorized('Correo o código de Google Authenticator incorrectos.');
-  }
+  await verifyPasswordResetCode(email, code);
+  const user = await findUserByEmail(email);
+  if (!user?.isActive) throw ApiError.badRequest('El código es incorrecto o venció. Solicita uno nuevo si es necesario.');
   res.json({ ok: true, resetToken: signPasswordResetToken(user) });
 });
 
@@ -396,10 +418,12 @@ const completePasswordReset = asyncHandler(async (req, res) => {
     throw expired();
   }
   const user = await prisma.user.findUnique({ where: { id: payload.sub } });
-  // Uso único: si la contraseña ya cambió, la huella deja de coincidir.
   if (!user || !user.isActive || payload.pwf !== passwordFingerprint(user.passwordHash)) throw expired();
   const passwordHash = await bcrypt.hash(newPassword, 12);
-  await prisma.user.update({ where: { id: user.id }, data: { passwordHash } });
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { passwordHash, twoFactorEnabled: false, twoFactorSecretEncrypted: null, twoFactorPendingSecretEncrypted: null },
+  });
   res.json({ ok: true, message: 'Contraseña actualizada correctamente.' });
 });
 
@@ -421,6 +445,7 @@ module.exports = {
   changePassword,
   register,
   sendRegisterCode,
+  requestPasswordReset,
   verifyPasswordReset,
   completePasswordReset,
 };

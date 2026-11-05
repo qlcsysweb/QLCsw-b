@@ -35,10 +35,6 @@ const updateConfig = asyncHandler(async (req, res) => {
   res.json({ ok: true, config: shapeStatus(status, req.user.id), message: 'Configuración de correo guardada correctamente.' });
 });
 
-// Paso 1 del OAuth2: devuelve la URL de consentimiento de Google para que el
-// frontend navegue ahí. Requiere sesión de admin (igual que el resto del
-// panel) — la propia cuenta de Google que complete el consentimiento se
-// valida después, en el callback, contra el correo ya guardado.
 const oauthStart = asyncHandler(async (req, res) => {
   try {
     const { url } = await emailConfigService.startOAuth(req.user.id);

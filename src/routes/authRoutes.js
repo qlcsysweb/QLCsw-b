@@ -11,6 +11,7 @@ const {
   changePassword,
   register,
   sendRegisterCode,
+  requestPasswordReset,
   verifyPasswordReset,
   completePasswordReset,
 } = require('../controllers/authController');
@@ -34,8 +35,14 @@ const registerLimiter = rateLimit({
   message: { ok: false, message: 'Demasiados registros desde este origen. Intenta más tarde.' },
 });
 
-// Restablecer contraseña con Google Authenticator: límite estricto para que
-// el código de 6 dígitos no pueda adivinarse por fuerza bruta.
+const passwordResetCodeLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 6,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { ok: false, message: 'Demasiadas solicitudes de código. Intenta más tarde.' },
+});
+
 const passwordResetLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 8,
@@ -45,6 +52,7 @@ const passwordResetLimiter = rateLimit({
 });
 
 router.post('/login', loginLimiter, login);
+router.post('/password-reset/request', passwordResetCodeLimiter, requestPasswordReset);
 router.post('/password-reset/verify', passwordResetLimiter, verifyPasswordReset);
 router.post('/password-reset/complete', passwordResetLimiter, completePasswordReset);
 router.post('/login/2fa', loginLimiter, loginWithTwoFactor);

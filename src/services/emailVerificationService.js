@@ -19,6 +19,7 @@ const CODE_TTL_MS = 15 * 60 * 1000;
 const RESEND_COOLDOWN_MS = 60 * 1000;
 const MAX_ATTEMPTS = 5;
 const PURPOSE = 'REGISTER';
+const RESET_PURPOSE = 'PASSWORD_RESET';
 
 const normalizeEmail = (email) => String(email || '').trim().toLowerCase();
 const hashCode = (email, code) =>
@@ -63,7 +64,29 @@ const COPY = {
     support: 'Soporte',
   },
 };
-const copyFor = (language) => COPY[language === 'es' ? 'es' : 'en'];
+const RESET_COPY = {
+  en: {
+    subject: 'QLC — Your password reset code',
+    codeIs: 'Your password reset code is:',
+    heading: 'Reset your password',
+    intro: 'Enter this code on the QLC sign-in screen to reset your password.',
+    expiresText: 'Enter it on the QLC sign-in screen to reset your password. The code expires in 15 minutes.',
+    expiresHtml: 'The code expires in <strong style="color:#f4f7fb;">15 minutes</strong>.',
+    ignore: 'If you did not request this, ignore this message: your password will not change.',
+    support: 'Support',
+  },
+  es: {
+    subject: 'QLC — Tu código para restablecer la contraseña',
+    codeIs: 'Tu código para restablecer la contraseña es:',
+    heading: 'Restablece tu contraseña',
+    intro: 'Escribe este código en la pantalla de inicio de sesión de QLC para restablecer tu contraseña.',
+    expiresText: 'Escríbelo en la pantalla de inicio de sesión de QLC para restablecer tu contraseña. El código vence en 15 minutos.',
+    expiresHtml: 'El código vence en <strong style="color:#f4f7fb;">15 minutos</strong>.',
+    ignore: 'Si no lo solicitaste, ignora este mensaje: tu contraseña no cambiará.',
+    support: 'Soporte',
+  },
+};
+const copyFor = (language, copies = COPY) => copies[language === 'es' ? 'es' : 'en'];
 
 const textBody = (code, c) =>
   `Quantum Liquidity Capital (QLC)\n\n${c.codeIs} ${code}\n\n${c.expiresText}\n\n${c.ignore}\n\n— Quantum Liquidity Capital (QLC)\n${c.support}: soporte@qlctrade.net`;
@@ -80,10 +103,10 @@ ${withLogo ? '<tr><td align="center" style="padding-bottom:18px;"><img src="cid:
 <tr><td align="center" style="font-size:12px;color:#6f7c89;border-top:1px solid #1f2a35;padding-top:14px;">Quantum Liquidity Capital (QLC) · ${c.support}: soporte@qlctrade.net</td></tr>
 </table></td></tr></table></body></html>`;
 
-async function sendRegistrationCode(email, language) {
+async function sendCode(email, language, purpose, copies) {
   const normalized = normalizeEmail(email);
   const last = await prisma.emailVerificationCode.findFirst({
-    where: { email: normalized, purpose: PURPOSE },
+    where: { email: normalized, purpose },
     orderBy: { createdAt: 'desc' },
   });
   if (last && Date.now() - last.createdAt.getTime() < RESEND_COOLDOWN_MS) {
@@ -97,19 +120,19 @@ async function sendRegistrationCode(email, language) {
   const code = String(crypto.randomInt(0, 1000000)).padStart(6, '0');
   // Un código nuevo invalida los anteriores de ese correo.
   await prisma.emailVerificationCode.updateMany({
-    where: { email: normalized, purpose: PURPOSE, consumedAt: null },
+    where: { email: normalized, purpose, consumedAt: null },
     data: { consumedAt: new Date() },
   });
   const row = await prisma.emailVerificationCode.create({
-    data: { email: normalized, purpose: PURPOSE, codeHash: hashCode(normalized, code), expiresAt: new Date(Date.now() + CODE_TTL_MS) },
+    data: { email: normalized, purpose, codeHash: hashCode(normalized, code), expiresAt: new Date(Date.now() + CODE_TTL_MS) },
   });
   const logo = logoAttachment();
   try {
     await sendMailUnified(creds, {
       to: String(email).trim(),
-      subject: copyFor(language).subject,
-      text: textBody(code, copyFor(language)),
-      html: htmlBody(code, Boolean(logo), copyFor(language)),
+      subject: copyFor(language, copies).subject,
+      text: textBody(code, copyFor(language, copies)),
+      html: htmlBody(code, Boolean(logo), copyFor(language, copies)),
       attachments: logo ? [logo] : [],
     });
   } catch {
@@ -119,13 +142,13 @@ async function sendRegistrationCode(email, language) {
   return { expiresAt: row.expiresAt };
 }
 
-// Comprueba el código (fuera de la transacción, para que un intento fallido
-// sí quede contado). Devuelve el ID del código válido para consumirlo dentro
-// de la transacción del registro.
-async function checkRegistrationCode(email, code) {
+const sendRegistrationCode = (email, language) => sendCode(email, language, PURPOSE, COPY);
+const sendPasswordResetCode = (email, language) => sendCode(email, language, RESET_PURPOSE, RESET_COPY);
+
+async function checkCode(email, code, purpose) {
   const normalized = normalizeEmail(email);
   const row = await prisma.emailVerificationCode.findFirst({
-    where: { email: normalized, purpose: PURPOSE, consumedAt: null },
+    where: { email: normalized, purpose, consumedAt: null },
     orderBy: { createdAt: 'desc' },
   });
   if (!row || row.expiresAt <= new Date()) {
@@ -150,4 +173,26 @@ async function consumeRegistrationCode(tx, codeId) {
   if (!count) throw ApiError.badRequest('El código de verificación ya fue utilizado. Solicita un código nuevo.');
 }
 
-module.exports = { sendRegistrationCode, checkRegistrationCode, consumeRegistrationCode, normalizeEmail };
+const checkRegistrationCode = (email, code) => checkCode(email, code, PURPOSE);
+
+async function verifyPasswordResetCode(email, code) {
+  const invalid = () => ApiError.badRequest('El código es incorrecto o venció. Solicita uno nuevo si es necesario.');
+  let codeId;
+  try {
+    codeId = await checkCode(email, code, RESET_PURPOSE);
+  } catch (err) {
+    if (err instanceof ApiError) throw invalid();
+    throw err;
+  }
+  const { count } = await prisma.emailVerificationCode.updateMany({ where: { id: codeId, consumedAt: null }, data: { consumedAt: new Date() } });
+  if (!count) throw invalid();
+}
+
+module.exports = {
+  sendRegistrationCode,
+  checkRegistrationCode,
+  consumeRegistrationCode,
+  sendPasswordResetCode,
+  verifyPasswordResetCode,
+  normalizeEmail,
+};

@@ -167,7 +167,7 @@ function buildGoogleAuthUrl({ clientId, clientSecret, state }) {
   const client = createOAuth2Client(clientId, clientSecret);
   return client.generateAuthUrl({
     access_type: 'offline',
-    prompt: 'consent',
+    prompt: 'consent select_account',
     scope: GMAIL_OAUTH_SCOPES,
     state,
   });
