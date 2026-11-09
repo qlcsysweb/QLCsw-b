@@ -1,4 +1,4 @@
-import { resetEmailReady } from '../services/email.service.js';
+import { emailReady, resetEmailReady } from '../services/email.service.js';
 import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { env } from '../config/env.js';
@@ -29,6 +29,9 @@ publicRouter.get('/offers', ah(async (_req, res) => {
 const giftLimiter = rateLimit({ windowMs: 15 * 60000, limit: 40, standardHeaders: 'draft-7', legacyHeaders: false, skip: () => env.isTest, message: { error: 'Demasiados intentos, espera unos minutos' } });
 
 publicRouter.get('/gifts/:code', giftLimiter, ah(async (req, res) => res.json(await previewGift(req.params.code))));
+
+// El registro solo puede pedir el código por correo si el envío está conectado.
+publicRouter.get('/register-options', ah(async (_req, res) => res.json({ emailVerification: await emailReady() })));
 
 publicRouter.get('/notice', ah(async (_req, res) => {
   res.setHeader('Cache-Control', 'public, max-age=300');

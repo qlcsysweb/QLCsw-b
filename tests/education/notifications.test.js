@@ -76,3 +76,17 @@ run('Notificaciones y prueba gratis (integración)', () => {
     assert.equal((await as('c').get('/api/academy/modules/1')).status, 403);
   });
 });
+
+describe('Opciones públicas del registro', () => {
+  test('indica si el registro pedirá el código por correo', async () => {
+    process.env.NODE_ENV = 'test';
+    const { createApp } = await import('../../src/app.js');
+    const { testEmail } = await import('../../src/modules/education/services/email.service.js');
+    const app = createApp();
+    testEmail.setReady(false);
+    assert.deepEqual((await request(app).get('/api/public/register-options')).body, { emailVerification: false });
+    testEmail.setReady(true);
+    assert.deepEqual((await request(app).get('/api/public/register-options')).body, { emailVerification: true });
+    testEmail.setReady(false);
+  });
+});
