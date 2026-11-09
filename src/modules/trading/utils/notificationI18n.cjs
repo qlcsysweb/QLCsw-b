@@ -1,4 +1,7 @@
 const EN = require('../i18n/notificationEmailTemplates.en.cjs');
+const PT = require('../i18n/notificationEmailTemplates.pt.cjs');
+
+const BY_LANGUAGE = { en: EN, pt: PT };
 
 /*
  * Idioma de los correos — el que el usuario eligió en QLC (User.preferredLanguage,
@@ -12,33 +15,34 @@ const EN = require('../i18n/notificationEmailTemplates.en.cjs');
  * hay plantilla, o el aviso no trae los parámetros que pide, se envía el
  * texto original — nunca una frase incompleta.
  */
-const normalizeLanguage = (value) => (value === 'en' ? 'en' : 'es');
+const normalizeLanguage = (value) => (value === 'en' || value === 'pt' ? value : 'es');
 
 const hasParam = (params, name) => params?.[name] !== undefined && params?.[name] !== null && params?.[name] !== '';
 
 // Misma regla que frontend/src/i18n/notificationMessages.js.
-function interpolate(template, templateKey, params) {
-  const labelKeys = EN.statusLabelKeys[templateKey] || {};
+function interpolate(dict, template, templateKey, params) {
+  const labelKeys = dict.statusLabelKeys[templateKey] || {};
   return template
     .replace(/\[\[(\w+):([\s\S]*?)\]\]/g, (_, name, inner) => (hasParam(params, name) ? inner : ''))
     .replace(/\{(\w+)\}/g, (_, name) => {
       const raw = params?.[name];
       if (raw === undefined || raw === null) return '';
       const labelKey = labelKeys[name]?.[raw];
-      if (labelKey && EN.labels[labelKey]) return EN.labels[labelKey];
+      if (labelKey && dict.labels[labelKey]) return dict.labels[labelKey];
       return String(raw);
     });
 }
 
 function renderNotificationText(notification, language) {
   const original = { title: notification.title, message: notification.message };
-  if (normalizeLanguage(language) !== 'en' || !notification.templateKey) return original;
-  const template = EN.templates[notification.templateKey];
+  const dict = BY_LANGUAGE[normalizeLanguage(language)];
+  if (!dict || !notification.templateKey) return original;
+  const template = dict.templates[notification.templateKey];
   if (!template?.title || !template?.message) return original;
   const params = notification.templateParams || {};
   if (template.requires && !hasParam(params, template.requires)) return original;
-  const title = interpolate(template.title, notification.templateKey, params).trim();
-  const message = interpolate(template.message, notification.templateKey, params).trim();
+  const title = interpolate(dict, template.title, notification.templateKey, params).trim();
+  const message = interpolate(dict, template.message, notification.templateKey, params).trim();
   return title && message ? { title, message } : original;
 }
 

@@ -169,8 +169,9 @@ run('Estructura comercial: herramientas, masterclass por módulo, consultas, ori
 
   test('Cada persona recibe el correo en el idioma que eligió', async () => {
     const { sendEmail } = await import('../../src/modules/education/services/email.service.js');
-    const { englishTemplateNames, renderEmail, templateNames, translateValue } = await import('../../src/modules/education/services/emailTemplates.js');
+    const { englishTemplateNames, portugueseTemplateNames, renderEmail, templateNames, translateValue } = await import('../../src/modules/education/services/emailTemplates.js');
     assert.deepEqual(englishTemplateNames().sort(), templateNames().sort());
+    assert.deepEqual(portugueseTemplateNames().sort(), templateNames().sort());
     assert.equal((await api('tools').put('/api/auth/language', { language: 'fr' })).status, 400);
     assert.equal((await api('tools').put('/api/auth/language', { language: 'en' })).status, 200);
     assert.equal((await api('tools').get('/api/auth/me')).body.user.language, 'en');

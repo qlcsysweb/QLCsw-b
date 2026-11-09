@@ -76,9 +76,9 @@ export async function register({ name, email, password, phone, residenceCountry,
 
 function trialNotice(language, days) {
   const tools = TRIAL_TOOLS.map((n) => `M${n}`).join(', ');
-  return language === 'en'
-    ? { type: 'PRUEBA_GRATIS', title: `Your ${days}-day free trial is active`, message: `You can use the ${tools} tools for free. To unlock everything else, go to My access.` }
-    : { type: 'PRUEBA_GRATIS', title: `Tu prueba gratis de ${days} días está activa`, message: `Puedes usar gratis las herramientas ${tools}. Para desbloquear todo lo demás, dirígete a Mi acceso.` };
+  if (language === 'en') return { type: 'PRUEBA_GRATIS', title: `Your ${days}-day free trial is active`, message: `You can use the ${tools} tools for free. To unlock everything else, go to My access.` };
+  if (language === 'pt') return { type: 'PRUEBA_GRATIS', title: `Seu teste grátis de ${days} dias está ativo`, message: `Você pode usar grátis as ferramentas ${tools}. Para desbloquear todo o resto, vá para Meu acesso.` };
+  return { type: 'PRUEBA_GRATIS', title: `Tu prueba gratis de ${days} días está activa`, message: `Puedes usar gratis las herramientas ${tools}. Para desbloquear todo lo demás, dirígete a Mi acceso.` };
 }
 
 export async function setResidenceCountry(userId, residenceCountry) {

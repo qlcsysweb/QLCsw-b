@@ -222,7 +222,7 @@ const registerSchema = z.object({
     errorMap: () => ({ message: 'Debes autorizar la conexión API para continuar.' }),
   }),
   // Idioma elegido en el sitio: define el idioma de sus correos.
-  language: z.enum(['es', 'en']).optional(),
+  language: z.enum(['es', 'en', 'pt']).optional(),
 });
 
 // ENVIAR CÓDIGO DE VERIFICACIÓN — solo para un registro por invitación válido
@@ -234,7 +234,7 @@ const sendRegisterCodeSchema = z.object({
   // también por nombre completo antes de enviar el código.
   firstName: z.string().trim().max(120).optional(),
   lastName: z.string().trim().max(120).optional(),
-  language: z.enum(['es', 'en']).optional(),
+  language: z.enum(['es', 'en', 'pt']).optional(),
 });
 
 const sendRegisterCode = asyncHandler(async (req, res) => {
@@ -377,7 +377,7 @@ const findUserByEmail = (email) => prisma.user.findFirst({ where: { email: { equ
 
 const resetRequestSchema = z.object({
   email: z.string().trim().email('Email inválido'),
-  language: z.enum(['es', 'en']).optional(),
+  language: z.enum(['es', 'en', 'pt']).optional(),
 });
 
 const requestPasswordReset = asyncHandler(async (req, res) => {
@@ -426,7 +426,7 @@ const completePasswordReset = asyncHandler(async (req, res) => {
 // IDIOMA DE LOS CORREOS — el portal lo guarda cada vez que el usuario elige
 // idioma (y al iniciar sesión, si difiere). Siempre sobre su propia cuenta.
 const updateLanguage = asyncHandler(async (req, res) => {
-  const { language } = z.object({ language: z.enum(['es', 'en']) }).parse(req.body);
+  const { language } = z.object({ language: z.enum(['es', 'en', 'pt']) }).parse(req.body);
   await prisma.user.update({ where: { id: req.user.id }, data: { preferredLanguage: language } });
   res.json({ ok: true, preferredLanguage: language });
 });

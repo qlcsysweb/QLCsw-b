@@ -64,9 +64,18 @@ const COPY = {
     expiresHtml: 'El código vence en <strong style="color:#f4f7fb;">15 minutos</strong>.',
     ignore: 'Si no solicitaste este registro, puedes ignorar este mensaje.',
     support: 'Soporte',
+  },  pt: {
+    subject: 'QLC — Seu código de verificação de e-mail',
+    codeIs: 'Seu código de verificação é:',
+    heading: 'Verifique seu e-mail',
+    intro: 'Digite este código na tela de cadastro para confirmar seu endereço de e-mail.',
+    expiresText: 'Digite-o na tela de cadastro para confirmar seu endereço de e-mail. O código vence em 15 minutos.',
+    expiresHtml: 'O código vence em <strong style="color:#f4f7fb;">15 minutos</strong>.',
+    ignore: 'Se você não solicitou este cadastro, pode ignorar esta mensagem.',
+    support: 'Suporte',
   },
 };
-const copyFor = (language) => COPY[language === 'es' ? 'es' : 'en'];
+const copyFor = (language) => COPY[language] || COPY.en;
 
 const RESET_COPY = {
   en: {
@@ -88,6 +97,15 @@ const RESET_COPY = {
     expiresHtml: COPY.es.expiresHtml,
     ignore: 'Si no lo solicitaste, ignora este mensaje: tu contraseña no ha cambiado.',
     support: COPY.es.support,
+  },  pt: {
+    subject: 'QLC — Seu código para redefinir a senha',
+    codeIs: 'Seu código para redefinir a senha é:',
+    heading: 'Redefina sua senha',
+    intro: 'Digite este código na tela de login para criar uma nova senha.',
+    expiresText: 'Digite-o na tela de login para criar uma nova senha. O código vence em 15 minutos.',
+    expiresHtml: COPY.pt.expiresHtml,
+    ignore: 'Se você não solicitou isso, ignore esta mensagem: sua senha não foi alterada.',
+    support: COPY.pt.support,
   },
 };
 
@@ -180,7 +198,7 @@ async function sendPasswordResetCode(creds, email, language) {
     creds,
     email,
     purpose: RESET_PURPOSE,
-    copy: RESET_COPY[language === 'en' ? 'en' : 'es'],
+    copy: RESET_COPY[language] || RESET_COPY.es,
     failureMessage: RESET_UNAVAILABLE,
   });
 }

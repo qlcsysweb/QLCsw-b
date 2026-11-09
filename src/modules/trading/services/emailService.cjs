@@ -28,6 +28,10 @@ const COPY = {
     subject: 'Quantum Liquidity Capital — Information received',
     body: (name) =>
       `Hi ${name}, we've received your request for information about QLC. A member of our team will contact you shortly.`,
+  },  pt: {
+    subject: 'Quantum Liquidity Capital — Informações recebidas',
+    body: (name) =>
+      `Olá, ${name}, recebemos sua solicitação de informações sobre a QLC. Um membro da nossa equipe entrará em contato com você em breve.`,
   },
 };
 
@@ -35,8 +39,7 @@ async function sendProspectWelcomeEmail(prospect, language) {
   const creds = await resolveCredentials();
   if (!creds) return { sent: false, reason: 'Credenciales de Gmail no configuradas' };
 
-  const lang = language === 'en' ? 'en' : 'es';
-  const copy = COPY[lang];
+  const copy = COPY[language] || COPY.es;
 
   await sendMailUnified(creds, { to: prospect.email, subject: copy.subject, text: copy.body(prospect.firstName) });
   return { sent: true };
@@ -62,8 +65,13 @@ const NOTIFICATION_COPY = {
     manualSubject: 'QLC — You have a new message',
     manualBody: 'You have a new message in QLC.\n\nSign in to your panel to read it and reply.',
   },
+  pt: {
+    footer: 'Este é um aviso automático, também exibido como notificação no seu painel da QLC.',
+    manualSubject: 'QLC — Você tem uma nova mensagem',
+    manualBody: 'Você tem uma nova mensagem na QLC.\n\nEntre no seu painel para consultá-la e responder.',
+  },
 };
-const copyFor = (language) => NOTIFICATION_COPY[language === 'en' ? 'en' : 'es'];
+const copyFor = (language) => NOTIFICATION_COPY[language] || NOTIFICATION_COPY.es;
 
 async function sendNotificationEmail(user, { title, message, attachments }) {
   if (!user?.email) return { sent: false, reason: 'El usuario no tiene correo registrado' };

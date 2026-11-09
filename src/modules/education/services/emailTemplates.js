@@ -1,6 +1,6 @@
 import { env } from '../config/env.js';
 
-export const EMAIL_LANGUAGES = ['es', 'en'];
+export const EMAIL_LANGUAGES = ['es', 'en', 'pt'];
 export const normalizeLang = (lang) => (EMAIL_LANGUAGES.includes(lang) ? lang : 'es');
 
 const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -8,6 +8,7 @@ const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', 
 const FOOTER = {
   es: 'Herramienta educativa y de organización financiera. No constituye asesoría financiera.',
   en: 'Educational and financial organization tool. It does not constitute financial advice.',
+  pt: 'Ferramenta educacional e de organização financeira. Não constitui assessoria financeira.',
 };
 
 export const layout = (title, body, lang = 'es') => `<!doctype html><html lang="${normalizeLang(lang)}"><body style="margin:0;background:#05070a;font-family:Segoe UI,Arial,sans-serif;color:#f4f7fb">
@@ -22,7 +23,7 @@ export const layout = (title, body, lang = 'es') => `<!doctype html><html lang="
 const button = (href, label) =>
   `<p style="margin:22px 0"><a href="${href}" style="background:#0094dc;color:#fff;text-decoration:none;padding:12px 18px;border-radius:9px;font-weight:600">${escapeHtml(label)}</a></p>`;
 
-const LOCALE = { es: 'es-MX', en: 'en-US' };
+const LOCALE = { es: 'es-MX', en: 'en-US', pt: 'pt-BR' };
 const money = (n, lang) => (n === null || n === undefined ? '—' : `$${new Intl.NumberFormat(LOCALE[lang], { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(n))}`);
 const when = (d, lang) => new Date(d).toLocaleString(LOCALE[lang], { timeZone: 'America/Mexico_City', dateStyle: 'medium', timeStyle: 'short' });
 const utc = (d) => new Date(d).toISOString().slice(0, 16).replace('T', ' ');
@@ -180,12 +181,14 @@ const productName = (name, lang) => translateValue(name, lang);
 const PERIOD = {
   es: { ANUAL: 'Anual', MENSUAL: 'Mensual' },
   en: { ANUAL: 'Annual', MENSUAL: 'Monthly' },
+  pt: { ANUAL: 'Anual', MENSUAL: 'Mensal' },
 };
 const periodLabel = (period, lang) => (period ? PERIOD[lang][period] || (lang === 'en' ? period.replace('DÍAS', 'days') : period) : '—');
 
 const APPOINTMENT = {
   es: { PENDING: 'Pendiente', CONFIRMED: 'Confirmada', CANCELLED: 'Cancelada', RESCHEDULED: 'Reprogramada', UPDATED: 'Actualizada' },
   en: { PENDING: 'Pending', CONFIRMED: 'Confirmed', CANCELLED: 'Cancelled', RESCHEDULED: 'Rescheduled', UPDATED: 'Updated' },
+  pt: { PENDING: 'Pendente', CONFIRMED: 'Confirmado', CANCELLED: 'Cancelado', RESCHEDULED: 'Reagendado', UPDATED: 'Atualizado' },
 };
 
 const url = (path) => `${env.frontendUrl}${path}`;
@@ -462,9 +465,146 @@ ${codes.map((c) => codeBlock(c, 3, 22)).join('')}
   }),
 };
 
-const BY_LANG = { es: ES, en: EN };
+// Portugués (Brasil). Los nombres de producto y estados que vienen de la base se muestran como están.
+const PT = {
+  adminEvent: (e) => {
+    const label = e.label;
+    return {
+      subject: `${label} · ${e.userName || e.userEmail || 'QLC'}`,
+      title: label,
+      body: `<table width="100%" cellpadding="0" cellspacing="0">${[
+        row('Nome', e.userName),
+        row('E-mail', e.userEmail),
+        row('Produto', e.product),
+        row('Assinatura', periodLabel(e.period, 'pt')),
+        row('Status', e.status),
+        row('Data', when(e.createdAt, 'pt')),
+        row('Valor', e.amount === null ? '—' : money(e.amount, 'pt')),
+        ...(e.result ? [row('Resultado', e.result)] : []),
+      ].join('')}</table>${button(url('/admin/suscriptores'), 'Abrir painel de assinantes')}`,
+      text: `${label}. ${e.userName || ''} ${e.userEmail || ''}. Produto: ${e.product || '—'}. Status: ${e.status || '—'}. Valor: ${e.amount === null ? '—' : money(e.amount, 'pt')}.`,
+    };
+  },
+  promotion: ({ name, discount, product, code, validUntil, message }) => ({
+    subject: `Volte para a QLC com ${discount}% de desconto`,
+    title: `Volte para a QLC com ${discount}% de desconto`,
+    body: `<p>Olá, ${escapeHtml(name)},</p><p>${escapeHtml(message || `Queremos convidar você a voltar para a QLC. Reative seu acesso com um benefício especial de ${discount}% de desconto na sua renovação.`)}</p>
+<table width="100%" cellpadding="0" cellspacing="0" style="margin:18px 0;border:1px solid #1f2a36;border-radius:12px"><tr><td style="padding:16px 18px">
+<div style="color:#6f7c89;font-size:11px;letter-spacing:2px">DESCONTO</div><div style="font-size:30px;font-weight:700;color:#5bd4ff">${discount}%</div>
+<div style="margin-top:8px">Produto: <b>${escapeHtml(product)}</b></div>
+<div>Código: <b style="letter-spacing:2px">${escapeHtml(code)}</b></div>
+<div>Válido até: ${escapeHtml(when(validUntil, 'pt'))}</div></td></tr></table>
+${button(url(`/app/acceso?promo=${encodeURIComponent(code)}`), 'Usar minha promoção')}
+<p style="font-size:12px;color:#6f7c89">Promoção personalizada e sujeita a prazo de validade. Ao pagar, seu acesso é ativado assim que a equipe QLC o autorizar. Se não quiser receber promoções, desative-as em Meu acesso.</p>`,
+    text: `Olá, ${name}, volte para a QLC com ${discount}% de desconto em ${product}. Código: ${code}. Válido até ${when(validUntil, 'pt')}.`,
+  }),
+  giftCodes: ({ name, product, codes, redeemBy }) => ({
+    subject: 'Seus códigos de presente da QLC',
+    title: 'Seu presente está pronto',
+    body: `<p>Olá, ${escapeHtml(name)}, obrigado por presentear conhecimento financeiro.</p><p>Produto: <b>${escapeHtml(product)}</b></p>
+${codes.map((c) => codeBlock(c, 3, 22)).join('')}
+<p>Compartilhe o código com a pessoa que você quer presentear. Ela pode resgatá-lo até ${escapeHtml(when(redeemBy, 'pt'))} em:</p>${button(url('/regalo'), 'Resgatar código de presente')}`,
+    text: `Seus códigos de presente QLC (${product}): ${codes.join(', ')}. Resgate-os em ${url('/regalo')}`,
+  }),
+  verifyEmail: ({ code, minutes }) => ({
+    subject: `${code} é seu código de verificação · QLC`,
+    title: 'Confirme seu e-mail',
+    body: `<p>Use este código para terminar de criar sua conta:</p>${codeBlock(code)}<p>O código vence em ${minutes} minutos. Se você não solicitou uma conta, ignore esta mensagem.</p>`,
+    text: `Seu código de verificação da QLC é ${code}. Ele vence em ${minutes} minutos.`,
+  }),
+  welcome: ({ name }) => ({
+    subject: 'Bem-vindo ao QLC Financial Education',
+    title: `Olá, ${name}`,
+    body: `<p>Sua conta foi criada corretamente. Na sua plataforma você poderá registrar sua situação financeira e avançar no seu programa educacional.</p>${button(url('/app'), 'Entrar na minha plataforma')}`,
+    text: `Olá, ${name}, sua conta no QLC Financial Education foi criada. Entre em ${url('/app')}`,
+  }),
+  retention: ({ name, left, deleteOn, product }) => ({
+    subject: left === 1 ? 'Último aviso: amanhã sua conta QLC será excluída' : `Sua conta QLC será excluída em ${left} dias`,
+    title: left === 1 ? 'Falta 1 dia para renovar' : `Faltam ${left} dias para renovar`,
+    body: `<p>Olá, ${escapeHtml(name)},</p><p>Sua assinatura${product ? ` de <b>${escapeHtml(product)}</b>` : ''} terminou. Se você não a renovar, em ${escapeHtml(when(deleteOn, 'pt'))} o sistema excluirá sua conta e todas as informações que você registrou na plataforma.</p><p>Renove agora para manter seu progresso, seus registros e seu histórico.</p>${button(url('/app/acceso'), 'Renovar meu acesso')}`,
+    text: `Olá, ${name}, sua assinatura QLC terminou. Faltam ${left} dia(s): se você não renovar, em ${when(deleteOn, 'pt')} sua conta e suas informações serão excluídas. Renove em ${url('/app/acceso')}`,
+  }),
+  accessActivated: ({ name, product, expiresAt }) => ({
+    subject: `Seu acesso a ${product} está ativo`,
+    title: 'Seu acesso está ativo',
+    body: `<p>Olá, ${escapeHtml(name)},</p><p>Você já pode usar <b>${escapeHtml(product)}</b>${expiresAt ? ` até ${escapeHtml(when(expiresAt, 'pt'))}` : ''}.</p>${button(url('/app'), 'Entrar na minha plataforma')}`,
+    text: `Olá, ${name}, seu acesso a ${product} está ativo${expiresAt ? ` até ${when(expiresAt, 'pt')}` : ''}.`,
+  }),
+  serviceCredits: ({ name, product, quantity }) => ({
+    subject: `Sua compra de ${product} está disponível`,
+    title: 'Compra disponível',
+    body: `<p>Olá, ${escapeHtml(name)},</p><p>Você já tem disponível: <b>${escapeHtml(String(quantity))} × ${escapeHtml(product)}</b>.</p>${button(url('/app'), 'Entrar na minha plataforma')}`,
+    text: `Olá, ${name}, você já tem disponível ${quantity} x ${product}.`,
+  }),
+  bitgetRejected: ({ name, product, orderNumber, reason }) => ({
+    subject: 'Revise seu relatório de transferência Bitget',
+    title: 'Seu relatório precisa de uma correção',
+    body: `<p>Olá, ${escapeHtml(name)},</p><p>Não conseguimos confirmar sua transferência com N.º de ordem <b>${escapeHtml(orderNumber)}</b> para <b>${escapeHtml(product)}</b>.</p>${reason ? `<p>Motivo: ${escapeHtml(reason)}</p>` : ''}<p>Entre em Meu acesso e clique em Corrigir relatório para enviar os dados corretos.</p>${button(url('/app/acceso'), 'Corrigir meu relatório')}`,
+    text: `Olá, ${name}, não conseguimos confirmar sua transferência ${orderNumber}.${reason ? ` Motivo: ${reason}.` : ''} Corrija seu relatório em ${url('/app/acceso')}`,
+  }),
+  renewalDue: ({ name, product, offerCode, expiresAt }) => ({
+    subject: 'Seu acesso à QLC está prestes a vencer: renove seu pagamento',
+    title: 'Seu acesso está prestes a vencer',
+    body: `<p>Olá, ${escapeHtml(name)},</p><p>Seu acesso a <b>${escapeHtml(product)}</b> vence em ${escapeHtml(new Date(expiresAt).toISOString().slice(0, 10))}. Este pagamento não é renovado automaticamente: faça-o a tempo para não perder o acesso.</p>${button(url(`/app/acceso?renovar=${encodeURIComponent(offerCode)}`), 'Renovar meu acesso')}`,
+    text: `Olá, ${name}, seu acesso a ${product} vence em ${new Date(expiresAt).toISOString().slice(0, 10)}. Renove em ${url(`/app/acceso?renovar=${encodeURIComponent(offerCode)}`)}`,
+  }),
+  accessExpired: ({ name, product }) => ({
+    subject: 'Sua assinatura da QLC venceu',
+    title: 'Sua assinatura venceu',
+    body: `<p>Olá, ${escapeHtml(name)},</p><p>Seu acesso${product ? ` a <b>${escapeHtml(product)}</b>` : ''} terminou. Renove para continuar usando a plataforma e manter suas informações.</p>${button(url('/app/acceso'), 'Renovar meu acesso')}`,
+    text: `Olá, ${name}, seu acesso${product ? ` a ${product}` : ''} terminou. Renove em ${url('/app/acceso')}`,
+  }),
+  questionAnswered: ({ name, moduleNumber }) => ({
+    subject: `A equipe QLC respondeu sua consulta do Módulo ${moduleNumber}`,
+    title: 'Sua consulta tem resposta',
+    body: `<p>Olá, ${escapeHtml(name)},</p><p>Você já pode ler a resposta na aba Exercício e progresso do Módulo ${escapeHtml(String(moduleNumber))}.</p>${button(url(`/app/academia/m/${moduleNumber}`), 'Ver a resposta')}`,
+    text: `Olá, ${name}, a equipe QLC respondeu sua consulta do Módulo ${moduleNumber}.`,
+  }),
+  exerciseAnswered: ({ name, moduleNumber }) => ({
+    subject: `A equipe QLC respondeu seu exercício do Módulo ${moduleNumber}`,
+    title: 'Seu exercício tem resposta',
+    body: `<p>Olá, ${escapeHtml(name)},</p><p>Você já pode ler a resposta na aba Exercício e progresso do Módulo ${escapeHtml(String(moduleNumber))}.</p>${button(url(`/app/academia/m/${moduleNumber}`), 'Ver a resposta')}`,
+    text: `Olá, ${name}, a equipe QLC respondeu seu exercício do Módulo ${moduleNumber}.`,
+  }),
+  appointmentUpdate: ({ name, status, scheduledAt }) => {
+    const label = APPOINTMENT.pt[status] || APPOINTMENT.pt.UPDATED;
+    return {
+      subject: `Seu agendamento de assessoria: ${label}`,
+      title: `Agendamento ${label.toLowerCase()}`,
+      body: `<p>Olá, ${escapeHtml(name)},</p><p>Seu agendamento de assessoria de ${escapeHtml(utc(scheduledAt))} UTC ficou: <b>${escapeHtml(label)}</b>.</p>${button(url('/app/asesoria'), 'Ver meus agendamentos')}`,
+      text: `Olá, ${name}, seu agendamento de assessoria ficou: ${label}.`,
+    };
+  },
+  giftRedeemed: ({ name, product, recipient }) => ({
+    subject: 'Seu presente da QLC foi ativado',
+    title: 'Seu presente foi ativado',
+    body: `<p>Olá, ${escapeHtml(name)},</p><p>${escapeHtml(recipient || 'A pessoa que recebeu seu presente')} ativou o acesso a <b>${escapeHtml(product)}</b>. Obrigado por presentear educação financeira.</p>`,
+    text: `Olá, ${name}, seu presente de ${product} foi ativado.`,
+  }),
+  passwordReset: ({ name, code, minutes }) => ({
+    subject: `${code} é seu código para redefinir sua senha · QLC`,
+    title: 'Redefina sua senha',
+    body: `<p>Olá, ${escapeHtml(name)},</p><p>Digite este código na aba Redefinir senha da página de login:</p>${codeBlock(code)}<p>O código vence em ${minutes} minutos. Ao redefinir sua senha, seu Google Authenticator também é reiniciado e você deverá registrá-lo novamente ao entrar.</p><p>Se você não solicitou isso, ignore esta mensagem: sua conta continua igual.</p>`,
+    text: `Seu código para redefinir sua senha da QLC é ${code}. Ele vence em ${minutes} minutos. Se você não solicitou isso, ignore esta mensagem.`,
+  }),
+  passwordChanged: ({ name }) => ({
+    subject: 'Sua senha da QLC foi redefinida',
+    title: 'Sua senha foi redefinida',
+    body: `<p>Olá, ${escapeHtml(name)},</p><p>Sua senha foi alterada e seu Google Authenticator foi reiniciado. Ao entrar, você deverá registrá-lo novamente.</p><p>Se não foi você, entre em contato imediatamente com a equipe QLC.</p>${button(url('/login'), 'Entrar')}`,
+    text: `Olá, ${name}, sua senha da QLC foi redefinida e seu Google Authenticator foi reiniciado. Se não foi você, entre em contato imediatamente com a equipe QLC.`,
+  }),
+  test: ({ name }) => ({
+    subject: 'E-mail de teste · QLC Financial Education',
+    title: 'Integração do Gmail funcionando',
+    body: `<p>Este e-mail confirma que a conta conectada pode enviar notificações do sistema.</p><p>Solicitado por ${escapeHtml(name)}.</p>`,
+    text: 'Integração do Gmail funcionando.',
+  }),
+};
+
+const BY_LANG = { es: ES, en: EN, pt: PT };
 
 export const renderEmail = (template, data, lang = 'es') => BY_LANG[normalizeLang(lang)][template](data);
 
 export const templateNames = () => Object.keys(ES);
 export const englishTemplateNames = () => Object.keys(EN);
+export const portugueseTemplateNames = () => Object.keys(PT);

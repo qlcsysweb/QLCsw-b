@@ -6,7 +6,7 @@ const text = (max = 200) => z.string().trim().min(1, 'Requerido').max(max);
 const optText = (max = 1000) => z.string().trim().max(max).optional().nullable().transform((v) => v || null);
 const id = z.string().min(1).max(40);
 
-export const languageField = z.enum(['es', 'en']);
+export const languageField = z.enum(['es', 'en', 'pt']);
 export const languageSchema = z.object({ language: languageField });
 export const residenceCountrySchema = z.object({ residenceCountry: z.enum(COUNTRY_CODES, { errorMap: () => ({ message: 'Selecciona tu país de residencia' }) }) });
 

@@ -1,5 +1,5 @@
 // ARCHIVO GENERADO por scripts/sync-notification-email-templates.js — no editar a mano.
-// Fuente: frontend/src/i18n/translations.js (en.notificationTemplates) y notificationMessages.js.
+// Fuente: frontend/src/modules/trading/i18n (en.notificationTemplates) y notificationMessages.js.
 module.exports = {
   "templates": {
     "appointment_rejected_reschedule": {

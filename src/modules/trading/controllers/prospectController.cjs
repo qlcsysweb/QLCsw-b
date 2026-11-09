@@ -79,7 +79,7 @@ const createProspectSchema = z.object({
   // (cookie qlc_language del frontend) — solo se usa para redactar el
   // correo de bienvenida en ese idioma; nunca se guarda como preferencia
   // permanente ni se asocia a ningún userId.
-  language: z.enum(['es', 'en']).optional(),
+  language: z.enum(['es', 'en', 'pt']).optional(),
 });
 
 const createProspect = asyncHandler(async (req, res) => {
