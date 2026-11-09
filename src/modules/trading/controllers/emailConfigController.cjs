@@ -2,12 +2,23 @@ const { z } = require('zod');
 const emailConfigService = require('../services/emailConfigService.cjs');
 const ApiError = require('../utils/ApiError.cjs');
 const asyncHandler = require('../utils/asyncHandler.cjs');
+const { oauthRedirectUri } = require('../config/emailConfig.cjs');
+
+// El panel muestra la misma dirección que se le envía a Google; null si falta TRAD_BACKEND_PUBLIC_URL.
+function currentRedirectUri() {
+  try {
+    return oauthRedirectUri();
+  } catch {
+    return null;
+  }
+}
 
 // Cualquier admin puede editar, conectar o desconectar la configuración —
 // el único dato relevante es informativo: quién la guardó por última vez.
 function shapeStatus(status, userId) {
   return {
     ...status,
+    oauthRedirectUri: currentRedirectUri(),
     isLockedByAnother: false,
     isConfiguredByMe: Boolean(status.configuredByUserId && status.configuredByUserId === userId),
   };

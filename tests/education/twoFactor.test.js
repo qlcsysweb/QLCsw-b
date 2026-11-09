@@ -86,16 +86,10 @@ run('Verificación en dos pasos (integración)', () => {
     assert.equal((await request(app).post('/api/auth/2fa/setup').send({ challengeToken: byPassword.body.token })).status, 401);
   });
 
-  test('restablecer contraseña requiere el 2FA registrado y bloquea tras intentos fallidos', async () => {
-    assert.equal((await request(app).post('/api/auth/reset-password').send({ email, code: '000000', password: 'NuevaClave123!' })).status, 401);
+  test('la contraseña no se restablece con Google Authenticator y el código se bloquea tras intentos fallidos', async () => {
+    assert.equal((await request(app).post('/api/auth/reset-password').send({ email, code: nextCode(state.secret, 0), password: 'NuevaClave123!' })).status, 404);
     await prisma.user.update({ where: { email }, data: { totpLastStep: null, totpFailedAttempts: 0 } });
-    const ok = await request(app).post('/api/auth/reset-password').send({ email, code: nextCode(state.secret, 0), password: 'NuevaClave123!' });
-    assert.equal(ok.status, 200);
-    assert.equal((await request(app).post('/api/auth/login').send({ email, password: 'NuevaClave123!' })).body.status, 'OK');
     for (let i = 0; i < 5; i += 1) await request(app).post('/api/auth/login/2fa').send({ email, code: '000000' });
     assert.equal((await request(app).post('/api/auth/login/2fa').send({ email, code: nextCode(state.secret, -1) })).status, 429);
-    const noTwoFactor = await request(app).post('/api/auth/register').send({ acceptLegal: true, residenceCountry: 'MX', legalVersion: '2026-10-18', name: 'Sin 2FA', email: `no-${email}`, password: 'Password123!' });
-    assert.equal(noTwoFactor.status, 201);
-    assert.equal((await request(app).post('/api/auth/reset-password').send({ email: `no-${email}`, code: '123456', password: 'Otra12345!' })).status, 401);
   });
 });

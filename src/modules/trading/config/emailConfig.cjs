@@ -305,6 +305,7 @@ module.exports = {
   sanitizeAppPassword,
   createGmailTransport,
   GMAIL_OAUTH_SCOPES,
+  oauthRedirectUri,
   buildGoogleAuthUrl,
   exchangeOAuthCode,
   getAuthorizedEmail,

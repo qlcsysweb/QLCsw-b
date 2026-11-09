@@ -3,12 +3,23 @@ const driveConfigService = require('../services/driveConfigService.cjs');
 const ApiError = require('../utils/ApiError.cjs');
 const asyncHandler = require('../utils/asyncHandler.cjs');
 const { extractDriveFolderId } = require('../utils/driveFolderId.cjs');
+const { oauthRedirectUri } = require('../config/googleDrive.cjs');
+
+// El panel muestra la misma dirección que se le envía a Google; null si falta TRAD_BACKEND_PUBLIC_URL.
+function currentRedirectUri() {
+  try {
+    return oauthRedirectUri();
+  } catch {
+    return null;
+  }
+}
 
 // Cualquier admin puede editar o desconectar la configuración — el único
 // dato relevante es informativo: quién la guardó por última vez.
 function shapeStatus(status, userId) {
   return {
     ...status,
+    oauthRedirectUri: currentRedirectUri(),
     isLockedByAnother: false,
     isConfiguredByMe: Boolean(status.configuredByUserId && status.configuredByUserId === userId),
   };

@@ -223,6 +223,7 @@ module.exports = {
   hasCredentials,
   resolveRootFolderId,
   isConfigured,
+  oauthRedirectUri,
   buildGoogleAuthUrl,
   exchangeOAuthCode,
   getAuthorizedEmail,

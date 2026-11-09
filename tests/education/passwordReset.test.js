@@ -53,6 +53,16 @@ run('Restablecer contraseña con código por correo', () => {
     assert.equal(testEmail.outbox.filter((m) => m.to === email && m.template === 'passwordReset').length, 1);
   });
 
+  test('Si el correo no sale lo avisa y permite reintentar sin esperar', async () => {
+    testEmail.setReady(true);
+    const failing = `falla-${uid}@test.qlc`;
+    await prisma.user.create({ data: { email: failing, name: 'Falla', passwordHash: await bcrypt.hash('Password123!', 4), role: 'CLIENT' } });
+    testEmail.failNext = true;
+    assert.equal((await post('/api/auth/password-reset/request', { email: failing })).status, 503);
+    assert.equal((await post('/api/auth/password-reset/request', { email: failing })).status, 200);
+    assert.ok(lastCode(failing));
+  });
+
   test('Un código equivocado no cambia nada y a los 5 intentos se invalida', async () => {
     const code = lastCode(email);
     const wrong = code === '000000' ? '111111' : '000000';

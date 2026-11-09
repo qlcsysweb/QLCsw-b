@@ -147,17 +147,12 @@ export async function activateTwoFactor({ challengeToken, code }) {
   return startSession(updated);
 }
 
-export async function resetPasswordWithCode({ email, code, password }) {
-  const user = await userWithTwoFactor(email);
-  await verifyUserCode(user, code);
-  await prisma.user.update({ where: { id: user.id }, data: { passwordHash: await bcrypt.hash(password, SALT_ROUNDS) } });
-}
-
 const resetHash = (email, code) => codeHash(`reset:${email}`, code);
 const RESET_SENT = 'Si el correo está registrado, te enviamos un código para restablecer tu contraseña. Revisa también la carpeta de spam.';
+const RESET_UNAVAILABLE = 'No pudimos enviar el código en este momento. Intenta más tarde o contacta al equipo de QLC.';
 
 export async function requestPasswordReset({ email }) {
-  if (!(await emailReady())) throw new HttpError(503, 'El restablecimiento por correo todavía no está disponible. Usa tu código de Google Authenticator o contacta al equipo de QLC.');
+  if (!(await emailReady())) throw new HttpError(503, RESET_UNAVAILABLE);
   const user = await prisma.user.findUnique({ where: { email } });
   if (user && user.isActive && user.role === 'CLIENT') {
     const issuedAt = user.resetCodeExpiresAt ? user.resetCodeExpiresAt.getTime() - RESET_CODE_MINUTES * 60000 : 0;
@@ -167,7 +162,12 @@ export async function requestPasswordReset({ email }) {
         where: { id: user.id },
         data: { resetCodeHash: resetHash(email, code), resetCodeExpiresAt: new Date(Date.now() + RESET_CODE_MINUTES * 60000), resetCodeAttempts: 0 },
       });
-      sendEmail('passwordReset', email, { name: user.name, code, minutes: RESET_CODE_MINUTES }).catch(() => null);
+      const delivery = await sendEmail('passwordReset', email, { name: user.name, code, minutes: RESET_CODE_MINUTES });
+      if (!delivery.sent) {
+        // Sin esto el cliente vería "te enviamos un código" y esperaría un correo que nunca sale.
+        await prisma.user.update({ where: { id: user.id }, data: { resetCodeHash: null, resetCodeExpiresAt: null, resetCodeAttempts: 0 } });
+        throw new HttpError(503, RESET_UNAVAILABLE);
+      }
     }
   }
   return { message: RESET_SENT, minutes: RESET_CODE_MINUTES };

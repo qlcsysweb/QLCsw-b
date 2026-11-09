@@ -9,7 +9,14 @@ const { notifyAdmins, createApiPermissionsNotice, emailExistingNotification } = 
 const { resolveActiveReferrer, logAffiliateEvent } = require('../services/affiliateService.cjs');
 const { assertReferralAllowed, recordReferralLock } = require('../utils/referralLock.cjs');
 const { LEGAL_VERSIONS } = require('../utils/legalVersions.cjs');
-const { sendRegistrationCode, checkRegistrationCode, consumeRegistrationCode } = require('../services/emailVerificationService.cjs');
+const {
+  sendRegistrationCode,
+  checkRegistrationCode,
+  consumeRegistrationCode,
+  resetMailCredentials,
+  sendPasswordResetCode,
+  consumePasswordResetCode,
+} = require('../services/emailVerificationService.cjs');
 const {
   isTwoFactorGloballyEnabled,
   verifyToken,
@@ -361,23 +368,36 @@ const register = asyncHandler(async (req, res) => {
   res.status(201).json({ ok: true, token, user: shapeUser(user) });
 });
 
-// RESTABLECER CONTRASEÑA DESDE EL LOGIN (sin sesión) — correo + código de
-// Google Authenticator. Mismo error genérico para correo inexistente, cuenta
-// inactiva, cuenta sin Authenticator o código incorrecto: nunca revela si un
-// correo está registrado. Con el código válido se emite un token temporal
-// de un solo uso para fijar la contraseña nueva.
+// RESTABLECER CONTRASEÑA DESDE EL LOGIN (sin sesión) — código enviado al correo.
+// Misma respuesta para correo inexistente, cuenta inactiva o código incorrecto:
+// nunca revela si un correo está registrado. Con el código válido se emite un
+// token temporal de un solo uso para fijar la contraseña nueva. Google
+// Authenticator sigue activo: se pedirá al iniciar sesión con la contraseña nueva.
+const findUserByEmail = (email) => prisma.user.findFirst({ where: { email: { equals: email, mode: 'insensitive' } } });
+
+const resetRequestSchema = z.object({
+  email: z.string().trim().email('Email inválido'),
+  language: z.enum(['es', 'en']).optional(),
+});
+
+const requestPasswordReset = asyncHandler(async (req, res) => {
+  const { email, language } = resetRequestSchema.parse(req.body);
+  const creds = await resetMailCredentials();
+  const user = await findUserByEmail(email);
+  if (user?.isActive) await sendPasswordResetCode(creds, user.email, user.preferredLanguage || language);
+  res.json({ ok: true, message: 'Si el correo está registrado, te enviamos un código para restablecer tu contraseña.' });
+});
+
 const resetVerifySchema = z.object({
-  email: z.string().email('Email inválido'),
+  email: z.string().trim().email('Email inválido'),
   code: z.string().regex(/^\d{6}$/, 'El código debe tener 6 dígitos.'),
 });
 
 const verifyPasswordReset = asyncHandler(async (req, res) => {
   const { email, code } = resetVerifySchema.parse(req.body);
-  const user = await prisma.user.findUnique({ where: { email } });
-  const secret = user?.isActive && user.twoFactorEnabled ? decryptSecret(user.twoFactorSecretEncrypted) : null;
-  if (!secret || !verifyToken(secret, code)) {
-    throw ApiError.unauthorized('Correo o código de Google Authenticator incorrectos.');
-  }
+  await consumePasswordResetCode(email, code);
+  const user = await findUserByEmail(email);
+  if (!user?.isActive) throw ApiError.badRequest('Código incorrecto o vencido. Solicita uno nuevo si es necesario.');
   res.json({ ok: true, resetToken: signPasswordResetToken(user) });
 });
 
@@ -421,6 +441,7 @@ module.exports = {
   changePassword,
   register,
   sendRegisterCode,
+  requestPasswordReset,
   verifyPasswordReset,
   completePasswordReset,
 };

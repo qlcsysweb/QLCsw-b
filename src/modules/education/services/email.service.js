@@ -12,6 +12,7 @@ let testReady = false;
 
 export const testEmail = {
   outbox: [],
+  failNext: false,
   setReady: (value) => {
     testReady = value;
   },
@@ -50,6 +51,10 @@ export async function sendEmail(template, to, data = {}, { lang } = {}) {
   const content = renderEmail(template, data, language);
   const logSubject = content.subject.replace(/^\d{6}/, '••••••');
   if (env.isTest && testReady) {
+    if (testEmail.failNext) {
+      testEmail.failNext = false;
+      return { sent: false, error: 'Fallo simulado' };
+    }
     testEmail.outbox.push({ template, to, data, lang: language, subject: content.subject });
     return { sent: true };
   }
@@ -69,7 +74,7 @@ export async function sendEmail(template, to, data = {}, { lang } = {}) {
     return { sent: true };
   } catch (err) {
     await prisma.emailLog.create({ data: { to, subject: logSubject, template, status: 'FAILED', error: err.message.slice(0, 300) } }).catch(() => null);
-    if (!env.isProd) console.info(`[email] ${template} → ${to} no enviado: ${err.message}`);
+    console.error(`[email] ${template} no enviado por ${err.code || 'error'}: ${err.message}`);
     return { sent: false, error: err.message };
   }
 }

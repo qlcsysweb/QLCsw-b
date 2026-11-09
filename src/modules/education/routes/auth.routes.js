@@ -32,11 +32,6 @@ r.post('/logout', (_req, res) => res.json({ ok: true }));
 r.post('/password-reset/request', authLimiter, validate(schemas.emailCodeSchema), ah(async (req, res) => res.json(await auth.requestPasswordReset(req.body))));
 r.post('/password-reset/confirm', authLimiter, validate(schemas.resetWithCodeSchema), ah(async (req, res) => res.json(await auth.confirmPasswordReset(req.body))));
 
-r.post('/reset-password', authLimiter, validate(schemas.resetWithCodeSchema), ah(async (req, res) => {
-  await auth.resetPasswordWithCode(req.body);
-  res.json({ message: 'Contraseña actualizada. Ya puedes iniciar sesión.' });
-}));
-
 r.post('/change-password', authenticate, validate(schemas.changePasswordSchema), ah(async (req, res) => {
   await auth.changePassword(req.user.id, req.body);
   res.json({ message: 'Contraseña actualizada' });

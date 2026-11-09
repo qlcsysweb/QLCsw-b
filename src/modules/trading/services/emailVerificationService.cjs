@@ -19,6 +19,9 @@ const CODE_TTL_MS = 15 * 60 * 1000;
 const RESEND_COOLDOWN_MS = 60 * 1000;
 const MAX_ATTEMPTS = 5;
 const PURPOSE = 'REGISTER';
+const RESET_PURPOSE = 'PASSWORD_RESET';
+const RESET_UNAVAILABLE = 'No pudimos enviar el código en este momento. Intenta más tarde o contacta a soporte@qlctrade.net.';
+const RESET_INVALID = 'Código incorrecto o vencido. Solicita uno nuevo si es necesario.';
 
 const normalizeEmail = (email) => String(email || '').trim().toLowerCase();
 const hashCode = (email, code) =>
@@ -65,6 +68,29 @@ const COPY = {
 };
 const copyFor = (language) => COPY[language === 'es' ? 'es' : 'en'];
 
+const RESET_COPY = {
+  en: {
+    subject: 'QLC — Your password reset code',
+    codeIs: 'Your password reset code is:',
+    heading: 'Reset your password',
+    intro: 'Enter this code on the sign-in screen to create a new password.',
+    expiresText: 'Enter it on the sign-in screen to create a new password. The code expires in 15 minutes.',
+    expiresHtml: COPY.en.expiresHtml,
+    ignore: 'If you did not request this, ignore this message: your password has not changed.',
+    support: COPY.en.support,
+  },
+  es: {
+    subject: 'QLC — Tu código para restablecer la contraseña',
+    codeIs: 'Tu código para restablecer la contraseña es:',
+    heading: 'Restablece tu contraseña',
+    intro: 'Escribe este código en la pantalla de inicio de sesión para crear una contraseña nueva.',
+    expiresText: 'Escríbelo en la pantalla de inicio de sesión para crear una contraseña nueva. El código vence en 15 minutos.',
+    expiresHtml: COPY.es.expiresHtml,
+    ignore: 'Si no lo solicitaste, ignora este mensaje: tu contraseña no ha cambiado.',
+    support: COPY.es.support,
+  },
+};
+
 const textBody = (code, c) =>
   `Quantum Liquidity Capital (QLC)\n\n${c.codeIs} ${code}\n\n${c.expiresText}\n\n${c.ignore}\n\n— Quantum Liquidity Capital (QLC)\n${c.support}: soporte@qlctrade.net`;
 const htmlBody = (code, withLogo, c) => `<!doctype html>
@@ -94,29 +120,88 @@ async function sendRegistrationCode(email, language) {
   if (!creds) {
     throw ApiError.serviceUnavailable('No pudimos enviar el código de verificación en este momento. Intenta más tarde o contacta a soporte@qlctrade.net.');
   }
+  return issueCode({
+    creds,
+    email,
+    purpose: PURPOSE,
+    copy: copyFor(language),
+    failureMessage: 'No pudimos enviar el código a ese correo. Revisa que esté bien escrito e intenta de nuevo.',
+  });
+}
+
+async function issueCode({ creds, email, purpose, copy, failureMessage }) {
+  const normalized = normalizeEmail(email);
   const code = String(crypto.randomInt(0, 1000000)).padStart(6, '0');
   // Un código nuevo invalida los anteriores de ese correo.
   await prisma.emailVerificationCode.updateMany({
-    where: { email: normalized, purpose: PURPOSE, consumedAt: null },
+    where: { email: normalized, purpose, consumedAt: null },
     data: { consumedAt: new Date() },
   });
   const row = await prisma.emailVerificationCode.create({
-    data: { email: normalized, purpose: PURPOSE, codeHash: hashCode(normalized, code), expiresAt: new Date(Date.now() + CODE_TTL_MS) },
+    data: { email: normalized, purpose, codeHash: hashCode(normalized, code), expiresAt: new Date(Date.now() + CODE_TTL_MS) },
   });
   const logo = logoAttachment();
   try {
     await sendMailUnified(creds, {
       to: String(email).trim(),
-      subject: copyFor(language).subject,
-      text: textBody(code, copyFor(language)),
-      html: htmlBody(code, Boolean(logo), copyFor(language)),
+      subject: copy.subject,
+      text: textBody(code, copy),
+      html: htmlBody(code, Boolean(logo), copy),
       attachments: logo ? [logo] : [],
     });
-  } catch {
-    await prisma.emailVerificationCode.update({ where: { id: row.id }, data: { consumedAt: new Date() } }).catch(() => {});
-    throw ApiError.serviceUnavailable('No pudimos enviar el código a ese correo. Revisa que esté bien escrito e intenta de nuevo.');
+  } catch (err) {
+    console.error(`[email] Código ${purpose} no enviado por ${err.code || 'error'}: ${err.message}`);
+    await prisma.emailVerificationCode.delete({ where: { id: row.id } }).catch(() => {});
+    throw ApiError.serviceUnavailable(failureMessage);
   }
   return { expiresAt: row.expiresAt };
+}
+
+// Se comprueba antes de buscar la cuenta para que la falta de correo se responda
+// igual exista o no el usuario.
+async function resetMailCredentials() {
+  const creds = await resolveCredentials().catch((err) => {
+    console.error(`[email] Credenciales de correo inválidas: ${err.message}`);
+    return null;
+  });
+  if (!creds) throw ApiError.serviceUnavailable(RESET_UNAVAILABLE);
+  return creds;
+}
+
+// Durante la espera entre reenvíos no se envía nada ni se avisa: la respuesta
+// debe ser la misma que para un correo que no existe.
+async function sendPasswordResetCode(creds, email, language) {
+  const last = await prisma.emailVerificationCode.findFirst({
+    where: { email: normalizeEmail(email), purpose: RESET_PURPOSE },
+    orderBy: { createdAt: 'desc' },
+  });
+  if (last && Date.now() - last.createdAt.getTime() < RESEND_COOLDOWN_MS) return;
+  await issueCode({
+    creds,
+    email,
+    purpose: RESET_PURPOSE,
+    copy: RESET_COPY[language === 'en' ? 'en' : 'es'],
+    failureMessage: RESET_UNAVAILABLE,
+  });
+}
+
+// Un solo uso: el código queda consumido al verificarse.
+async function consumePasswordResetCode(email, code) {
+  const normalized = normalizeEmail(email);
+  const invalid = () => ApiError.badRequest(RESET_INVALID);
+  const row = await prisma.emailVerificationCode.findFirst({
+    where: { email: normalized, purpose: RESET_PURPOSE, consumedAt: null },
+    orderBy: { createdAt: 'desc' },
+  });
+  if (!row || row.expiresAt <= new Date() || row.attempts >= MAX_ATTEMPTS) throw invalid();
+  const expected = Buffer.from(row.codeHash, 'hex');
+  const received = Buffer.from(hashCode(normalized, String(code || '').trim()), 'hex');
+  if (expected.length !== received.length || !crypto.timingSafeEqual(expected, received)) {
+    await prisma.emailVerificationCode.update({ where: { id: row.id }, data: { attempts: { increment: 1 } } });
+    throw invalid();
+  }
+  const { count } = await prisma.emailVerificationCode.updateMany({ where: { id: row.id, consumedAt: null }, data: { consumedAt: new Date() } });
+  if (!count) throw invalid();
 }
 
 // Comprueba el código (fuera de la transacción, para que un intento fallido
@@ -150,4 +235,12 @@ async function consumeRegistrationCode(tx, codeId) {
   if (!count) throw ApiError.badRequest('El código de verificación ya fue utilizado. Solicita un código nuevo.');
 }
 
-module.exports = { sendRegistrationCode, checkRegistrationCode, consumeRegistrationCode, normalizeEmail };
+module.exports = {
+  sendRegistrationCode,
+  checkRegistrationCode,
+  consumeRegistrationCode,
+  resetMailCredentials,
+  sendPasswordResetCode,
+  consumePasswordResetCode,
+  normalizeEmail,
+};
