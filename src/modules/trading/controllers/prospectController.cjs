@@ -82,12 +82,33 @@ const createProspectSchema = z.object({
   language: z.enum(['es', 'en', 'pt']).optional(),
 });
 
+// Origen de las solicitudes de código de afiliación hechas desde "Crea tu cuenta".
+const CODE_REQUEST_SOURCE = 'solicitud_codigo';
+const CODE_REQUEST_NOTE = 'Solicita un código de afiliación para registrarse (enviarlo por correo en un lapso de 24 horas).';
+
 const createProspect = asyncHandler(async (req, res) => {
   const { language, ...data } = createProspectSchema.parse(req.body);
+  const isCodeRequest = data.source === CODE_REQUEST_SOURCE;
 
   const prospect = await prisma.prospect.create({
-    data: { ...data, infoRequested: true },
+    data: { ...data, ...(isCodeRequest && !data.message?.trim() ? { message: CODE_REQUEST_NOTE } : {}), infoRequested: true },
   });
+
+  if (isCodeRequest) {
+    const emailResult = await sendProspectWelcomeEmail(prospect, language, 'codeRequest').catch((err) => ({ sent: false, reason: err.message }));
+    const updated = emailResult.sent
+      ? await prisma.prospect.update({ where: { id: prospect.id }, data: { emailSentAt: new Date() } })
+      : prospect;
+    const prospectName = `${prospect.firstName}${prospect.lastName ? ` ${prospect.lastName}` : ''}`;
+    await notifyAdmins({
+      title: 'Solicitud de código de afiliación',
+      message: `${prospectName} (${prospect.email}) solicitó un código de afiliación para registrarse. Envíale uno por correo en un lapso de 24 horas.`,
+      type: 'info',
+      templateKey: 'affiliate_code_request_admin',
+      templateParams: { prospectName, email: prospect.email, prospectId: prospect.id },
+    });
+    return res.status(201).json({ ok: true, prospect: updated, email: emailResult });
+  }
 
   const emailResult = await sendProspectWelcomeEmail(prospect, language).catch((err) => ({
     sent: false,

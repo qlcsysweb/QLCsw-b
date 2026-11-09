@@ -118,6 +118,10 @@ module.exports = {
       "title": "Chat de 15 minutos encerrado",
       "message": "A sessão de chat com {clientName} foi encerrada. Você já pode baixar a conversa em PDF em Suporte."
     },
+    "affiliate_code_request_admin": {
+      "title": "Solicitação de código de afiliação",
+      "message": "{prospectName} ({email}) solicitou um código de afiliação para se cadastrar. Envie um por e-mail em até 24 horas."
+    },
     "new_prospect_admin": {
       "title": "Novo prospect",
       "message": "{prospectName} ({email}) solicitou informações sobre a QLC."

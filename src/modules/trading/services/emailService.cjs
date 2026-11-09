@@ -28,18 +28,39 @@ const COPY = {
     subject: 'Quantum Liquidity Capital — Information received',
     body: (name) =>
       `Hi ${name}, we've received your request for information about QLC. A member of our team will contact you shortly.`,
-  },  pt: {
+  },
+  pt: {
     subject: 'Quantum Liquidity Capital — Informações recebidas',
     body: (name) =>
       `Olá, ${name}, recebemos sua solicitação de informações sobre a QLC. Um membro da nossa equipe entrará em contato com você em breve.`,
   },
 };
 
-async function sendProspectWelcomeEmail(prospect, language) {
+// Confirmación al pedir un código de afiliación desde "Crea tu cuenta".
+const CODE_REQUEST_COPY = {
+  es: {
+    subject: 'Quantum Liquidity Capital — Solicitud de código recibida',
+    body: (name) =>
+      `Hola ${name}, recibimos tu solicitud de un código de afiliación. El equipo de QLC te enviará uno a este correo en un lapso de 24 horas para que puedas crear tu cuenta.`,
+  },
+  en: {
+    subject: 'Quantum Liquidity Capital — Code request received',
+    body: (name) =>
+      `Hi ${name}, we've received your request for an affiliate code. The QLC team will send one to this email within 24 hours so you can create your account.`,
+  },
+  pt: {
+    subject: 'Quantum Liquidity Capital — Solicitação de código recebida',
+    body: (name) =>
+      `Olá, ${name}, recebemos sua solicitação de um código de afiliação. A equipe QLC enviará um para este e-mail em até 24 horas para que você possa criar sua conta.`,
+  },
+};
+
+async function sendProspectWelcomeEmail(prospect, language, kind = 'info') {
   const creds = await resolveCredentials();
   if (!creds) return { sent: false, reason: 'Credenciales de Gmail no configuradas' };
 
-  const copy = COPY[language] || COPY.es;
+  const copies = kind === 'codeRequest' ? CODE_REQUEST_COPY : COPY;
+  const copy = copies[language] || copies.es;
 
   await sendMailUnified(creds, { to: prospect.email, subject: copy.subject, text: copy.body(prospect.firstName) });
   return { sent: true };

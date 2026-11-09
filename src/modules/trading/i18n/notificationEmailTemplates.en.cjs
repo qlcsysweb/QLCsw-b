@@ -118,6 +118,10 @@ module.exports = {
       "title": "15-minute chat finished",
       "message": "The chat session with {clientName} finished. You can now download the conversation as a PDF from Support."
     },
+    "affiliate_code_request_admin": {
+      "title": "Affiliate code request",
+      "message": "{prospectName} ({email}) requested an affiliate code to register. Send one by email within 24 hours."
+    },
     "new_prospect_admin": {
       "title": "New prospect",
       "message": "{prospectName} ({email}) requested information about QLC."
