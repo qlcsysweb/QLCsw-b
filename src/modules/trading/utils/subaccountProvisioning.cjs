@@ -1,0 +1,107 @@
+/*
+ * GESTIÓN DINÁMICA DE SUBCUENTAS/API — cada cliente nace con únicamente su
+ * cuenta PRINCIPAL (slotIndex 0). Ya NO se pre-crean 20 subcuentas por
+ * cliente: cualquier subcuenta adicional nace solo cuando un admin la crea
+ * manualmente o aprueba una solicitud del cliente (ver
+ * services/subaccountRequestService.js).
+ */
+const prisma = require('../config/prisma.cjs');
+
+// CORREGIR(2).xlsx — el contrato ya NO es un requisito de activación (se
+// sustituyó por la aceptación de Términos y Condiciones en el registro).
+// Orden alineado al flujo real del cliente: Garantía (PAYMENT, 25% sobre
+// capital, vía transferencia interna Bitget) → Capital distribuido en el
+// exchange (FUNDS) → API → Activación.
+const PROCESS_CONDITION_TYPES = ['PAYMENT', 'FUNDS', 'API', 'ACTIVATION'];
+const MAX_SUBACCOUNTS_PER_CLIENT = 20;
+
+// MODELO ÚNICO DE PARTICIPACIÓN (50% QLC / 50% Cliente): ya no existe
+// selector — cada subcuenta queda asignada (y confirmada) automáticamente
+// al único modelo activo en cuanto se crea.
+async function ensureParticipationModel(apiSubaccountId) {
+  const existing = await prisma.clientModel.findUnique({ where: { apiSubaccountId } });
+  if (existing) return existing;
+  const model = await prisma.model.findFirst({ where: { isActive: true }, orderBy: { displayOrder: 'asc' } });
+  if (!model) return null;
+  return prisma.clientModel.create({
+    data: { apiSubaccountId, modelId: model.id, confirmedAt: new Date() },
+  });
+}
+
+function buildProcessCreateData() {
+  return {
+    create: {
+      conditions: {
+        create: PROCESS_CONDITION_TYPES.map((type) => ({ type, status: 'PENDING' })),
+      },
+    },
+  };
+}
+
+// Idempotente: si el cliente ya tiene su cuenta PRINCIPAL (slotIndex 0), no
+// hace nada. Se usa en el registro público y en la creación administrativa
+// de clientes — nunca crea subcuentas numeradas adicionales.
+async function ensurePrincipalSubaccount(clientId) {
+  const client = await prisma.clientProfile.findUnique({ where: { id: clientId } });
+  if (!client) return null;
+
+  const existingPrincipal = await prisma.apiSubaccount.findUnique({
+    where: { clientId_slotIndex: { clientId, slotIndex: 0 } },
+  });
+  if (existingPrincipal) {
+    await ensureParticipationModel(existingPrincipal.id);
+    return existingPrincipal;
+  }
+
+  const principal = await prisma.apiSubaccount.create({
+    data: {
+      clientId,
+      slotIndex: 0,
+      isPrincipal: true,
+      process: buildProcessCreateData(),
+    },
+  });
+  await ensureParticipationModel(principal.id);
+  return principal;
+}
+
+// Próximo slotIndex disponible para una subcuenta NUMERADA (1..20) nueva de
+// este cliente. Se basa en el máximo slotIndex ya usado (incluyendo
+// subcuentas inactivas/históricas) para nunca chocar con la restricción
+// única [clientId, slotIndex] — el slotIndex es solo un orden interno, el
+// identificador visible para el cliente/admin es `identifier`.
+async function getNextSlotIndex(clientId) {
+  const last = await prisma.apiSubaccount.findFirst({
+    where: { clientId, isPrincipal: false },
+    orderBy: { slotIndex: 'desc' },
+    select: { slotIndex: true },
+  });
+  return (last?.slotIndex || 0) + 1;
+}
+
+// Cuenta contra el límite de 20 — únicamente las subcuentas numeradas
+// ACTIVAS (ni la principal ni las inactivas cuentan).
+async function countActiveSubaccounts(clientId) {
+  return prisma.apiSubaccount.count({
+    where: { clientId, isPrincipal: false, deactivatedAt: null },
+  });
+}
+
+// Regla segura de desactivación: no se permite desactivar una subcuenta
+// mientras tenga un estado de cuenta sin pagar (pendiente o vencido).
+async function hasPendingStatements(apiSubaccountId) {
+  const count = await prisma.statement.count({
+    where: { apiSubaccountId, status: { in: ['PENDIENTE_DE_PAGO', 'VENCIDO_SIN_PAGAR'] } },
+  });
+  return count > 0;
+}
+
+module.exports = {
+  ensurePrincipalSubaccount,
+  ensureParticipationModel,
+  getNextSlotIndex,
+  countActiveSubaccounts,
+  hasPendingStatements,
+  MAX_SUBACCOUNTS_PER_CLIENT,
+  PROCESS_CONDITION_TYPES,
+};

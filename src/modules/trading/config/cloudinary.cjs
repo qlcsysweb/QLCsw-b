@@ -1,0 +1,47 @@
+const { v2: cloudinary } = require('cloudinary');
+
+// La librería guarda su configuración en un objeto global del proceso, que aquí
+// comparte Educación: las credenciales se pasan en cada llamada, nunca con config().
+const credentials = () => ({
+  cloud_name: process.env.TRAD_CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.TRAD_CLOUDINARY_API_KEY,
+  api_secret: process.env.TRAD_CLOUDINARY_API_SECRET,
+  secure: true,
+});
+
+// Cloudinary es SOLO para recursos visuales públicos del sitio (logo,
+// branding, imágenes/videos de la página pública). TODO archivo operativo
+// de un cliente — documentos, comprobantes y estados de cuenta — vive en
+// Google Drive (ver
+// services/driveStorageService.js). ÚNICA EXCEPCIÓN (CORRECCIÓN 27): las
+// dos guías de uso (ADMIN/CLIENTE) descargables desde el dashboard — esos
+// dos PDFs, y solo esos, se almacenan aquí como recurso "raw".
+const FOLDERS = {
+  PUBLIC: 'qlc/public',
+  BRANDING: 'qlc/branding',
+  PUBLIC_IMAGES: 'qlc/public/images',
+  PUBLIC_VIDEOS: 'qlc/public/videos',
+  GUIDES: 'qlc/guides',
+};
+
+// `invalidate`: purga la caché del CDN al sobrescribir un archivo con URL fija
+// (p. ej. los datos del sitio público, ver services/publicSiteSnapshot.js).
+function uploadBuffer(buffer, { folder, resourceType = 'auto', publicId, invalidate = false } = {}) {
+  const streamifier = require('streamifier');
+  return new Promise((resolve, reject) => {
+    const uploadStream = cloudinary.uploader.upload_stream(
+      { ...credentials(), folder, resource_type: resourceType, public_id: publicId, overwrite: true, ...(invalidate ? { invalidate: true } : {}) },
+      (error, result) => {
+        if (error) return reject(error);
+        resolve(result);
+      }
+    );
+    streamifier.createReadStream(buffer).pipe(uploadStream);
+  });
+}
+
+function destroyAsset(publicId, resourceType = 'image') {
+  return cloudinary.uploader.destroy(publicId, { ...credentials(), resource_type: resourceType });
+}
+
+module.exports = { cloudinary, uploadBuffer, destroyAsset, FOLDERS };

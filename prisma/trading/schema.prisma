@@ -1,0 +1,1628 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../../node_modules/@qlc/prisma-trading"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("TRAD_DATABASE_URL")
+}
+
+// ==========================================================
+// ENUMS
+// ==========================================================
+
+enum Role {
+  ADMIN
+  CLIENT
+}
+
+enum ClientStatus {
+  PENDING
+  ACTIVE
+  INACTIVE
+  REVIEW
+}
+
+enum ProcessConditionType {
+  // LEGACY — la condición WALLET ya no forma parte del proceso, pero producción
+  // conserva filas históricas con este valor (no se borran sin autorización
+  // explícita). Se mantiene en el enum solo para que Prisma pueda leerlas; el
+  // backend siempre las excluye (type != WALLET).
+  WALLET
+  FUNDS
+  PAYMENT
+  API
+  ACTIVATION
+}
+
+enum ConditionStatus {
+  PENDING
+  CONFIRMED
+  REJECTED
+}
+
+enum PaymentReportStatus {
+  PENDING
+  EN_REVISION
+  // AUDITORÍA QLC PARTE 4 — paso intermedio obligatorio: "Garantía
+  // reportada" ya NO es sinónimo de aprobar el pago. Solo tras marcar este
+  // estado el admin puede pasar a APROBADO.
+  GARANTIA_REPORTADA
+  APROBADO
+  RECHAZADO
+}
+
+enum AppointmentStatus {
+  PENDING
+  AUTORIZADA
+  RECHAZADA
+  COMPLETADA
+  CANCELADA
+}
+
+enum SupportCaseStatus {
+  OPEN
+  IN_PROGRESS
+  CLOSED
+}
+
+enum ChatSessionStatus {
+  SCHEDULED
+  ACTIVE
+  CLOSED
+}
+
+enum ApiConnectionStatus {
+  CONECTADA
+  DESCONECTADA
+  PENDIENTE
+}
+
+enum ProspectStatus {
+  NUEVO
+  CONTACTADO
+  CONVERTIDO
+  DESCARTADO
+}
+
+enum ConnectionEventType {
+  ACTIVATED
+  DISCONNECTED
+  RECONNECTED
+}
+
+// CORRECCIÓN 1/6/20/21 — Guías de uso: biblioteca editable desde ADMIN,
+// consultada en modo lectura por CLIENTE/ADMIN según audiencia.
+enum GuideAudience {
+  CLIENT
+  ADMIN
+  BOTH
+}
+
+// CORRECCIÓN CORREGIR.xlsx — ADMIN 14: mensajería manual admin→cliente,
+// reutilizando Notification (nunca una tabla paralela). "SYSTEM" son las
+// notificaciones automáticas de siempre (con templateKey); "MANUAL" son
+// mensajes redactados a mano por un admin y quedan excluidos de la
+// limpieza automática de 34 días para preservar el historial del "correo
+// interno".
+// Estado de cuenta simplificado (ver model Statement).
+// BORRADOR: el admin todavía lo prepara (editable, sin PDF, invisible para el
+// cliente, sin plazo de 72 h). Al FINALIZAR, el MISMO registro pasa a
+// PENDIENTE_DE_PAGO. Máximo un borrador por subcuenta (índice único parcial
+// "statements_one_draft_per_subaccount", creado por SQL en la migración
+// 20261002090100_borrador_estado_cuenta_unico — Prisma no modela índices
+// parciales).
+enum StatementStatus {
+  BORRADOR
+  PENDIENTE_DE_PAGO
+  PAGADO
+  VENCIDO_SIN_PAGAR
+}
+
+enum NotificationKind {
+  SYSTEM
+  MANUAL
+}
+
+// ==========================================================
+// IDENTITY
+// ==========================================================
+// CORRECCIÓN 6 / 17 / 18: no existe teléfono ni username global. El
+// identificador de acceso es el correo. CORRECCIÓN 19: infraestructura 2FA
+// preparada pero desactivada globalmente (ver TWO_FA_ENABLED en .env) —
+// mientras esté desactivada el login ignora estos campos por completo.
+
+model User {
+  id              String    @id @default(cuid())
+  email           String    @unique
+  passwordHash    String
+  role            Role
+  isActive        Boolean   @default(true)
+  lastLoginAt     DateTime?
+  // Correo confirmado con el código enviado al registrarse (registro público).
+  emailVerifiedAt DateTime?
+  // Idioma elegido por el usuario en QLC ('es' | 'en') — define el idioma de
+  // sus correos. Se guarda al registrarse y cada vez que cambia de idioma en
+  // su panel. Null (cuentas anteriores) = español.
+  preferredLanguage String?  @db.VarChar(2)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  // 2FA (Google Authenticator / TOTP) — preparado, no activo por defecto.
+  twoFactorEnabled                Boolean @default(false)
+  twoFactorSecretEncrypted        String?
+  twoFactorPendingSecretEncrypted String?
+
+  adminProfile  AdminProfile?
+  clientProfile ClientProfile?
+
+  uploadedDocuments                  Document[]                  @relation("DocumentUploadedBy")
+  reviewedPayments                   PaymentReport[]             @relation("PaymentReviewedBy")
+  transferReceivedPayments           PaymentReport[]             @relation("PaymentTransferReceivedBy")
+  guaranteeReportedPayments          PaymentReport[]             @relation("PaymentGuaranteeReportedBy")
+  updatedContent                     PublicContent[]             @relation("ContentUpdatedBy")
+  approvedAppointments               Appointment[]               @relation("AppointmentApprovedBy")
+  updatedApiSubaccounts              ApiSubaccount[]             @relation("ApiSubaccountUpdatedBy")
+  chatMessagesSent                   ChatMessage[]               @relation("ChatMessageSender")
+  adminChatSessions                  ChatSession[]               @relation("ChatSessionAdmin")
+  notifications                      Notification[]
+  driveConfigsConfigured             DriveConfiguration[]        @relation("DriveConfigConfiguredBy")
+  driveConfigsUpdated                DriveConfiguration[]        @relation("DriveConfigUpdatedBy")
+  emailConfigsConfigured             EmailConfiguration[]        @relation("EmailConfigConfiguredBy")
+  emailConfigsUpdated                EmailConfiguration[]        @relation("EmailConfigUpdatedBy")
+  mediaAssetUpdates                  MediaAsset[]                @relation("MediaAssetUpdatedBy")
+  statementsCreated                  Statement[]                 @relation("StatementCreatedBy")
+  documentUnlocksGranted             Document[]                  @relation("DocumentUnlockedBy")
+  documentCorrectionsUploaded        DocumentCorrection[]        @relation("DocumentCorrectionBy")
+  notificationsSent                  Notification[]              @relation("NotificationSentBy")
+  capitalDistributionReportsReviewed CapitalDistributionReport[] @relation("CapitalDistReportReviewedBy")
+  securityConfigsUpdated             SecurityConfiguration[]     @relation("SecurityConfigUpdatedBy")
+  processStepsUpdated                ProcessStep[]               @relation("ProcessStepUpdatedBy")
+  supportCaseMessagesSent            SupportCaseMessage[]        @relation("SupportCaseMessageSender")
+  supportCaseFilesUploaded           SupportCaseFile[]           @relation("SupportCaseFileUploader")
+  subaccountPaymentDataUpdated       SubaccountPaymentData[]     @relation("SubaccountPaymentDataUpdatedBy")
+  apiSubaccountsDeactivated          ApiSubaccount[]             @relation("ApiSubaccountDeactivatedBy")
+  subaccountRequestsMade             SubaccountRequest[]         @relation("SubaccountRequestRequestedBy")
+  subaccountRequestsReviewed         SubaccountRequest[]         @relation("SubaccountRequestReviewedBy")
+  affiliateCommissionsCreated        AffiliateCommission[]       @relation("AffiliateCommissionCreatedBy")
+  affiliateConfigsUpdated            AffiliateConfiguration[]    @relation("AffiliateConfigUpdatedBy")
+
+  @@map("users")
+}
+
+model AdminProfile {
+  id             String   @id @default(cuid())
+  userId         String   @unique
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  firstName      String
+  lastName       String
+  permissions    Json     @default("{}")
+  // CORRECGIR.xlsx ADMIN 06 — solo el "administrador general" puede
+  // eliminar clientes; el resto de admins nunca ve/usa la contraseña de
+  // seguridad (SecurityConfiguration.clientDeletionPasswordHash).
+  isGeneralAdmin Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@map("admin_profiles")
+}
+
+// CORREGIR.xlsx ADMIN 06 — fila única (singleton) con la contraseña de
+// seguridad exclusiva para eliminar clientes. Solo el administrador
+// general puede configurarla/usarla; nunca se devuelve el hash al
+// frontend. Reutiliza bcrypt (igual que User.passwordHash), nunca texto
+// plano.
+model SecurityConfiguration {
+  id                         String   @id @default(cuid())
+  clientDeletionPasswordHash String?
+  updatedByUserId            String?
+  updatedBy                  User?    @relation("SecurityConfigUpdatedBy", fields: [updatedByUserId], references: [id])
+  updatedAt                  DateTime @updatedAt
+  createdAt                  DateTime @default(now())
+
+  @@map("security_configuration")
+}
+
+model ClientProfile {
+  id        String       @id @default(cuid())
+  userId    String       @unique
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // NOMENCLATURA ÚNICA DEL CLIENTE — "usuario" es un identificador libre
+  // (cualquier carácter, máx. 30) que el ADMINISTRADOR asigna para
+  // identificar al cliente y nombrar su carpeta de Google Drive. Es
+  // INDEPENDIENTE del correo (login), del nombre visible y del identificador
+  // de una subcuenta. Se asigna UNA sola vez — ni el cliente ni el admin
+  // pueden editarla después (ver clientController.updateClient, que la
+  // rechaza explícitamente si ya existe). Null = "PENDIENTE DE ASIGNACIÓN":
+  // así nace todo registro público; un admin la asigna después.
+  username  String?      @unique @db.VarChar(30)
+  firstName String
+  lastName  String
+  status    ClientStatus @default(PENDING)
+  notes     String?
+  isDemo    Boolean      @default(false)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  // Cache de IDs de carpetas de Google Drive (evita crear/buscar carpetas en cada subida)
+  driveClientFolderId     String?
+  driveDocumentsFolderId  String?
+  drivePaymentsFolderId   String?
+  driveStatementsFolderId String?
+  // IMPLEMENTACIÓN DEFINITIVA DE GOOGLE DRIVE — la carpeta del cliente se
+  // intenta preparar apenas se registra (ver subaccountProvisioning/registro),
+  // pero eso solo puede completarse si Drive ya está conectado. "PENDING"
+  // significa que falta sincronizar (Drive no estaba configurado en ese
+  // momento, o falló); "SYNCED" que sus carpetas ya existen en Drive.
+  driveSyncStatus         String  @default("PENDING") // "PENDING" | "SYNCED" | "ERROR"
+  driveSyncError          String?
+
+  // El contrato ya NO forma parte del registro (sustituido por Aviso de
+  // Privacidad + Términos y Condiciones). Se conserva evidencia de qué
+  // versión aceptó el cliente y cuándo, no solo un booleano.
+  privacyNoticeAcceptedAt    DateTime?
+  privacyNoticeVersion       String?
+  termsAcceptedAt            DateTime?
+  termsVersion               String?
+  apiAuthorizationAccepted   Boolean   @default(false)
+  apiAuthorizationAcceptedAt DateTime?
+
+  documents    Document[]    @relation("ClientDocuments")
+  appointments Appointment[]
+  supportCases SupportCase[]
+  chatSessions ChatSession[] @relation("ChatSessionClient")
+
+  // CORRECCIÓN 11/16: hasta 20 subcuentas/API por cliente.
+  apiSubaccounts ApiSubaccount[]
+
+  // GESTIÓN DINÁMICA DE SUBCUENTAS — cada solicitud (crear o eliminar una
+  // subcuenta) queda registrada aquí, con su propio historial de revisión.
+  // Reemplaza el timestamp único `subaccountRequestedAt` (solo permitía
+  // saber "hay una solicitud sí/no", nunca el motivo ni el historial).
+  subaccountRequests SubaccountRequest[]
+
+  // AFILIADOS / PROMOTORES — un CLIENTE (role CLIENT) puede actuar como
+  // promotor; no existe un rol de autenticación aparte. Relación ÚNICAMENTE
+  // DIRECTA (no multinivel): `referredBy` es el afiliador directo y solo él
+  // puede ser beneficiario de una comisión por este cliente.
+  // affiliateCode: se guarda SIEMPRE normalizado en mayúsculas (A-Z0-9), así
+  // que el índice único de la BD también lo protege ante mayúsculas/minúsculas
+  // y ante generación concurrente. Nunca lo edita el cliente.
+  affiliateCode               String?         @unique @db.VarChar(32)
+  affiliateEnabled            Boolean         @default(false)
+  affiliateEnabledAt          DateTime?
+  // Desactivada por ADMIN: el cliente ya no puede reactivarla por su cuenta;
+  // las relaciones históricas se conservan.
+  affiliateDisabledAt         DateTime?
+
+  // ELIMINACIÓN DE CUENTA SOLICITADA POR EL CLIENTE (autoservicio con
+  // contraseña + Google Authenticator). Nunca es un borrado en cascada: se
+  // registra la solicitud, se desactiva el acceso y los datos quedan
+  // retenidos hasta su anonimización conforme a la política aplicable.
+  // accountDeletionStatus: null (sin solicitud) | 'REQUESTED' | 'ANONYMIZED'.
+  // ADMIN no puede eliminar ni reactivar una cuenta con solicitud registrada.
+  accountDeletionStatus       String?         @db.VarChar(20)
+  accountDeletionRequestedAt  DateTime?
+  accountDeactivatedAt        DateTime?
+  accountAnonymizedAt         DateTime?
+  // Afiliador DIRECTO — se fija una sola vez al crear la cuenta y no cambia.
+  // Null = sin afiliado (clientes históricos o alta administrativa sin
+  // afiliado). La BD impide la autoafiliación (CHECK en la migración).
+  referredByClientId          String?
+  referredBy                  ClientProfile?  @relation("ClientReferrals", fields: [referredByClientId], references: [id], onDelete: SetNull)
+  referrals                   ClientProfile[] @relation("ClientReferrals")
+  referredAt                  DateTime?
+  // 'AFFILIATE_LINK' (registro público con código) | 'ADMIN' (alta administrativa con afiliado)
+  referralSource              String?         @db.VarChar(20)
+  // Código de afiliación EXACTO que se usó al registrarse (además del ID del
+  // afiliador): evidencia de la atribución aunque el código cambie después.
+  referralCodeUsed            String?         @db.VarChar(32)
+  // UID de Bitget del AFILIADOR: dato de RECEPCIÓN de sus comisiones
+  // (requisito para crear su liga). La plataforma nunca se conecta a Bitget.
+  affiliateBitgetUid          String?         @db.VarChar(40)
+  affiliateBitgetUidUpdatedAt DateTime?
+
+  affiliateCommissionsEarned    AffiliateCommission[] @relation("AffiliateCommissionReferrer")
+  affiliateCommissionsGenerated AffiliateCommission[] @relation("AffiliateCommissionReferred")
+  affiliatePayments             AffiliatePayment[]    @relation("AffiliatePaymentReferrer")
+  // Candados de las personas que se inscribieron con la liga de este afiliador.
+  referralLocks                 AffiliateReferralLock[] @relation("ReferralLockReferrer")
+
+  @@index([referredByClientId])
+  @@map("client_profiles")
+}
+
+// ==========================================================
+// SUBCUENTAS / API  (CORRECCIÓN 10, 11, 12, 14, 16, 25, 28)
+// ==========================================================
+// Entidad operativa real: cada cliente puede tener hasta 20. El modelo de
+// participación, el contrato, el proceso de activación, los pagos y los
+// estados de cuenta pertenecen a la SUBCUENTA, no directamente al cliente,
+// porque un mismo cliente puede operar varias subcuentas con modelos y
+// estados distintos entre sí. El límite de 20 se aplica en el controlador
+// (no hay forma nativa de limitarlo en Prisma/Postgres para este caso).
+//
+// La API Key/Secret/Passphrase JAMÁS se usan para conectarse al exchange:
+// el sistema web nunca valida contra Bitget, nunca ejecuta trading, nunca
+// hace retiros. Es un dato administrativo que el equipo de QLC utiliza
+// manualmente desde la plataforma externa de operación.
+model ApiSubaccount {
+  id       String        @id @default(cuid())
+  clientId String
+  client   ClientProfile @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  // Orden de creación (1..20) — estable aunque se reasigne el identificador.
+  // CORREGIR.xlsx CLIENTE 06: la cuenta PRINCIPAL usa slotIndex 0 (siempre
+  // ordena primero) y no cuenta contra el máximo de 20 subcuentas/API.
+  slotIndex Int
+
+  // CORREGIR.xlsx CLIENTE 06 — true únicamente para la fila PRINCIPAL que
+  // ensurePrincipalSubaccount crea automáticamente (slotIndex 0). Comparte
+  // exactamente el mismo modelo/panel que las subcuentas 1..20 (contrato,
+  // modelo, estados de cuenta, pagos) — nunca una arquitectura paralela.
+  isPrincipal Boolean @default(false)
+
+  // Identificador visible tipo "PCB-1-A-1", asignado manualmente por ADMIN.
+  // Null mientras el administrador no lo haya asignado todavía.
+  identifier String? @unique
+
+  exchangeName           String              @default("Bitget")
+  apiKeyEncrypted        String?
+  apiSecretEncrypted     String?
+  apiPassphraseEncrypted String?
+  status                 ApiConnectionStatus @default(PENDIENTE)
+
+  // CORRECCIÓN 6/18 (bloque de 20) — restricción de IP configurada por el
+  // ADMIN para la conexión API de esta subcuenta. Es un dato puramente
+  // administrativo/informativo: el sistema web NUNCA valida ni conecta
+  // contra el exchange, solo registra si el cliente debe declarar una IP.
+  ipRequired Boolean @default(false)
+  ipAddress  String?
+
+  // GESTIÓN DINÁMICA DE SUBCUENTAS — reemplaza la lógica de "subcuentas
+  // ocultas" (visibleToClient): ya no se pre-crean 20 subcuentas por
+  // cliente, así que toda subcuenta que existe está, por definición,
+  // creada a propósito (ya sea automáticamente para la principal, o porque
+  // un admin aprobó una solicitud/la creó manualmente) y es visible.
+  //
+  // CORRECCIÓN — subcuentas por ESTADO, no por eliminación: una subcuenta
+  // NUNCA se borra de la base de datos (eso arrastraría en cascada sus
+  // estados de cuenta, pagos y documentos históricos vía onDelete: Cascade,
+  // y perdería el historial). "deactivatedAt" null = ACTIVA; con fecha =
+  // INACTIVA. El administrador puede activarla y desactivarla libremente
+  // (reversible), nunca es un archivo de "eliminadas" — solo dos estados.
+  deactivatedAt       DateTime?
+  deactivatedByUserId String?
+  deactivatedBy       User?     @relation("ApiSubaccountDeactivatedBy", fields: [deactivatedByUserId], references: [id])
+
+  // CORRECCIÓN 10: capital operativo requerido — configurable por ADMIN.
+  // El cliente solo puede INFORMAR que ya lo tiene disponible; la
+  // validación real siempre es manual, vía la plataforma externa de QLC.
+  requiredCapital            Decimal?  @db.Decimal(12, 2)
+  clientReportedCapitalReady Boolean   @default(false)
+  clientReportedCapitalAt    DateTime?
+
+  // CORRECCIÓN 25: última desconexión/reconexión (resumen rápido; el
+  // historial detallado vive en ApiConnectionEvent).
+  disconnectedAt DateTime?
+  reconnectedAt  DateTime?
+
+  notes           String?
+  updatedByUserId String?
+  updatedBy       User?    @relation("ApiSubaccountUpdatedBy", fields: [updatedByUserId], references: [id])
+  updatedAt       DateTime @updatedAt
+  createdAt       DateTime @default(now())
+
+  clientModel                ClientModel?
+  process                    Process?
+  paymentData                SubaccountPaymentData?
+  paymentReports             PaymentReport[]
+  statements                 Statement[]
+  connectionEvents           ApiConnectionEvent[]
+  appointments               Appointment[]
+  capitalDistributionReports CapitalDistributionReport[]
+  qlcDeposits                QlcDeposit[]
+  deactivationRequests       SubaccountRequest[]
+
+  @@unique([clientId, slotIndex])
+  @@map("api_subaccounts")
+}
+
+// ==========================================================
+// GESTIÓN DINÁMICA DE SUBCUENTAS — SOLICITUDES
+// ==========================================================
+// Cada cliente nace con únicamente su cuenta PRINCIPAL (slotIndex 0). Para
+// cualquier subcuenta adicional (hasta el máximo de 20), el cliente debe
+// solicitarla — igual para desactivar una que ya no usa. Un administrador
+// revisa cada solicitud y decide: solo entonces se crea o se desactiva la
+// subcuenta real (nunca se elimina). El cliente nunca crea ni desactiva una
+// subcuenta directamente.
+enum SubaccountRequestType {
+  CREATE
+  DEACTIVATE
+}
+
+enum SubaccountRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model SubaccountRequest {
+  id       String                @id @default(cuid())
+  clientId String
+  client   ClientProfile         @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  type     SubaccountRequestType
+
+  // Solo aplica (y es obligatorio) para type=DEACTIVATE: la subcuenta que
+  // el cliente quiere dejar de usar. Para type=CREATE queda null — la
+  // subcuenta todavía no existe hasta que el admin aprueba y la crea.
+  apiSubaccountId String?
+  apiSubaccount   ApiSubaccount? @relation(fields: [apiSubaccountId], references: [id], onDelete: Cascade)
+
+  // Explicación opcional que el cliente agrega al solicitar.
+  reason String?
+
+  status     SubaccountRequestStatus @default(PENDING)
+  reviewNote String?
+
+  requestedByUserId String
+  requestedBy       User     @relation("SubaccountRequestRequestedBy", fields: [requestedByUserId], references: [id])
+  requestedAt       DateTime @default(now())
+
+  reviewedByUserId String?
+  reviewedBy       User?     @relation("SubaccountRequestReviewedBy", fields: [reviewedByUserId], references: [id])
+  reviewedAt       DateTime?
+
+  @@map("subaccount_requests")
+}
+
+model ApiConnectionEvent {
+  id              String              @id @default(cuid())
+  apiSubaccountId String
+  apiSubaccount   ApiSubaccount       @relation(fields: [apiSubaccountId], references: [id], onDelete: Cascade)
+  eventType       ConnectionEventType
+  // CORRECCIÓN 19: motivo opcional (por qué se desactivó/reactivó) — el
+  // cliente y el admin pueden consultar este historial completo.
+  reason          String?
+  occurredAt      DateTime            @default(now())
+  // El ADMIN lo borró del historial visible. Se conserva internamente (el
+  // sistema lo cuenta para distinguir primera activación de reconexión).
+  hiddenAt        DateTime?
+
+  @@map("api_connection_events")
+}
+
+// ==========================================================
+// MODELS OF PARTICIPATION (Flexible / Performance / Compound / futuros)
+// ==========================================================
+// CORRECCIÓN 30: ya no son un enum fijo — el administrador puede crear
+// modelos nuevos sin límite artificial. "key" pasa a ser un slug único de
+// texto libre (se conservan FLEXIBLE/PERFORMANCE/COMPOUND como slugs de los
+// tres modelos existentes, sin perder los datos ya cargados).
+model Model {
+  id               String   @id @default(cuid())
+  key              String   @unique
+  name             String
+  nameEn           String?
+  tagline          String?
+  taglineEn        String?
+  description      String
+  descriptionEn    String?
+  conditions       String?
+  conditionsEn     String?
+  period           String?
+  periodEn         String?
+  percentage       String?
+  objective        String?
+  // CORRECCIÓN 29/30: contenido del modal "Detalles" (bilingüe, editable).
+  detailsContent   String?
+  detailsContentEn String?
+  isActive         Boolean  @default(true)
+  displayOrder     Int      @default(0)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  clientModels ClientModel[]
+
+  @@map("models")
+}
+
+model ClientModel {
+  id              String        @id @default(cuid())
+  apiSubaccountId String        @unique
+  apiSubaccount   ApiSubaccount @relation(fields: [apiSubaccountId], references: [id], onDelete: Cascade)
+  modelId         String
+  model           Model         @relation(fields: [modelId], references: [id])
+  selectedAt      DateTime      @default(now())
+  confirmedAt     DateTime?
+
+  @@map("client_models")
+}
+
+// ==========================================================
+// PROCESS / ACTIVATION (por subcuenta/API)
+// ==========================================================
+
+model Process {
+  id              String        @id @default(cuid())
+  apiSubaccountId String        @unique
+  apiSubaccount   ApiSubaccount @relation(fields: [apiSubaccountId], references: [id], onDelete: Cascade)
+  isActivated     Boolean       @default(false)
+  activatedAt     DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  conditions ProcessCondition[]
+
+  @@map("processes")
+}
+
+model ProcessCondition {
+  id        String               @id @default(cuid())
+  processId String
+  process   Process              @relation(fields: [processId], references: [id], onDelete: Cascade)
+  type      ProcessConditionType
+  status    ConditionStatus      @default(PENDING)
+  note      String?
+  updatedAt DateTime             @updatedAt
+  createdAt DateTime             @default(now())
+
+  @@unique([processId, type])
+  @@map("process_conditions")
+}
+
+// ==========================================================
+// DOCUMENTS (identidad del cliente — a nivel CLIENTE, no por subcuenta)
+// ==========================================================
+// REVERSIÓN A: por defecto el documento queda BLOQUEADO en cuanto el
+// cliente lo envía. El cliente NO puede eliminarlo, reemplazarlo, editarlo
+// ni cancelar el envío. Solo cuando un ADMIN habilita explícitamente
+// "clientEditUnlocked" el cliente puede eliminar/reemplazar ESE documento
+// puntual; la próxima vez que suba uno nuevo en esa categoría, el
+// documento nuevo vuelve a nacer bloqueado.
+model Document {
+  id               String        @id @default(cuid())
+  clientId         String
+  client           ClientProfile @relation("ClientDocuments", fields: [clientId], references: [id], onDelete: Cascade)
+  category         String
+  description      String?
+  driveFileId      String
+  driveFolderId    String?
+  fileName         String
+  extension        String?
+  mimeType         String
+  sizeBytes        Int
+  status           String        @default("ACTIVE")
+  uploadedByUserId String
+  uploadedBy       User          @relation("DocumentUploadedBy", fields: [uploadedByUserId], references: [id])
+
+  clientEditUnlocked Boolean   @default(false)
+  unlockedByUserId   String?
+  unlockedBy         User?     @relation("DocumentUnlockedBy", fields: [unlockedByUserId], references: [id])
+  unlockedAt         DateTime?
+
+  // Historial básico de sustituciones — cada vez que el cliente envía un
+  // "archivo corregido" (solo posible mientras clientEditUnlocked=true), se
+  // guarda una fila con los datos del archivo ANTERIOR antes de reemplazarlo.
+  // El documento en sí conserva el mismo id: se actualiza en el lugar, nunca
+  // se crea uno nuevo para esto.
+  corrections DocumentCorrection[]
+
+  // CORREGIR.xlsx ADMIN 07 — organización tipo Google Drive (Año → Periodo
+  // → Mes) dentro de la ficha del cliente. Metadata puramente organizativa
+  // que agrupa documentos YA almacenados en Drive — nunca una carpeta
+  // física paralela ni un cambio del árbol real en Drive. Opcional: un
+  // documento sin asignar aparece en "Sin clasificar".
+  year        Int?
+  periodLabel String?
+  month       Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("documents")
+}
+
+// Un registro por cada vez que un cliente envía un "archivo corregido" sobre
+// un documento ya enviado (ver client/documentController.js#correctDocument)
+// — conserva evidencia de qué archivo existía antes, sin guardar el archivo
+// físico duplicado (ese se borra de Drive una vez confirmada la sustitución).
+model DocumentCorrection {
+  id                  String   @id @default(cuid())
+  documentId          String
+  document            Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  previousFileName    String
+  previousDriveFileId String
+  previousMimeType    String
+  previousSizeBytes   Int
+  correctedByUserId   String
+  correctedBy         User     @relation("DocumentCorrectionBy", fields: [correctedByUserId], references: [id])
+  correctedAt         DateTime @default(now())
+
+  @@map("document_corrections")
+}
+
+// ==========================================================
+// PAYMENTS (reportes por subcuenta/API)
+// ==========================================================
+
+model PaymentConfiguration {
+  id               String   @id @default(cuid())
+  // Moneda de QLC — valor fijo "USDT", el backend nunca acepta otro valor.
+  currency         String   @default("USDT")
+  // TRANSFERENCIA INTERNA BITGET — UID de recepción de QLC. Lo administra
+  // únicamente el ADMIN; el cliente solo lo visualiza/copia para enviar sus
+  // USDT desde su propia cuenta Bitget (transferencia interna, sin comisión).
+  bitgetReceiveUid String?
+  instructions     String?
+  updatedAt        DateTime @updatedAt
+
+  @@map("payment_configuration")
+}
+
+// Configuración administrable de Google Drive (carpeta raíz + estado).
+//
+// IMPLEMENTACIÓN DEFINITIVA DE GOOGLE DRIVE — QLC usa la cuenta PERSONAL de
+// Google (sistemaweb.qlc@gmail.com, sin Google Workspace), así que el
+// backend NUNCA puede tener una cuenta de servicio con acceso directo a ese
+// Drive personal (las cuentas de servicio no pueden actuar "como" un Drive
+// personal sin compartir carpetas manualmente, y aun así consumen la cuota
+// de la cuenta de servicio, no la del usuario). Por eso esta tabla usa el
+// mismo patrón OAuth2 ya probado en EmailConfiguration: el admin autoriza
+// una vez desde el panel ("Conectar con Google"), y el refresh token queda
+// cifrado aquí — nunca en texto plano, nunca se devuelve completo al
+// frontend, nunca se imprime en logs.
+//
+// CORRECCIÓN 24: una vez que un ADMIN guarda la configuración, queda
+// "bloqueada" para el resto — solo `configuredByUserId` puede editarla o
+// desconectarla. Al desconectar, vuelve a estar disponible para cualquiera.
+model DriveConfiguration {
+  id                               String    @id @default(cuid())
+  googleOAuthClientId              String?
+  googleOAuthClientSecretEncrypted String?
+  googleOAuthRefreshTokenEncrypted String?
+  // Correo que Google confirmó al autorizar — debe ser exactamente
+  // sistemaweb.qlc@gmail.com; nunca se guarda un token de una cuenta distinta.
+  oauthConnectedEmail              String?
+  rootFolderId                     String?
+  rootFolderName                   String    @default("QLC")
+  isEnabled                        Boolean   @default(true)
+  lastTestedAt                     DateTime?
+  lastTestStatus                   String? // "OK" | "ERROR"
+  lastTestMessage                  String?
+  configuredByUserId               String?
+  configuredBy                     User?     @relation("DriveConfigConfiguredBy", fields: [configuredByUserId], references: [id])
+  updatedByUserId                  String?
+  updatedBy                        User?     @relation("DriveConfigUpdatedBy", fields: [updatedByUserId], references: [id])
+  updatedAt                        DateTime  @updatedAt
+  createdAt                        DateTime  @default(now())
+
+  @@map("drive_configuration")
+}
+
+// AUDITORÍA QLC PARTE 13 — configuración de correo (Gmail), mismo patrón que
+// DriveConfiguration: fila única, credencial cifrada, configurable desde el
+// panel además del bootstrap por .env (GMAIL_USER/GMAIL_APP_PASSWORD seguyen
+// funcionando como respaldo mientras esta fila no tenga sus propias
+// credenciales). La contraseña de aplicación NUNCA se devuelve completa al
+// frontend ni se guarda en texto plano.
+model EmailConfiguration {
+  id                               String    @id @default(cuid())
+  gmailUser                        String?
+  gmailSenderName                  String?
+  gmailAppPasswordEncrypted        String?
+  isEnabled                        Boolean   @default(true)
+  // AUDITORÍA QLC — Gmail API vía OAuth2 (CORRECCIÓN Render free tier
+  // bloqueando SMTP 25/465/587). "authMethod" decide qué credencial se usa
+  // para enviar: la app password por SMTP (legado, requiere un host que no
+  // bloquee esos puertos) o el refresh token de OAuth2 por HTTPS (Gmail API,
+  // puerto 443, nunca bloqueado). El refresh token queda cifrado igual que
+  // la contraseña de aplicación. "oauthConnectedEmail" es el correo que
+  // Google confirmó al autorizar — debe coincidir con "gmailUser" o la
+  // conexión se rechaza (nunca se envía "como" una cuenta distinta a la
+  // configurada).
+  authMethod                       String    @default("APP_PASSWORD") // "APP_PASSWORD" | "OAUTH2"
+  googleOAuthClientId              String?
+  googleOAuthClientSecretEncrypted String?
+  googleOAuthRefreshTokenEncrypted String?
+  oauthConnectedEmail              String?
+  lastTestedAt                     DateTime?
+  lastTestStatus                   String? // "OK" | "ERROR"
+  lastTestMessage                  String?
+  configuredByUserId               String?
+  configuredBy                     User?     @relation("EmailConfigConfiguredBy", fields: [configuredByUserId], references: [id])
+  updatedByUserId                  String?
+  updatedBy                        User?     @relation("EmailConfigUpdatedBy", fields: [updatedByUserId], references: [id])
+  updatedAt                        DateTime  @updatedAt
+  createdAt                        DateTime  @default(now())
+
+  @@map("email_configuration")
+}
+
+// Configuración global única (singleton):
+// (1) liga configurable hacia la plataforma externa donde ocurre la
+//     operación real (CORRECCIÓN 10 — nunca se desarrolla esa
+//     funcionalidad aquí, solo se enlaza), y
+// (2) las DOS guías de uso (ADMIN / CLIENTE) de la CORRECCIÓN 27 — los
+//     ÚNICOS PDFs que viven en Cloudinary; todo lo demás (contratos,
+//     documentos, estados de cuenta) sigue en Google Drive corporativo.
+//
+// El antiguo "PDF informativo" (adjunto automático al correo de bienvenida
+// de un prospecto) fue ELIMINADO — no debe reintroducirse.
+model PlatformSettings {
+  id                  String  @id @default(cuid())
+  externalPlatformUrl String?
+
+  adminGuidePdfUrl       String?
+  adminGuidePdfPublicId  String?
+  adminGuideFileName     String?
+  clientGuidePdfUrl      String?
+  clientGuidePdfPublicId String?
+  clientGuideFileName    String?
+
+  updatedAt DateTime @updatedAt
+
+  @@map("platform_settings")
+}
+
+model PaymentReport {
+  id                 String              @id @default(cuid())
+  apiSubaccountId    String
+  apiSubaccount      ApiSubaccount       @relation(fields: [apiSubaccountId], references: [id], onDelete: Cascade)
+  // Opcional: el reporte de transferencia interna Bitget solo pide número
+  // de orden + fecha/hora. Se conserva para reportes históricos con monto.
+  amount             Decimal?            @db.Decimal(12, 2)
+  currency           String              @default("USDT")
+  // TRANSFERENCIA INTERNA BITGET — los ÚNICOS dos datos que el cliente
+  // reporta después de transferir al UID de recepción de QLC.
+  // Idempotencia: un mismo N.º de orden no puede tener dos reportes vigentes
+  // (no rechazados) — índice único parcial "payment_reports_order_number_active_key"
+  // sobre UPPER(bitgetOrderNumber), creado por SQL en la migración
+  // 20261002090000_borradores_y_duplicados (Prisma no modela índices parciales).
+  bitgetOrderNumber  String?
+  transactionAt      DateTime?
+  // UID de recepción de QLC que el cliente tenía a la vista al reportar
+  // (copia del dato configurado en ese momento, para la revisión del admin).
+  receiveUid         String?
+  // Evidencias de la transferencia (varias por reporte) — binarios en
+  // Google Drive; aquí solo metadata. Ver PaymentReportFile.
+  evidenceFiles      PaymentReportFile[]
+  // Dato libre que el cliente reporta junto al pago (referencia/hash de
+  // transacción, últimos dígitos, etc.) — nunca se valida contra el
+  // exchange, es solo el dato que el cliente declara para agilizar la
+  // revisión manual del administrador.
+  reference          String?
+  proofDriveFileId   String?
+  proofDriveFolderId String?
+  proofFileName      String?
+  proofMimeType      String?
+  proofSizeBytes     Int?
+  status             PaymentReportStatus @default(PENDING)
+  reviewNote         String?
+  reviewedByUserId   String?
+  reviewedBy         User?               @relation("PaymentReviewedBy", fields: [reviewedByUserId], references: [id])
+  reviewedAt         DateTime?
+  reportedAt         DateTime            @default(now())
+
+  // CORRECCIÓN 10 (bloque de 20) — "Transferencia recibida" es una acción
+  // INDEPENDIENTE de aprobar el pago: el admin confirma que identificó la
+  // transferencia sin que eso apruebe el pago todavía. Solo la acción
+  // separada "Garantía reportada" mueve status a APROBADO y confirma la
+  // condición PAYMENT del proceso.
+  transferReceivedAt       DateTime?
+  transferReceivedByUserId String?
+  transferReceivedBy       User?     @relation("PaymentTransferReceivedBy", fields: [transferReceivedByUserId], references: [id])
+
+  // AUDITORÍA QLC PARTE 4 — "Garantía reportada" es un paso independiente
+  // y posterior a "Transferencia recibida": solo después de marcarlo el
+  // admin puede aprobar el pago (status pasa a GARANTIA_REPORTADA aquí,
+  // nunca directo a APROBADO).
+  guaranteeReportedAt       DateTime?
+  guaranteeReportedByUserId String?
+  guaranteeReportedBy       User?     @relation("PaymentGuaranteeReportedBy", fields: [guaranteeReportedByUserId], references: [id])
+
+  // CORRECCIÓN 25: si este pago corresponde a una comisión de un estado de
+  // cuenta, referencia el estado de cuenta relacionado.
+  statementId String?
+  statement   Statement? @relation(fields: [statementId], references: [id], onDelete: SetNull)
+
+  // El CLIENTE lo borró de su historial "Transferencias reportadas" (solo
+  // reportes ya revisados). Se conserva: el admin lo sigue viendo y cuenta
+  // para el estado del pago.
+  clientHiddenAt DateTime?
+  // El ADMIN lo borró del historial de la subcuenta (solo reportes ya
+  // revisados). Se conserva: el cliente y la contabilidad no cambian.
+  adminHiddenAt  DateTime?
+
+  @@map("payment_reports")
+}
+
+// EVIDENCIA de una transferencia interna Bitget reportada por el cliente
+// (capturas/fotos/PDF). El binario vive en Google Drive (subcarpeta "Pagos"
+// del cliente); NeonDB guarda solo metadata + el ID de Drive. La relación
+// con el cliente/subcuenta se obtiene del reporte (PaymentReport →
+// ApiSubaccount → ClientProfile).
+model PaymentReportFile {
+  id              String        @id @default(cuid())
+  paymentReportId String
+  paymentReport   PaymentReport @relation(fields: [paymentReportId], references: [id], onDelete: Cascade)
+  fileName        String
+  mimeType        String
+  sizeBytes       Int
+  driveFileId     String
+  driveFolderId   String?
+  createdAt       DateTime      @default(now())
+
+  @@index([paymentReportId])
+  @@map("payment_report_files")
+}
+
+// ==========================================================
+// ESTADOS DE CUENTA (CORRECCIÓN 14 — por subcuenta/API)
+// ==========================================================
+
+model Statement {
+  id              String        @id @default(cuid())
+  apiSubaccountId String
+  apiSubaccount   ApiSubaccount @relation(fields: [apiSubaccountId], references: [id], onDelete: Cascade)
+
+  periodStart DateTime
+  periodEnd   DateTime
+
+  startingBalance  Decimal  @db.Decimal(14, 2)
+  endingBalance    Decimal  @db.Decimal(14, 2)
+  resultAmount     Decimal  @db.Decimal(14, 2)
+  resultPercentage Decimal  @db.Decimal(7, 2)
+  // CORRECCIÓN 5: volatilidad y resultado neto del periodo (dato libre
+  // capturado por el administrador, igual que el resto del resumen).
+  volatility       String?
+  netResult        Decimal? @db.Decimal(14, 2)
+  commission       Decimal  @default(0) @db.Decimal(14, 2)
+
+  activityNotes String?
+  adminNotes    String?
+
+  pdfDriveFileId   String?
+  pdfDriveFolderId String?
+  pdfFileName      String?
+
+  // ESTADO DE CUENTA SIMPLIFICADO — estado persistido (fuente de verdad en
+  // backend). "NO GENERADO" no es una fila: significa que la subcuenta aún
+  // no tiene ningún estado de cuenta. Al generar nace PENDIENTE_DE_PAGO con
+  // expiresAt = generatedAt + 72 h calculado SIEMPRE en backend; si vence
+  // sin pago confirmado pasa a VENCIDO_SIN_PAGAR (ver utils/statementStatus.js).
+  status        StatementStatus @default(PENDIENTE_DE_PAGO)
+  generatedAt   DateTime        @default(now())
+  expiresAt     DateTime
+  paidAt        DateTime?
+  // Aviso de "quedan pocas horas" — se dispara una sola vez.
+  warningSentAt DateTime?
+
+  createdByUserId String
+  createdBy       User     @relation("StatementCreatedBy", fields: [createdByUserId], references: [id])
+  createdAt       DateTime @default(now())
+
+  paymentReports PaymentReport[]
+
+  // QLC AFFILIATE PROGRAM — distribución de la RENTABILIDAD GENERADA
+  // (resultAmount validado por QLC, nunca consultado a Bitget), calculada al
+  // emitir con los porcentajes vigentes (copia). Sin afiliador directo, la
+  // parte del afiliado corresponde a QLC.
+  clientSharePct            Decimal?              @db.Decimal(5, 2)
+  qlcSharePct               Decimal?              @db.Decimal(5, 2)
+  affiliateSharePct         Decimal?              @db.Decimal(5, 2)
+  clientResultAmount        Decimal?              @db.Decimal(14, 2)
+  qlcCommissionAmount       Decimal?              @db.Decimal(14, 2)
+  affiliateCommissionAmount Decimal?              @db.Decimal(14, 2)
+  affiliateReferrerClientId String?
+  // Versión de la configuración (AffiliateConfigurationHistory) usada en el cálculo.
+  affiliateConfigVersionId  String?
+  attachments               StatementAttachment[]
+  affiliateCommission       AffiliateCommission?
+  affiliatePrepayment       AffiliatePayment?     @relation("AffiliatePrepaymentStatement")
+
+  // El CLIENTE lo borró de "Estados de cuenta anteriores" (solo pagados y
+  // nunca el actual). Se conserva: el admin lo sigue viendo completo.
+  clientHiddenAt DateTime?
+  // El ADMIN lo borró de "Estados de cuenta anteriores" (solo pagados y nunca
+  // el actual). Se conserva; el cliente no se ve afectado.
+  adminHiddenAt  DateTime?
+
+  // CORRECCIÓN 5: no permitir dos Estados de Cuenta iguales para la misma
+  // subcuenta/API + mismo periodo.
+  @@unique([apiSubaccountId, periodStart, periodEnd])
+  @@map("statements")
+}
+
+// ==========================================================
+// APPOINTMENTS / AVAILABILITY
+// ==========================================================
+
+model AvailabilitySlot {
+  id        String  @id @default(cuid())
+  dayOfWeek Int // 0=domingo ... 6=sabado
+  startTime String // "09:00"
+  endTime   String // "17:00"
+  isActive  Boolean @default(true)
+  // "UTC" = startTime/endTime en UTC. null = rango antiguo en hora de México;
+  // el backend lo pasa a UTC una sola vez al arrancar (utils/appointmentsUtc.js).
+  timeZone  String?
+
+  @@map("availability_slots")
+}
+
+model Appointment {
+  id               String            @id @default(cuid())
+  clientId         String?
+  client           ClientProfile?    @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  prospectId       String?
+  prospect         Prospect?         @relation(fields: [prospectId], references: [id], onDelete: SetNull)
+  // CORREGIR.xlsx CLIENTE 02 — la cita debe quedar asociada obligatoriamente
+  // al número de caso (SupportCase.caseNumber) generado previamente por el
+  // propio cliente; el admin puede revisarlo antes de autorizar la cita.
+  supportCaseId    String?
+  supportCase      SupportCase?      @relation(fields: [supportCaseId], references: [id], onDelete: SetNull)
+  // CORREGIR(2).xlsx CLIENTE 25/26 — la cita también debe quedar asociada
+  // obligatoriamente a la cuenta/subcuenta que se va a revisar.
+  apiSubaccountId  String?
+  apiSubaccount    ApiSubaccount?    @relation(fields: [apiSubaccountId], references: [id], onDelete: SetNull)
+  requestedDate    DateTime
+  requestedTime    String
+  // "UTC" = requestedDate/requestedTime en UTC. null = cita antigua en hora
+  // de México; se convierte a UTC una sola vez al arrancar el backend.
+  timeZone         String?
+  // El ADMIN la borró de su lista de citas. No se elimina: el cliente la
+  // conserva y el chat asociado sigue archivado para QLC.
+  adminArchivedAt  DateTime?
+  // El CLIENTE la borró de "Mis citas". No se elimina: QLC la conserva.
+  clientHiddenAt   DateTime?
+  // REAGENDAR — al no poder atender el horario pedido, el ADMIN rechaza la
+  // cita y PROPONE otro horario (UTC). El cliente lo acepta (la cita queda
+  // AUTORIZADA en el horario propuesto) o no (puede solicitar otro).
+  // proposalStatus: PENDING | ACCEPTED | DECLINED.
+  proposedDate     DateTime?
+  proposedTime     String?
+  proposalStatus   String?
+  proposedAt       DateTime?
+  status           AppointmentStatus @default(PENDING)
+  notes            String?
+  approvedByUserId String?
+  approvedBy       User?             @relation("AppointmentApprovedBy", fields: [approvedByUserId], references: [id])
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  chatSession ChatSession?
+
+  @@map("appointments")
+}
+
+// ==========================================================
+// SUPPORT / CHAT
+// ==========================================================
+
+model SupportCase {
+  id             String            @id @default(cuid())
+  // Número de caso legible/correlativo — lo que el cliente y el admin
+  // realmente usan para identificar el caso (el id sigue existiendo para
+  // relaciones internas, pero nunca se muestra en la interfaz).
+  caseNumber     Int               @unique @default(autoincrement())
+  clientId       String
+  client         ClientProfile     @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  subject        String
+  message        String
+  status         SupportCaseStatus @default(OPEN)
+  createdAt      DateTime          @default(now())
+  closedAt       DateTime?
+  // El cliente lo borró de SU vista. QLC conserva el caso completo (y su
+  // historial de chat) internamente.
+  clientHiddenAt DateTime?
+
+  appointments Appointment[]
+  messages     SupportCaseMessage[]
+  files        SupportCaseFile[]
+
+  @@map("support_cases")
+}
+
+model ChatSession {
+  id               String            @id @default(cuid())
+  appointmentId    String?           @unique
+  appointment      Appointment?      @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  clientId         String
+  client           ClientProfile     @relation("ChatSessionClient", fields: [clientId], references: [id], onDelete: Cascade)
+  adminId          String?
+  admin            User?             @relation("ChatSessionAdmin", fields: [adminId], references: [id])
+  status           ChatSessionStatus @default(SCHEDULED)
+  durationMinutes  Int               @default(15)
+  startedAt        DateTime?
+  endsAt           DateTime?
+  createdAt        DateTime          @default(now())
+  // Evita notificar dos veces a los admins cuando la sesión vence
+  // (chequeo perezoso, ver utils/chatSessionExpiry.js).
+  expiryNotifiedAt DateTime?
+
+  messages ChatMessage[]
+
+  @@map("chat_sessions")
+}
+
+model ChatMessage {
+  id            String      @id @default(cuid())
+  chatSessionId String
+  chatSession   ChatSession @relation(fields: [chatSessionId], references: [id], onDelete: Cascade)
+  senderUserId  String
+  sender        User        @relation("ChatMessageSender", fields: [senderUserId], references: [id])
+  content       String
+  // Archivo adjunto del mensaje (opcional): el binario vive en Google Drive,
+  // aquí solo la metadata. content puede ir vacío si solo se envía archivo.
+  fileName      String?
+  mimeType      String?
+  sizeBytes     Int?
+  driveFileId   String?
+  driveFolderId String?
+  createdAt     DateTime    @default(now())
+
+  @@map("chat_messages")
+}
+
+// ==========================================================
+// PROSPECTS
+// ==========================================================
+// CORRECCIÓN 6: sin teléfono.
+
+model Prospect {
+  id            String         @id @default(cuid())
+  firstName     String
+  lastName      String?
+  email         String
+  source        String?
+  status        ProspectStatus @default(NUEVO)
+  message       String?
+  infoRequested Boolean        @default(false)
+  emailSentAt   DateTime?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  appointments Appointment[]
+
+  @@map("prospects")
+}
+
+// ==========================================================
+// PUBLIC CONTENT / FAQ / TRACK RECORD
+// ==========================================================
+
+model PublicContent {
+  id              String   @id @default(cuid())
+  section         String
+  key             String
+  // "value" es y sigue siendo el contenido en español (el original, nunca
+  // se borra). "valueEn" es la traducción al inglés — null mientras esté
+  // pendiente de redactar.
+  value           String
+  valueEn         String?
+  updatedByUserId String?
+  updatedBy       User?    @relation("ContentUpdatedBy", fields: [updatedByUserId], references: [id])
+  updatedAt       DateTime @updatedAt
+
+  @@unique([section, key])
+  @@map("public_content")
+}
+
+// Multimedia administrable de la página pública (imágenes y video del logo,
+// y recursos visuales de cualquier sección). Cloudinary guarda el archivo;
+// aquí solo vive la referencia/metadata — nunca el binario.
+model MediaAsset {
+  id              String   @id @default(cuid())
+  fileName        String
+  type            String // IMAGE | VIDEO
+  format          String
+  url             String
+  publicId        String
+  location        String // hero | modelo | como_funciona | tecnologia | microposiciones | modelos | resultados | seguridad | sobre_qlc | faq | contacto | footer | logo | problema
+  title           String?
+  description     String?
+  order           Int      @default(0)
+  isPublished     Boolean  @default(false)
+  isPrimary       Boolean  @default(false)
+  bytes           Int?
+  updatedByUserId String?
+  updatedBy       User?    @relation("MediaAssetUpdatedBy", fields: [updatedByUserId], references: [id])
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([location])
+  @@map("media_assets")
+}
+
+model FAQ {
+  id           String   @id @default(cuid())
+  question     String
+  questionEn   String?
+  answer       String
+  answerEn     String?
+  displayOrder Int      @default(0)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("faqs")
+}
+
+model TrackRecord {
+  id            String   @id @default(cuid())
+  title         String
+  titleEn       String?
+  description   String
+  descriptionEn String?
+  // platformName/ranking/profileLink NO se duplican — son datos externos
+  // (nombre de plataforma, símbolo de ranking, URL), no texto a traducir.
+  platformName  String   @default("Bitget")
+  profileLink   String?
+  ranking       String   @default("#XXX")
+  // Indicadores públicos de Bitget mostrados en el hero y en Resultados
+  // (ROI de 30 días y tasa de éxito, en %). Null = no configurado → el
+  // sitio muestra "—"; nunca se inventa una cifra.
+  roi30d        Decimal? @db.Decimal(10, 2)
+  // Número de días del periodo del ROI mostrado ("ROI 30D"), editable por el admin.
+  roiDays       Int      @default(30)
+  winRate       Decimal? @db.Decimal(5, 2)
+  // Maximum Drawdown (%) mostrado en el hero/Resultados — lo captura el
+  // ADMIN en Admin → Track Record (no se consulta a ninguna API).
+  maxDrawdown   Decimal? @db.Decimal(5, 2)
+  isActive      Boolean  @default(true)
+  updatedAt     DateTime @updatedAt
+
+  @@map("track_records")
+}
+
+// ==========================================================
+// NOTIFICATIONS
+// ==========================================================
+// CORRECCIÓN 25: las notificaciones se eliminan automáticamente 34 días
+// después de creadas (limpieza real ejecutada de forma perezosa en cada
+// lectura del listado — ver notificationController.js).
+
+// ==========================================================
+// GUÍAS DE USO (CORRECCIÓN 1/6/20/21)
+// ==========================================================
+// Biblioteca de contenido editable desde ADMIN → Guías de Uso. Reemplaza la
+// dependencia exclusiva del PDF: el contenido HTML es la fuente principal,
+// el PDF (PlatformSettings.adminGuidePdfUrl/clientGuidePdfUrl) se conserva
+// como descarga opcional adicional, nunca se elimina esa funcionalidad.
+model Guide {
+  id            String        @id @default(cuid())
+  titleEs       String
+  titleEn       String?
+  descriptionEs String?
+  descriptionEn String?
+  // Contenido HTML estructurado (títulos, pasos, avisos, tablas) — nunca
+  // texto plano del Word sin estructurar.
+  contentEs     String
+  contentEn     String?
+  audience      GuideAudience @default(CLIENT)
+  displayOrder  Int           @default(0)
+  isActive      Boolean       @default(true)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  @@map("guides")
+}
+
+model Notification {
+  id             String   @id @default(cuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // "title"/"message" son el texto en español, generado en el momento y
+  // conservado tal cual para notificaciones históricas (nunca se borran).
+  title          String
+  message        String
+  // Para notificaciones NUEVAS generadas por el sistema (no texto libre de
+  // un admin): templateKey identifica la plantilla bilingüe (ver
+  // frontend/src/i18n/translations.js → notificationTemplates) y
+  // templateParams trae los valores/códigos a interpolar (nunca texto ya
+  // traducido). Si templateKey es null (notificaciones antiguas u otras
+  // no cubiertas), el frontend muestra title/message tal cual.
+  templateKey    String?
+  templateParams Json?
+  type           String   @default("info")
+  isRead         Boolean  @default(false)
+  createdAt      DateTime @default(now())
+
+  // CORREGIR.xlsx ADMIN 14 — mensajería manual admin→cliente. "kind"
+  // distingue un mensaje redactado a mano (MANUAL, con senderUserId) de una
+  // notificación automática del sistema (SYSTEM, default, comportamiento
+  // idéntico a como funcionaba antes de esta corrección). Los MANUAL quedan
+  // excluidos de la limpieza automática de 34 días — ver
+  // client/notificationController.js.
+  kind         NotificationKind @default(SYSTEM)
+  senderUserId String?
+  sender       User?            @relation("NotificationSentBy", fields: [senderUserId], references: [id])
+
+  // AUDITORÍA QLC PARTE 12/13 — correo automatizado por Gmail para cada
+  // notificación. "emailSent" permite saber si el correo ya se envió
+  // (evita duplicados); si falla, la notificación interna se conserva
+  // igual (nunca depende del correo) y "emailError" guarda el motivo.
+  emailSent   Boolean   @default(false)
+  emailSentAt DateTime?
+  emailError  String?
+
+  // Archivos adjuntos de un mensaje MANUAL admin→cliente.
+  attachments NotificationAttachment[]
+
+  @@map("notifications")
+}
+
+// Adjunto (imagen/PDF) de un mensaje manual admin→cliente. El binario vive en
+// Google Drive (subcarpeta "Otros" del cliente); NeonDB guarda solo metadata.
+model NotificationAttachment {
+  id             String       @id @default(cuid())
+  notificationId String
+  notification   Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  fileName       String
+  mimeType       String
+  sizeBytes      Int
+  driveFileId    String
+  driveFolderId  String?
+  createdAt      DateTime     @default(now())
+
+  @@index([notificationId])
+  @@map("notification_attachments")
+}
+
+// AUDITORÍA QLC PARTE 7 — mensajería interna de un caso de soporte, previa
+// e independiente de la cita/chat de 15 minutos. Bidireccional: tanto el
+// admin como el propio cliente pueden escribir aquí. Se conserva siempre
+// como historial completo del caso.
+model SupportCaseMessage {
+  id            String      @id @default(cuid())
+  supportCaseId String
+  supportCase   SupportCase @relation(fields: [supportCaseId], references: [id], onDelete: Cascade)
+  senderUserId  String
+  sender        User        @relation("SupportCaseMessageSender", fields: [senderUserId], references: [id])
+  content       String
+  createdAt     DateTime    @default(now())
+  // Lectura por la contraparte: un mensaje del cliente se marca leído cuando
+  // un admin abre el caso; uno del admin, cuando el cliente abre el caso.
+  readAt        DateTime?
+
+  @@index([supportCaseId, readAt])
+  @@map("support_case_messages")
+}
+
+// Archivos adjuntos de un caso (cualquier tipo, máx. 5 MB — validado en
+// backend). El binario vive en Google Drive; aquí solo la metadata.
+model SupportCaseFile {
+  id               String      @id @default(cuid())
+  supportCaseId    String
+  supportCase      SupportCase @relation(fields: [supportCaseId], references: [id], onDelete: Cascade)
+  uploadedByUserId String
+  uploadedBy       User        @relation("SupportCaseFileUploader", fields: [uploadedByUserId], references: [id])
+  fileName         String
+  mimeType         String
+  sizeBytes        Int
+  driveFileId      String
+  driveFolderId    String?
+  createdAt        DateTime    @default(now())
+
+  @@map("support_case_files")
+}
+
+// DATOS DE PAGO — pertenecen a CADA subcuenta/API (Client → ApiSubaccount →
+// SubaccountPaymentData → PaymentReport), nunca al cliente en general.
+model SubaccountPaymentData {
+  id               String        @id @default(cuid())
+  apiSubaccountId  String        @unique
+  apiSubaccount    ApiSubaccount @relation(fields: [apiSubaccountId], references: [id], onDelete: Cascade)
+  currency         String        @default("USDT")
+  // UID de recepción Bitget de QLC para los pagos de ESTA subcuenta.
+  bitgetReceiveUid String?
+  instructions     String?
+  updatedByUserId  String?
+  updatedBy        User?         @relation("SubaccountPaymentDataUpdatedBy", fields: [updatedByUserId], references: [id])
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  @@map("subaccount_payment_data")
+}
+
+// CORREGIR.xlsx CLIENTE 07 — "Tu proceso paso a paso" administrable desde
+// el panel (CMS), el cliente solo lo consulta. Reemplaza el listado
+// hardcodeado en i18n (clientDashboard.flow*).
+model ProcessStep {
+  id              String   @id @default(cuid())
+  stepNumber      Int
+  titleEs         String
+  titleEn         String?
+  descriptionEs   String?
+  descriptionEn   String?
+  displayOrder    Int      @default(0)
+  isActive        Boolean  @default(true)
+  updatedByUserId String?
+  updatedBy       User?    @relation("ProcessStepUpdatedBy", fields: [updatedByUserId], references: [id])
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@map("process_steps")
+}
+
+// CORREGIR.xlsx CLIENTE 13 — reporte real de "ya distribuí mi capital en
+// el exchange", con el mismo patrón de revisión que PaymentReport (nunca
+// solo un booleano). El sistema JAMÁS se conecta al exchange para validar
+// el saldo: solo administra el reporte/revisión — la validación real la
+// hace QLC externamente.
+model CapitalDistributionReport {
+  id                   String              @id @default(cuid())
+  apiSubaccountId      String
+  apiSubaccount        ApiSubaccount       @relation(fields: [apiSubaccountId], references: [id], onDelete: Cascade)
+  // Capital operativo requerido (fijado por el ADMIN) al momento de confirmar.
+  amount               Decimal             @db.Decimal(14, 2)
+  // Declaración escrita del cliente, validada en backend: una de las dos
+  // frases fijas autorizadas (ES "CONFIRMO QUE DISPONGO DEL SALDO REQUERIDO EN
+  // MI CUENTA" / EN "I CONFIRM THAT I HAVE THE REQUIRED BALANCE IN MY
+  // ACCOUNT"). Es una DECLARACIÓN del cliente — QLC nunca consulta el exchange.
+  declaration          String?
+  // Idioma de la declaración usada: 'ES' | 'EN'.
+  confirmationLanguage String?
+  note                 String?
+  status               PaymentReportStatus @default(PENDING)
+  reviewNote           String?
+  reviewedByUserId     String?
+  reviewedBy           User?               @relation("CapitalDistReportReviewedBy", fields: [reviewedByUserId], references: [id])
+  reviewedAt           DateTime?
+  reportedAt           DateTime            @default(now())
+  // El CLIENTE lo borró de su historial (solo reportes ya revisados). Se
+  // conserva: el admin lo sigue viendo completo.
+  clientHiddenAt       DateTime?
+  // El ADMIN lo borró del historial "Distribución de capital" (solo reportes
+  // ya revisados). Se conserva; el cliente no se ve afectado.
+  adminHiddenAt        DateTime?
+
+  @@map("capital_distribution_reports")
+}
+
+// ==========================================================
+// AFILIADOS / PROMOTORES (relación directa, nunca multinivel)
+// ==========================================================
+
+enum AffiliateCommissionType {
+  PERCENTAGE
+  FIXED_AMOUNT
+}
+
+enum AffiliateCommissionStatus {
+  PENDIENTE
+  APROBADA
+  PAGADA
+  CANCELADA
+}
+
+// Configuración del programa (fila única). commissionValue null = QLC todavía
+// no definió el valor: la comisión se captura manualmente al registrarla.
+// Es SIEMPRE la comisión del afiliador DIRECTO (no hay niveles).
+model AffiliateConfiguration {
+  id                String                  @id @default(cuid())
+  enabled           Boolean                 @default(true)
+  commissionType    AffiliateCommissionType @default(PERCENTAGE)
+  commissionValue   Decimal?                @db.Decimal(14, 4)
+  // Distribución de la rentabilidad generada (referencia inicial del
+  // documento QLC Affiliate Program: 50 / 40 / 10). Editable por ADMIN; cada
+  // cambio queda en AffiliateConfigurationHistory con su fecha de vigencia.
+  clientSharePct    Decimal                 @default(50) @db.Decimal(5, 2)
+  qlcSharePct       Decimal                 @default(40) @db.Decimal(5, 2)
+  affiliateSharePct Decimal                 @default(10) @db.Decimal(5, 2)
+  // Antigüedad máxima (días) del dato registrado de capital/saldo antes de
+  // mostrarse como "Sin actualizar" en el Affiliate Dashboard.
+  balanceStaleDays  Int                     @default(31)
+  updatedByUserId   String?
+  updatedBy         User?                   @relation("AffiliateConfigUpdatedBy", fields: [updatedByUserId], references: [id])
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
+
+  @@map("affiliate_configuration")
+}
+
+// Comisión del afiliador DIRECTO. referrerClientId lo determina SIEMPRE el
+// backend a partir de referredClient.referredByClientId (nunca el frontend).
+// Registrar a un referido NO genera comisión: solo ADMIN la registra cuando
+// ocurre el evento que QLC considera comisionable.
+model AffiliateCommission {
+  id                String                    @id @default(cuid())
+  referrerClientId  String
+  referrer          ClientProfile             @relation("AffiliateCommissionReferrer", fields: [referrerClientId], references: [id], onDelete: Cascade)
+  referredClientId  String
+  referred          ClientProfile             @relation("AffiliateCommissionReferred", fields: [referredClientId], references: [id], onDelete: Cascade)
+  concept           String                    @db.VarChar(200)
+  // Base sobre la que se aplicó el porcentaje (si aplica) y la regla usada
+  // al registrarla (copia: cambiar la configuración no altera el historial).
+  baseAmount        Decimal?                  @db.Decimal(14, 2)
+  commissionType    AffiliateCommissionType?
+  commissionValue   Decimal?                  @db.Decimal(14, 4)
+  amount            Decimal                   @db.Decimal(14, 2)
+  currency          String                    @default("USDT")
+  status            AffiliateCommissionStatus @default(PENDIENTE)
+  occurredAt        DateTime
+  notes             String?
+  createdByUserId   String
+  createdBy         User                      @relation("AffiliateCommissionCreatedBy", fields: [createdByUserId], references: [id])
+  approvedAt        DateTime?
+  approvedByUserId  String?
+  paidAt            DateTime?
+  paidByUserId      String?
+  cancelledAt       DateTime?
+  cancelledByUserId String?
+  // Origen: estado de cuenta emitido (una comisión por estado de cuenta) o
+  // ajuste manual justificado por ADMIN (statementId null).
+  statementId       String?                   @unique
+  statement         Statement?                @relation(fields: [statementId], references: [id], onDelete: SetNull)
+  periodStart       DateTime?
+  periodEnd         DateTime?
+  // Versión de la configuración usada en el cálculo (trazabilidad).
+  configVersionId   String?
+  paymentId         String?
+  payment           AffiliatePayment?         @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+  createdAt         DateTime                  @default(now())
+  updatedAt         DateTime                  @updatedAt
+
+  @@index([referrerClientId, status])
+  @@index([referredClientId])
+  @@map("affiliate_commissions")
+}
+
+// Bitácora de acciones del programa de afiliados (nunca guarda secretos).
+model AffiliateAuditLog {
+  id          String   @id @default(cuid())
+  action      String   @db.VarChar(60)
+  clientId    String?
+  actorUserId String?
+  details     Json?
+  createdAt   DateTime @default(now())
+
+  @@index([clientId])
+  @@map("affiliate_audit_logs")
+}
+
+// Versión de la configuración del programa vigente desde `effectiveFrom`
+// (nunca se sobrescribe: auditoría de porcentajes).
+model AffiliateConfigurationHistory {
+  id                String   @id @default(cuid())
+  enabled           Boolean
+  clientSharePct    Decimal  @db.Decimal(5, 2)
+  qlcSharePct       Decimal  @db.Decimal(5, 2)
+  affiliateSharePct Decimal  @db.Decimal(5, 2)
+  balanceStaleDays  Int?
+  effectiveFrom     DateTime @default(now())
+  updatedByUserId   String?
+  createdAt         DateTime @default(now())
+
+  @@map("affiliate_configuration_history")
+}
+
+enum AffiliatePaymentStatus {
+  PENDIENTE
+  PROCESADO
+  PAGADO
+  RECHAZADO
+}
+
+// PAGO al afiliador (registro separado de la comisión: calcular no es
+// pagar). Solo ADMIN lo registra; las comisiones incluidas pasan a PAGADA
+// únicamente cuando el pago se confirma como PAGADO.
+model AffiliatePayment {
+  id               String                 @id @default(cuid())
+  referrerClientId String
+  referrer         ClientProfile          @relation("AffiliatePaymentReferrer", fields: [referrerClientId], references: [id], onDelete: Cascade)
+  amount           Decimal                @db.Decimal(14, 2)
+  currency         String                 @default("USDT")
+  periodLabel      String                 @db.VarChar(120)
+  // UID de Bitget de destino (copia del UID registrado por el afiliador).
+  destinationUid   String?                @db.VarChar(40)
+  reference        String?                @db.VarChar(200)
+  proofDriveFileId String?
+  proofFileName    String?
+  proofMimeType    String?
+  status           AffiliatePaymentStatus @default(PENDIENTE)
+  statusUpdatedAt  DateTime?
+  paidAt           DateTime?
+  createdByUserId  String
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+
+  commissions AffiliateCommission[]
+
+  // PAGO PREVIO de la comisión de UN estado de cuenta: el admin lo registra
+  // (con comprobante) ANTES de generar el estado de cuenta de esa subcuenta;
+  // al generarlo queda ligado (statementId) y la comisión nace PAGADA.
+  apiSubaccountId String?
+  statementId     String?    @unique
+  statement       Statement? @relation("AffiliatePrepaymentStatement", fields: [statementId], references: [id], onDelete: SetNull)
+  voidReason      String?    @db.VarChar(300)
+
+  @@index([referrerClientId, status])
+  @@index([apiSubaccountId])
+  @@map("affiliate_payments")
+}
+
+// ADJUNTOS de un estado de cuenta (además de su PDF principal). Binario en
+// Google Drive (carpeta "Estados de cuenta" del cliente); aquí solo metadata.
+model StatementAttachment {
+  id               String    @id @default(cuid())
+  statementId      String
+  statement        Statement @relation(fields: [statementId], references: [id], onDelete: Cascade)
+  fileName         String
+  mimeType         String
+  sizeBytes        Int
+  driveFileId      String
+  driveFolderId    String?
+  uploadedByUserId String?
+  createdAt        DateTime  @default(now())
+
+  @@index([statementId])
+  @@map("statement_attachments")
+}
+
+// CÓDIGO DE VERIFICACIÓN DE CORREO del registro público: 6 dígitos enviados
+// por e-mail; aquí solo se guarda su HMAC (nunca el código en claro). Un solo
+// uso, vence a los 15 minutos y admite como máximo 5 intentos.
+model EmailVerificationCode {
+  id         String    @id @default(cuid())
+  email      String
+  purpose    String    @default("REGISTER") @db.VarChar(20)
+  codeHash   String
+  expiresAt  DateTime
+  attempts   Int       @default(0)
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([email, purpose])
+  @@map("email_verification_codes")
+}
+
+// DEPÓSITOS QUE QLC REALIZA AL CLIENTE (por subcuenta/API). Los registra el
+// ADMIN (fecha, monto, referencia); los ve el cliente en su subcuenta y el
+// afiliador directo en el "Historial registrado por QLC" de su referido.
+// Nunca se borran: un registro erróneo se ANULA (voidedAt) con trazabilidad.
+model QlcDeposit {
+  id              String        @id @default(cuid())
+  apiSubaccountId String
+  apiSubaccount   ApiSubaccount @relation(fields: [apiSubaccountId], references: [id], onDelete: Cascade)
+  amount          Decimal       @db.Decimal(14, 2)
+  currency        String        @default("USDT")
+  depositedAt     DateTime
+  reference       String?       @db.VarChar(200)
+  note            String?       @db.VarChar(500)
+  createdByUserId String
+  voidedAt        DateTime?
+  voidedByUserId  String?
+  voidReason      String?       @db.VarChar(300)
+  createdAt       DateTime      @default(now())
+
+  @@index([apiSubaccountId, depositedAt])
+  @@map("qlc_deposits")
+}
+
+// CANDADO DE AFILIACIÓN — una persona inscrita con la liga de un afiliador
+// solo puede volver a inscribirse (tras darse de baja) con la liga ORIGINAL
+// de ese afiliador. NO se borra al eliminar la cuenta: se reconoce a la
+// persona por correo o nombre completo normalizados (ver utils/referralLock).
+model AffiliateReferralLock {
+  id                 String         @id @default(cuid())
+  // Cliente inscrito (id simple, sin FK: el candado sobrevive a su eliminación).
+  referredClientId   String?        @unique
+  email              String
+  emailNormalized    String
+  fullName           String
+  fullNameNormalized String
+  referrerClientId   String?
+  referrer           ClientProfile? @relation("ReferralLockReferrer", fields: [referrerClientId], references: [id], onDelete: SetNull)
+  referrerCode       String?        @db.VarChar(32)
+  // 'AFFILIATE_LINK' | 'ADMIN' | 'BACKFILL'
+  source             String?        @db.VarChar(20)
+  createdAt          DateTime       @default(now())
+
+  @@index([emailNormalized])
+  @@index([fullNameNormalized])
+  @@map("affiliate_referral_locks")
+}

@@ -1,0 +1,427 @@
+import { z } from 'zod';
+import { COUNTRY_CODES } from '../shared/countries.js';
+
+const money = z.coerce.number({ invalid_type_error: 'Debe ser un número' }).min(0, 'No puede ser negativo').max(1e12);
+const text = (max = 200) => z.string().trim().min(1, 'Requerido').max(max);
+const optText = (max = 1000) => z.string().trim().max(max).optional().nullable().transform((v) => v || null);
+const id = z.string().min(1).max(40);
+
+export const languageField = z.enum(['es', 'en']);
+export const languageSchema = z.object({ language: languageField });
+export const residenceCountrySchema = z.object({ residenceCountry: z.enum(COUNTRY_CODES, { errorMap: () => ({ message: 'Selecciona tu país de residencia' }) }) });
+
+export const registerSchema = z.object({
+  language: languageField.optional(),
+  name: text(120),
+  email: z.string().trim().toLowerCase().email('Correo inválido').max(160),
+  password: z.string().min(8, 'Mínimo 8 caracteres').max(128),
+  phone: z.string().trim().max(30).optional(),
+  residenceCountry: z.enum(COUNTRY_CODES, { errorMap: () => ({ message: 'Selecciona tu país de residencia' }) }),
+  acceptLegal: z.literal(true, { errorMap: () => ({ message: 'Debes aceptar los Términos y el Aviso de privacidad' }) }),
+  legalVersion: z.string().trim().min(1).max(20),
+  emailToken: z.string().max(2000).optional(),
+  emailCode: z.string().trim().regex(/^\d{6}$/, 'El código tiene 6 dígitos').optional(),
+});
+
+export const emailCodeSchema = z.object({
+  language: languageField.optional(),
+  email: z.string().trim().toLowerCase().email('Correo inválido').max(160),
+});
+
+export const loginSchema = z.object({
+  email: z.string().trim().toLowerCase().email('Correo inválido'),
+  password: z.string().min(1, 'Requerido').max(128),
+});
+
+const emailField = z.string().trim().toLowerCase().email('Correo inválido');
+const totpCode = z.string().trim().regex(/^\d{6}$/, 'El código tiene 6 dígitos');
+const challenge = z.string().min(20).max(1000);
+
+export const codeLoginSchema = z.object({ email: emailField, code: totpCode });
+export const challengeSchema = z.object({ challengeToken: challenge });
+export const activateTwoFactorSchema = z.object({ challengeToken: challenge, code: totpCode });
+export const resetWithCodeSchema = z.object({ email: emailField, code: totpCode, password: z.string().min(8, 'Mínimo 8 caracteres').max(128) });
+const newPassword = z.string().min(8, 'Mínimo 8 caracteres').max(128);
+
+export const changePasswordSchema = z.object({ code: totpCode, newPassword });
+
+export const periodSchema = z.object({
+  year: z.coerce.number().int().min(2000).max(2100),
+  month: z.coerce.number().int().min(1).max(12),
+  openingNetWorth: money.optional(),
+});
+
+export const periodQuery = z.object({ periodId: id });
+
+export const incomeSchema = z.object({
+  periodId: id,
+  category: z.enum(['SALARIO', 'NEGOCIO', 'RENTAS', 'DIVIDENDOS', 'INTERESES', 'OTROS']),
+  description: text(),
+  amount: money,
+});
+
+export const expenseSchema = z.object({
+  periodId: id,
+  category: z.enum([
+    'VIVIENDA', 'ALIMENTACION', 'SERVICIOS', 'TRANSPORTE', 'SEGUROS',
+    'EDUCACION', 'ENTRETENIMIENTO', 'VIAJES', 'DEUDAS', 'OTROS',
+  ]),
+  description: text(),
+  amount: money,
+});
+
+const INSURANCE = ['SEGURO_GASTOS_MEDICOS', 'SEGURO_VIDA', 'SEGURO_AUTO', 'SEGURO_DESEMPLEO', 'SEGURO_EDUCACION', 'SEGURO_RETIRO', 'OTRO_SEGURO'];
+
+export const protectionSchema = z.object({
+  periodId: id,
+  type: z.enum(['LIQUIDEZ', 'FONDO_EMERGENCIA', 'RESERVA', 'META_PATRIMONIAL', ...INSURANCE]),
+  name: text(),
+  amount: money,
+  notes: optText(),
+  insurer: optText(120),
+  policyNumber: optText(80),
+  claimsNumber: optText(80),
+}).refine((v) => !INSURANCE.includes(v.type) || (v.insurer && v.policyNumber), { message: 'En un seguro indica la aseguradora y el número de póliza', path: ['policyNumber'] });
+
+const DEBT_TYPES = ['TARJETA_CREDITO', 'PRESTAMO_PERSONAL', 'CREDITO_AUTOMOTRIZ', 'HIPOTECA', 'CREDITO_NOMINA', 'PRESTAMO_FAMILIAR', 'BNPL', 'DEUDA_NEGOCIO', 'IMPUESTOS', 'OTRA'];
+const blankToNull = (v) => (v === '' || v === undefined || v === null ? null : Number(v));
+const nullableNumber = (min, max) => z.preprocess(blankToNull, z.number({ invalid_type_error: 'Debe ser un número' }).min(min).max(max).nullable());
+
+export const debtFields = z.object({
+  name: text(),
+  lender: optText(120),
+  type: z.enum(DEBT_TYPES).default('OTRA'),
+  customType: optText(80),
+  annualRate: nullableNumber(0, 1000),
+  status: z.enum(['ACTIVE', 'PAID']).default('ACTIVE'),
+  balance: money,
+  payment: money,
+  fees: money.default(0),
+});
+
+export const debtSchema = debtFields.extend({ periodId: id });
+
+export const debtPaymentSchema = z.object({
+  amount: z.coerce.number().positive('Debe ser mayor a 0').max(1e12),
+  newBalance: nullableNumber(0, 1e12).optional(),
+});
+
+export const assetSchema = z.object({
+  periodId: id,
+  categoryCode: text(40),
+  name: text(),
+  institution: optText(120),
+  notes: optText(),
+  initialCapital: money,
+  finalCapital: money,
+  incomeType: z.preprocess((v) => (v === '' || v === undefined ? null : v), z.enum(['MANUAL', 'AMOUNT', 'PERCENT']).nullable()).default(null),
+  incomeValue: nullableNumber(-1e12, 1e12).optional(),
+  incomeDay: z.preprocess((v) => (v === '' || v === undefined || v === null ? null : v), z.coerce.number().int().min(1).max(31).nullable()).default(null),
+  incomeTerm: z.preprocess((v) => (v === '' || v === undefined || v === null ? null : v), z.coerce.number().int().refine((m) => [3, 6, 12].includes(m), 'El plazo debe ser de 3, 6 o 12 meses').nullable()).default(null),
+}).refine((v) => !['AMOUNT', 'PERCENT'].includes(v.incomeType) || (v.incomeValue !== null && v.incomeValue !== undefined && v.incomeDay), { message: 'Indica la rentabilidad y el día en que la recibes', path: ['incomeValue'] })
+  .refine((v) => !['AMOUNT', 'PERCENT'].includes(v.incomeType) || !(v.incomeValue < 0), { message: 'La rentabilidad automática no puede ser negativa; registra las pérdidas en modo manual', path: ['incomeValue'] })
+  .refine((v) => v.incomeValue === null || v.incomeValue === undefined || v.incomeDay, { message: 'Indica el día en que recibiste la rentabilidad', path: ['incomeDay'] });
+
+export const incomeUseSchema = z.object({
+  origin: z.enum(['MONTH', 'CARRY']),
+  kind: z.enum(['INCOME', 'INVEST', 'SAVE']),
+  destination: z.enum(['FONDO_EMERGENCIA', 'META_PATRIMONIAL']).optional().nullable(),
+  amount: z.coerce.number().positive('Debe ser mayor a 0').max(1e12),
+  description: optText(),
+  targetPositionId: optText(40),
+  newProduct: z.object({
+    categoryCode: text(40),
+    name: text(),
+    horizon: z.enum(['CORTO', 'MEDIANO', 'LARGO']).optional(),
+    liquidityLevel: z.enum(['ALTA', 'MEDIA', 'BAJA']).optional(),
+    perceivedRisk: z.enum(['BAJO', 'MEDIO', 'ALTO', 'MUY_ALTO']).optional(),
+  }).nullable().optional(),
+});
+
+export const positionIncomeSchema = z.object({
+  amount: z.coerce.number().min(0, 'No puede ser negativo').max(1e12),
+  date: z.coerce.date(),
+});
+
+export const movementSchema = z.object({
+  periodId: id,
+  type: z.enum(['APORTACION', 'DEDUCCION']),
+  amount: z.coerce.number().positive('Debe ser mayor a 0').max(1e12),
+
+  date: z.coerce.date().transform((d) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 12))),
+  description: text(),
+  assetId: id.optional().nullable(),
+});
+
+export const businessFlowSchema = z.object({
+  periodId: id,
+  assetId: id,
+  revenue: money,
+  costs: money,
+  notes: optText(),
+});
+
+export const progressSchema = z.object({
+  status: z.enum(['IN_PROGRESS', 'COMPLETED']),
+  exercise: optText(5000),
+});
+
+export const adminLevelSchema = z.object({ adminLevel: z.enum(['VIEW', 'EDIT', 'FULL']) });
+
+export const createAdminSchema = z.object({
+  name: text(120),
+  email: z.string().trim().toLowerCase().email('Correo inválido').max(160),
+  password: z.string().min(8, 'Mínimo 8 caracteres').max(128),
+  adminLevel: z.enum(['VIEW', 'EDIT', 'FULL']),
+});
+
+export const appointmentSchema = z.object({
+  reason: text(500),
+  scheduledAt: z.coerce.date().refine((d) => d.getTime() > Date.now(), 'La fecha debe ser futura'),
+  durationMin: z.coerce.number().int().refine((m) => [20, 40, 60].includes(m), 'La duración debe ser de 20, 40 o 60 minutos').default(60),
+  channel: z.literal('CHAT_INTERNO').default('CHAT_INTERNO'),
+  notes: optText(),
+});
+
+export const appointmentAdminSchema = z.object({
+  status: z.enum(['PENDING', 'CONFIRMED', 'COMPLETED', 'CANCELLED']).optional(),
+  scheduledAt: z.coerce.date().optional(),
+  durationMin: z.coerce.number().int().refine((m) => [20, 40, 60].includes(m), 'La duración debe ser de 20, 40 o 60 minutos').optional(),
+  adminNotes: optText(),
+});
+
+export const adminUserSchema = z.object({ isActive: z.boolean() });
+
+export const adminPasswordSchema = z.object({ password: newPassword });
+
+export const openingSchema = z.object({ openingNetWorth: money.nullable() });
+export const yearParam = z.object({ year: z.coerce.number().int().min(2000).max(2100) });
+export const historyQuery = z.object({ year: z.coerce.number().int().min(2000).max(2100).optional() });
+
+const enumOf = (values) => z.enum(values);
+const amount = money.default(0);
+
+export const diagnosisSchema = z.object({
+  income: amount,
+  expenses: amount,
+  debtPayment: amount,
+  monthlyInvestment: amount,
+  cash: amount,
+  investments: amount,
+  otherAssets: amount,
+  totalDebt: amount,
+  emergencyFund: amount,
+  riskTolerance: enumOf(['CONSERVADOR', 'MODERADO', 'ALTO']),
+  mainGoal: enumOf(['CONSTRUIR_PATRIMONIO', 'FONDO_EMERGENCIA', 'INVERTIR_MEJOR', 'REDUCIR_DEUDAS', 'OTRO']),
+  mainGoalCustom: optText(120),
+}).refine((v) => v.mainGoal !== 'OTRO' || (v.mainGoalCustom && v.mainGoalCustom.trim()), { message: 'Escribe tu objetivo financiero', path: ['mainGoalCustom'] });
+
+export const productSchema = z.object({
+  name: text(120),
+  productType: enumOf(['RENTA_FIJA', 'RENTA_VARIABLE', 'FONDOS', 'ACCIONES', 'BIENES_RAICES', 'NEGOCIO', 'ACTIVO_DIGITAL', 'ALTO_RIESGO', 'LIQUIDEZ']),
+  capital: z.coerce.number().min(0, 'El monto no puede ser negativo').max(1e12),
+  horizon: enumOf(['CORTO', 'MEDIANO', 'LARGO']),
+  liquidityLevel: enumOf(['ALTA', 'MEDIA', 'BAJA']),
+  perceivedRisk: enumOf(['BAJO', 'MEDIO', 'ALTO', 'MUY_ALTO']),
+});
+
+export const moduleProgressSchema = z.object({
+  status: enumOf(['IN_PROGRESS', 'COMPLETED']),
+  exercise: z.string().trim().max(5000).optional(),
+});
+
+export const routeSchema = z.object({ route: enumOf(['MARKETS', 'PATRIMONIAL']) });
+
+const binary = z.coerce.number().int().min(0).max(1);
+export const marketFilterSchema = z.object({ answers: z.object({ q1: binary, q2: binary, q3: binary, q4: binary, q5: binary, q6: binary }) });
+
+const leverage = z.coerce.number().refine((v) => [1, 2, 5, 10, 25, 50, 100, 150].includes(v), 'Apalancamiento no válido');
+const positive = z.coerce.number().min(0).max(1e12);
+
+export const simulationSchemas = {
+  3: z.object({
+    RENTA_FIJA: amount, RENTA_VARIABLE: amount, BIENES_RAICES: amount, NEGOCIOS: amount, LIQUIDEZ: amount, ALTO_RIESGO: amount,
+  }),
+  4: z.object({ capital: positive, direction: enumOf(['LONG', 'SHORT']), leverage, movePct: z.coerce.number().min(0).max(100), favorable: z.boolean() }),
+  5: z.object({
+    capital: positive,
+    direction: enumOf(['LONG', 'SHORT']),
+    leverage,
+    entryPrice: z.coerce.number().positive().max(1e12),
+    exitPrice: z.coerce.number().positive().max(1e12),
+    costPct: z.coerce.number().min(0).max(10),
+  }),
+  6: z.object({
+    capital: positive,
+    riskPct: z.coerce.number().min(0).max(100),
+    positions: z.coerce.number().int().min(1).max(100),
+    leverage,
+    automation: enumOf(['MANUAL', 'SEMI', 'AUTO']),
+    monitoring: enumOf(['BASIC', 'CONTINUOUS', 'ALERTS']),
+  }),
+};
+
+export const offerUpdateSchema = z.object({
+  name: text(120),
+  description: optText(500),
+  price: z.coerce.number().min(0).max(1e9).nullable(),
+  currency: z.string().trim().toUpperCase().length(3),
+  accessDays: z.coerce.number().int().min(1).max(3650).nullable().optional(),
+  billingCycle: z.enum(['MONTHLY', 'YEARLY']).nullable().optional(),
+  active: z.boolean(),
+  giftable: z.boolean().optional(),
+});
+
+const authorizationFields = { masterPassword: z.string().min(1, 'Escriba la contraseña maestra').max(200), code: z.string().trim().regex(/^\d{6}$/, 'Escriba el código de 6 dígitos de su autenticador') };
+const futureDate = z.coerce.date({ invalid_type_error: 'Fecha inválida' });
+
+export const manualGrantSchema = z.object({
+  userId: text(40),
+  offerCode: text(40),
+  expiresAt: futureDate,
+  reason: z.enum(['CORTESIA', 'BENEFICIO', 'PROMOCION', 'COMPENSACION', 'INVITACION', 'ESPECIAL']),
+  note: optText(300),
+  ...authorizationFields,
+});
+export const expirySchema = z.object({ expiresAt: futureDate, note: optText(300), ...authorizationFields });
+export const revokeSchema = z.object({ note: optText(300), ...authorizationFields });
+export const authorizePromoSchema = z.object({ expiresAt: futureDate.optional().nullable(), ...authorizationFields });
+export const masterSetupSchema = z.object({ password: z.string().min(12).max(200), code: authorizationFields.code });
+export const masterChangeSchema = z.object({ password: z.string().min(12).max(200), ...authorizationFields });
+export const promotionSchema = z.object({
+  userId: text(40),
+  offerCode: text(40),
+  discountPercent: z.coerce.number().int().min(1, 'Mínimo 1%').max(100, 'Máximo 100%'),
+  validUntil: futureDate,
+  message: optText(600),
+  send: z.boolean().default(true),
+});
+export const giftSettingsSchema = z.object({ redeemDays: z.coerce.number().int().min(7).max(1095) });
+
+export const mediaUpdateSchema = z.object({ active: z.boolean().optional(), position: z.coerce.number().int().min(0).max(999).optional(), name: text(160).optional() });
+
+const BUDGET_CATEGORIES = ['VIVIENDA', 'ALIMENTACION', 'SERVICIOS', 'TRANSPORTE', 'SEGUROS', 'EDUCACION', 'ENTRETENIMIENTO', 'VIAJES', 'DEUDAS', 'OTROS', 'FLUJO_DISPONIBLE', 'AHORRO', 'INVERSION'];
+const customBudgetCategory = z.string().trim().regex(/^CUSTOM:\S.{0,39}$/, 'Nombre de categoría inválido');
+const budgetCategory = (exclude = []) => z.union([z.enum(BUDGET_CATEGORIES.filter((c) => !exclude.includes(c))), customBudgetCategory]);
+const yearField = z.coerce.number().int().min(2000).max(2100);
+const monthField = z.coerce.number().int().min(1).max(12);
+
+export const monthQuery = z.object({ year: yearField, month: monthField });
+
+export const budgetSchema = z.object({
+  year: yearField,
+  month: monthField,
+  netIncome: money,
+  lines: z
+    .array(z.object({ category: budgetCategory(), percent: z.coerce.number().min(0, 'No puede ser negativo').max(100) }))
+    .min(1)
+    .max(40)
+    .refine((lines) => new Set(lines.map((l) => l.category)).size === lines.length, 'Categorías repetidas'),
+});
+
+export const budgetActualSchema = z.object({
+  year: yearField,
+  month: monthField,
+  category: budgetCategory(['INVERSION', 'FLUJO_DISPONIBLE']),
+  amount: z.coerce.number().positive('Debe ser mayor a 0').max(1e12),
+  description: text(),
+});
+
+export const budgetActualSetSchema = z.object({
+  year: yearField,
+  month: monthField,
+  category: budgetCategory(['FLUJO_DISPONIBLE']),
+  amount: z.coerce.number().min(0, 'No puede ser negativo').max(1e12),
+});
+
+export const emergencyPlanSchema = z.object({
+  targetMonths: z.coerce.number().int().min(1, 'La meta debe ser mayor que cero').max(60),
+  monthlyContribution: money,
+  declaredEssential: nullableNumber(0, 1e12).optional(),
+  useDeclared: z.boolean().default(false),
+});
+
+export const contributionSchema = z.object({
+  destination: z.enum(['FONDO_EMERGENCIA', 'AHORRO', 'META_PATRIMONIAL']).default('FONDO_EMERGENCIA'),
+  amount: z.coerce.number().positive('Debe ser mayor a 0').max(1e12),
+  description: text(),
+});
+
+const signedMoney = z.coerce.number({ invalid_type_error: 'Debe ser un número' }).min(-1e12).max(1e12);
+const optionalId = z.preprocess((v) => (v === '' || v === undefined ? null : v), id.nullable());
+
+export const taxItemSchema = z.object({
+  name: text(120),
+  type: z.enum(['NEGOCIO', 'INVERSION_FINANCIERA', 'BIEN_INMUEBLE', 'RENTA_ACTIVOS', 'PARTICIPACION_EMPRESA', 'CRIPTOACTIVOS', 'OTRA']),
+  period: z.enum(['MENSUAL', 'TRIMESTRAL', 'SEMESTRAL', 'ANUAL', 'PERSONALIZADO']),
+  capital: money,
+  grossProfit: signedMoney,
+  commissions: money,
+  otherCosts: money,
+  taxRate: z.coerce.number().min(0, 'Entre 0% y 100%').max(100, 'Entre 0% y 100%'),
+  sourceAssetId: optionalId,
+});
+
+const scenarioRate = z.coerce.number().gt(-100, 'Debe ser mayor que -100%').max(1000);
+
+export const scenarioSchema = z.object({
+  name: text(120),
+  type: z.enum(['AHORRO', 'INVERSION', 'META', 'EFECTIVO', 'OTRO']),
+  capital: money,
+  years: z.coerce.number().int('Usa años completos').min(0).max(100),
+  inflationRate: scenarioRate,
+  nominalRate: scenarioRate,
+  sourceAssetId: optionalId,
+  sourceGoalId: optionalId,
+});
+
+export const patrimonialGoalSchema = z.object({
+  name: optText(120),
+  targetAmount: z.coerce.number().positive('Debe ser mayor a 0').max(1e13),
+  monthlyContribution: nullableNumber(0, 1e12).optional(),
+});
+
+export const reviewNoteSchema = z.object({ note: z.string().trim().max(5000) });
+
+const LEAD_INTERESTS = ['EDUCACION_FINANCIERA', 'TRADING_ACADEMY', 'COPYTRADING', 'GENERAL'];
+
+export const leadSchema = z.object({
+  name: text(120),
+  email: z.string().trim().toLowerCase().email('Correo inválido').max(160),
+  phone: z.string().trim().max(30).optional().nullable().transform((v) => v || null),
+  interest: z.enum(LEAD_INTERESTS),
+  message: optText(1000),
+  sourcePath: z.string().trim().max(120).optional().nullable(),
+  acceptPrivacy: z.literal(true, { errorMap: () => ({ message: 'Debes aceptar el Aviso de privacidad' }) }),
+});
+
+export const leadUpdateSchema = z.object({
+  status: z.enum(['NEW', 'CONTACTED', 'CLOSED']),
+  adminNotes: optText(1000),
+});
+
+export const exerciseReplySchema = z.object({ reply: z.string().trim().min(1).max(5000) });
+
+export const exerciseQuery = z.object({ status: z.enum(['PENDING', 'ANSWERED']).optional() });
+
+export const leadQuery = z.object({
+  status: z.enum(['NEW', 'CONTACTED', 'CLOSED']).optional(),
+  interest: z.enum(LEAD_INTERESTS).optional(),
+});
+
+const metric = (max) => z.coerce.number().min(0).max(max);
+const optionalUrl = z.preprocess((v) => (v === '' || v === undefined ? null : v), z.string().trim().url('URL inválida').max(500).nullable());
+
+export const loginNoticeSchema = z.object({
+  active: z.boolean(),
+  metrics: z.object({
+    returnPct: z.coerce.number().min(-100).max(100000),
+    days: metric(100000),
+    wins: metric(1000000),
+    losses: metric(1000000),
+    hitRate: metric(100),
+    drawdown: metric(100),
+  }),
+  bitgetUrl: optionalUrl,
+  infoUrl: optionalUrl,
+});

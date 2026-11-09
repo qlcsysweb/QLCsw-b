@@ -1,0 +1,63 @@
+const { z } = require('zod');
+const prisma = require('../config/prisma.cjs');
+const ApiError = require('../utils/ApiError.cjs');
+const asyncHandler = require('../utils/asyncHandler.cjs');
+
+const getTrackRecordPublic = asyncHandler(async (req, res) => {
+  const trackRecord = await prisma.trackRecord.findFirst({
+    where: { isActive: true },
+    orderBy: { updatedAt: 'desc' },
+  });
+  res.json({ ok: true, trackRecord });
+});
+
+const getTrackRecordAdmin = asyncHandler(async (req, res) => {
+  const trackRecord = await prisma.trackRecord.findFirst({ orderBy: { updatedAt: 'desc' } });
+  res.json({ ok: true, trackRecord });
+});
+
+// ROI 30D / Tasa de éxito: porcentaje opcional. '' o null = sin configurar
+// (el sitio público muestra "—"). Se acepta "12.5", "+12.5", "12,5" o "12.5%".
+const percentField = (min, max) =>
+  z
+    .union([z.number(), z.string(), z.null()])
+    .optional()
+    .transform((v, ctx) => {
+      if (v === undefined) return undefined;
+      if (v === null) return null;
+      const raw = String(v).trim().replace('%', '').replace(',', '.').replace(/^\+/, '');
+      if (raw === '') return null;
+      const n = Number(raw);
+      if (!Number.isFinite(n) || n < min || n > max) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: `Valor porcentual inválido (entre ${min} y ${max}).` });
+        return z.NEVER;
+      }
+      return Math.round(n * 100) / 100;
+    });
+
+const updateSchema = z.object({
+  title: z.string().min(1).optional(),
+  titleEn: z.string().nullable().optional(),
+  description: z.string().min(1).optional(),
+  descriptionEn: z.string().nullable().optional(),
+  platformName: z.string().min(1).optional(),
+  profileLink: z.string().url().optional().or(z.literal('')),
+  ranking: z.string().min(1).optional(),
+  roi30d: percentField(-100, 99999999),
+  winRate: percentField(0, 100),
+  maxDrawdown: percentField(0, 100),
+  // Días del periodo del ROI ("ROI 30D"): entero de 1 a 365.
+  roiDays: z.coerce.number({ invalid_type_error: 'Indica el número de días del ROI.' }).int('Los días del ROI deben ser un número entero.').min(1, 'Los días del ROI deben ser entre 1 y 365.').max(365, 'Los días del ROI deben ser entre 1 y 365.').optional(),
+  isActive: z.boolean().optional(),
+});
+
+const updateTrackRecord = asyncHandler(async (req, res) => {
+  const data = updateSchema.parse(req.body);
+  const existing = await prisma.trackRecord.findUnique({ where: { id: req.params.id } });
+  if (!existing) throw ApiError.notFound('Track Record no encontrado');
+
+  const trackRecord = await prisma.trackRecord.update({ where: { id: req.params.id }, data });
+  res.json({ ok: true, trackRecord });
+});
+
+module.exports = { getTrackRecordPublic, getTrackRecordAdmin, updateTrackRecord };

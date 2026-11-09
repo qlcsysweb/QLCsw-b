@@ -1,0 +1,163 @@
+const { z } = require('zod');
+const prisma = require('../config/prisma.cjs');
+const ApiError = require('../utils/ApiError.cjs');
+const asyncHandler = require('../utils/asyncHandler.cjs');
+const { closeExpiredChatSession } = require('../utils/chatSessionExpiry.cjs');
+const { generateChatSessionPdf } = require('../utils/pdf/chatSessionPdf.cjs');
+const {
+  CHAT_APPOINTMENT_SELECT,
+  CHAT_MESSAGE_OMIT,
+  assertChatWindowOpen,
+  createFileMessage,
+  streamChatFile,
+} = require('../utils/chatSessions.cjs');
+
+async function getSessionOrThrow(id) {
+  const session = await prisma.chatSession.findUnique({
+    where: { id },
+    include: { appointment: CHAT_APPOINTMENT_SELECT, client: { select: { firstName: true, lastName: true } } },
+  });
+  if (!session) throw ApiError.notFound('Sesión de chat no encontrada');
+  return session;
+}
+
+function isExpired(session) {
+  return session.endsAt && new Date() > new Date(session.endsAt);
+}
+
+const listSessions = asyncHandler(async (req, res) => {
+  const sessions = await prisma.chatSession.findMany({
+    where: { status: { in: ['SCHEDULED', 'ACTIVE'] } },
+    orderBy: { createdAt: 'desc' },
+    include: { client: { select: { firstName: true, lastName: true } }, appointment: CHAT_APPOINTMENT_SELECT },
+  });
+  res.json({ ok: true, sessions });
+});
+
+// CORREGIR(2).xlsx ADMIN 28 — ver/entrar directamente al chat de una cita ya
+// autorizada desde la propia vista de la cita.
+const getSessionByAppointment = asyncHandler(async (req, res) => {
+  const session = await prisma.chatSession.findUnique({ where: { appointmentId: req.params.appointmentId } });
+  if (!session) throw ApiError.notFound('Sesión de chat no encontrada');
+  res.json({ ok: true, session });
+});
+
+const getSession = asyncHandler(async (req, res) => {
+  let session = await getSessionOrThrow(req.params.id);
+
+  if (session.status === 'ACTIVE' && isExpired(session)) {
+    session = await closeExpiredChatSession(session);
+  }
+
+  const messages = await prisma.chatMessage.findMany({
+    where: { chatSessionId: session.id },
+    orderBy: { createdAt: 'asc' },
+    omit: CHAT_MESSAGE_OMIT,
+  });
+
+  // serverTime: el navegador alinea la apertura del chat con la hora del servidor.
+  res.json({ ok: true, session, messages, serverTime: new Date().toISOString() });
+});
+
+const startSession = asyncHandler(async (req, res) => {
+  const session = await getSessionOrThrow(req.params.id);
+  if (session.status !== 'SCHEDULED') throw ApiError.badRequest('La sesión ya fue iniciada o cerrada');
+  // El admin tampoco puede adelantar el chat a la hora de la cita (UTC).
+  await assertChatWindowOpen(session);
+
+  const startedAt = new Date();
+  const endsAt = new Date(startedAt.getTime() + session.durationMinutes * 60 * 1000);
+
+  const updated = await prisma.chatSession.update({
+    where: { id: session.id },
+    data: { status: 'ACTIVE', startedAt, endsAt, adminId: req.user.role === 'ADMIN' ? req.user.id : session.adminId },
+  });
+
+  res.json({ ok: true, session: updated });
+});
+
+const sendMessageSchema = z.object({ content: z.string().min(1).max(2000) });
+
+const sendMessage = asyncHandler(async (req, res) => {
+  const { content } = sendMessageSchema.parse(req.body);
+  const session = await getSessionOrThrow(req.params.id);
+
+  if (session.status !== 'ACTIVE') throw ApiError.badRequest('El chat no está activo');
+  if (isExpired(session)) {
+    await closeExpiredChatSession(session);
+    throw ApiError.badRequest('El tiempo de la sesión de chat ha finalizado');
+  }
+
+  const message = await prisma.chatMessage.create({
+    data: { chatSessionId: session.id, senderUserId: req.user.id, content },
+    omit: CHAT_MESSAGE_OMIT,
+  });
+
+  res.status(201).json({ ok: true, message });
+});
+
+const sendFile = asyncHandler(async (req, res) => {
+  const session = await getSessionOrThrow(req.params.id);
+  if (session.status !== 'ACTIVE') throw ApiError.badRequest('El chat no está activo');
+  if (isExpired(session)) {
+    await closeExpiredChatSession(session);
+    throw ApiError.badRequest('El tiempo de la sesión de chat ha finalizado');
+  }
+  const message = await createFileMessage(session, { file: req.file, caption: req.body?.caption, senderUserId: req.user.id });
+  res.status(201).json({ ok: true, message });
+});
+
+const downloadFile = asyncHandler(async (req, res) => {
+  const session = await getSessionOrThrow(req.params.id);
+  await streamChatFile(res, session, req.params.messageId);
+});
+
+const closeSession = asyncHandler(async (req, res) => {
+  const session = await getSessionOrThrow(req.params.id);
+  const updated = await prisma.chatSession.update({ where: { id: session.id }, data: { status: 'CLOSED' } });
+  res.json({ ok: true, session: updated });
+});
+
+// PDF de la conversación — disponible en cualquier momento (no depende de
+// que la sesión siga vigente), generado al vuelo desde los ChatMessage.
+const downloadSessionPdf = asyncHandler(async (req, res) => {
+  const session = await prisma.chatSession.findUnique({
+    where: { id: req.params.id },
+    include: {
+      client: { select: { firstName: true, lastName: true, userId: true } },
+      admin: { select: { id: true, adminProfile: { select: { firstName: true, lastName: true } } } },
+    },
+  });
+  if (!session) throw ApiError.notFound('Sesión de chat no encontrada');
+
+  const messages = await prisma.chatMessage.findMany({
+    where: { chatSessionId: session.id },
+    orderBy: { createdAt: 'asc' },
+  });
+
+  const participantNames = {};
+  if (session.client) {
+    participantNames[session.client.userId] = `${session.client.firstName} ${session.client.lastName}`.trim();
+  }
+  if (session.admin) {
+    const name = `${session.admin.adminProfile?.firstName || ''} ${session.admin.adminProfile?.lastName || ''}`.trim();
+    participantNames[session.admin.id] = name || 'Administrador QLC';
+  }
+
+  const pdf = await generateChatSessionPdf({ session, client: session.client, messages, participantNames });
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `inline; filename="chat-${session.id}.pdf"`);
+  res.send(pdf);
+});
+
+module.exports = {
+  listSessions,
+  sendFile,
+  downloadFile,
+  getSessionByAppointment,
+  getSession,
+  startSession,
+  sendMessage,
+  closeSession,
+  downloadSessionPdf,
+};

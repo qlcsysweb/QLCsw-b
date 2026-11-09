@@ -1,0 +1,159 @@
+const { Router } = require('express');
+const rateLimit = require('express-rate-limit');
+const { requireAuth, requireRole } = require('../middleware/auth.cjs');
+const { resolveOwnClientProfile } = require('../middleware/clientAuth.cjs');
+const { uploadDocument: uploadDocumentFile, singleCaseFile, evidenceFiles, chatFile } = require('../middleware/upload.cjs');
+
+const modelController = require('../controllers/modelController.cjs');
+const profileController = require('../controllers/client/profileController.cjs');
+const apiSubaccountController = require('../controllers/client/apiSubaccountController.cjs');
+const documentController = require('../controllers/client/documentController.cjs');
+const paymentController = require('../controllers/client/paymentController.cjs');
+const statementController = require('../controllers/client/statementController.cjs');
+const processController = require('../controllers/processController.cjs');
+const supportController = require('../controllers/client/supportController.cjs');
+const chatController = require('../controllers/client/chatController.cjs');
+const appointmentController = require('../controllers/client/appointmentController.cjs');
+const notificationController = require('../controllers/client/notificationController.cjs');
+const messageController = require('../controllers/client/messageController.cjs');
+const platformSettingsController = require('../controllers/platformSettingsController.cjs');
+const guideController = require('../controllers/client/guideController.cjs');
+const processStepController = require('../controllers/processStepController.cjs');
+const affiliateController = require('../controllers/client/affiliateController.cjs');
+const accountDeletionController = require('../controllers/client/accountDeletionController.cjs');
+
+const router = Router();
+
+// Todas las rutas del portal cliente: autenticado + rol CLIENT + su propio ClientProfile resuelto
+router.use(requireAuth, requireRole('CLIENT'), resolveOwnClientProfile);
+
+// Perfil / Dashboard
+router.get('/me', profileController.getMe);
+router.get('/dashboard', profileController.getDashboard);
+
+// Eliminación de cuenta (autoservicio del titular: contraseña + Google
+// Authenticator). Límite estricto POR CLIENTE autenticado, además del IP,
+// para que la contraseña y el código no puedan adivinarse por fuerza bruta.
+const accountDeletionLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => `account-deletion:${req.user.id}`,
+  message: { ok: false, message: 'Demasiados intentos de verificación. Intenta de nuevo en 15 minutos.' },
+});
+router.post('/account/deletion-request', accountDeletionLimiter, accountDeletionController.requestAccountDeletion);
+
+// Afiliados / Panel de promotor — siempre del cliente autenticado (sin IDs en la URL).
+router.get('/affiliate', affiliateController.getMyAffiliate);
+router.post('/affiliate/activate', affiliateController.activateMyAffiliate);
+router.get('/affiliate/qr', affiliateController.getMyAffiliateQr);
+router.put('/affiliate/uid', affiliateController.updateMyBitgetUid);
+router.get('/affiliate/payments/:id/proof', affiliateController.downloadMyPaymentProof);
+router.get('/affiliate/payments/:id/statement-pdf', affiliateController.downloadMyPaymentStatementPdf);
+
+// Modelo de participación (lectura, único modelo activo)
+router.get('/models', modelController.listModelsPublic);
+
+// Subcuentas / API — GESTIÓN DINÁMICA: el cliente nace con solo su cuenta
+// PRINCIPAL; toda subcuenta adicional (hasta 20) y toda desactivación pasan
+// por una solicitud que un admin aprueba o rechaza. Nunca se elimina.
+router.get('/api-subaccounts', apiSubaccountController.listMine);
+router.get('/api-subaccounts/requests', apiSubaccountController.listMyRequests);
+router.post('/api-subaccounts/requests', apiSubaccountController.requestNewSubaccount);
+router.post('/api-subaccounts/:id/requests/deactivate', apiSubaccountController.requestDeactivateSubaccount);
+router.get('/api-subaccounts/:id', apiSubaccountController.getMine);
+router.patch('/api-subaccounts/:id', apiSubaccountController.updateMine);
+router.post('/api-subaccounts/:id/report-capital-ready', apiSubaccountController.reportCapitalReady);
+// CORREGIR.xlsx CLIENTE 13 — reporte real de distribución de capital
+router.get('/api-subaccounts/:id/capital-distribution-reports', apiSubaccountController.listCapitalDistributionReports);
+router.post('/api-subaccounts/:id/capital-distribution-reports', apiSubaccountController.reportCapitalDistribution);
+router.delete('/api-subaccounts/:id/capital-distribution-reports/:reportId', apiSubaccountController.hideCapitalDistributionReport);
+// Modelo de participación: único (50% QLC / 50% Cliente) y asignado
+// automáticamente — ya no hay rutas para elegir ni confirmar modelo.
+
+// Proceso de activación (solo lectura) — por subcuenta
+router.get('/api-subaccounts/:apiSubaccountId/process', processController.getProcess);
+
+// Documentos de identidad (a nivel cliente — REVERSIÓN A: bloqueados por defecto)
+router.get('/documents', documentController.listDocuments);
+router.post('/documents', uploadDocumentFile.single('file'), documentController.uploadDocument);
+router.get('/documents/:id/download', documentController.downloadDocument);
+router.delete('/documents/:id', documentController.deleteDocument);
+router.post('/documents/:id/correction', uploadDocumentFile.single('file'), documentController.correctDocument);
+
+// Pagos / Garantía — Transferencia interna Bitget, por subcuenta. El
+// cliente solo reporta número de orden + fecha/hora de la transacción.
+router.get('/api-subaccounts/:apiSubaccountId/payment-data', paymentController.getSubaccountPaymentData);
+router.get('/api-subaccounts/:apiSubaccountId/payment-reports', paymentController.listPaymentReports);
+// multipart/form-data: bitgetOrderNumber + transactionAt + "files" (1–5 evidencias).
+router.post('/api-subaccounts/:apiSubaccountId/payment-reports', evidenceFiles, paymentController.createPaymentReport);
+router.get('/payment-reports/:id/proof', paymentController.downloadPaymentProof);
+router.get('/payment-reports/:id/files/:fileId', paymentController.downloadEvidenceFile);
+// Corregir un reporte RECHAZADO (mismo registro, vuelve a revisión) — multipart.
+router.put('/payment-reports/:id', evidenceFiles, paymentController.correctPaymentReport);
+router.delete('/payment-reports/:id', paymentController.hidePaymentReport);
+
+// Estado de cuenta — estado actual por subcuenta (NO GENERADO / PENDIENTE
+// DE PAGO / PAGADO / VENCIDO SIN PAGAR) y descarga del PDF.
+router.get('/api-subaccounts/:apiSubaccountId/statements', statementController.listStatements);
+router.get('/statements/:id/download', statementController.downloadStatementFile);
+router.get('/statements/:id/attachments/:attachmentId', statementController.downloadStatementAttachment);
+router.delete('/statements/:id', statementController.hideStatement);
+
+// Liga hacia la plataforma externa (CORRECCIÓN 10) — solo lectura para el cliente
+router.get('/platform-link', platformSettingsController.getPlatformLinkForClient);
+
+// Guía de uso — PDF (CORRECCIÓN 27, se conserva) + biblioteca HTML
+// (CORRECCIÓN 1/6/20/21, fuente principal editable desde ADMIN).
+router.get('/guide', platformSettingsController.downloadMyGuide);
+router.get('/guides', guideController.listGuides);
+
+// Soporte
+router.get('/support-cases', supportController.listSupportCases);
+router.post('/support-cases', supportController.createSupportCase);
+router.delete('/support-cases/:id', supportController.hideSupportCase);
+router.get('/support-cases/:id/messages', supportController.listCaseMessages);
+router.post('/support-cases/:id/messages', supportController.sendCaseMessage);
+router.get('/support-cases/:id/files', supportController.listCaseFiles);
+router.post('/support-cases/:id/files', singleCaseFile, supportController.uploadCaseFile);
+router.get('/support-cases/:id/files/:fileId/download', supportController.downloadCaseFile);
+
+// Chat
+router.get('/chat-sessions', chatController.listChatSessions);
+// CORREGIR(2).xlsx CLIENTE 28 — permite al botón "Entrar al chat" de la cita
+// resolver directamente la sesión asociada, sin que el cliente tenga que
+// buscarla manualmente en Soporte.
+router.get('/appointments/:appointmentId/chat-session', chatController.getSessionByAppointment);
+router.get('/chat/:id', chatController.getSession);
+router.post('/chat/:id/start', chatController.startSession);
+router.post('/chat/:id/messages', chatController.sendMessage);
+router.post('/chat/:id/files', chatFile, chatController.sendFile);
+router.get('/chat/:id/files/:messageId', chatController.downloadFile);
+router.get('/chat/:id/pdf', chatController.downloadSessionPdf);
+
+// Citas
+router.get('/availability', appointmentController.listAvailability);
+router.get('/appointments/available-slots', appointmentController.listAvailableSlots);
+router.get('/appointments', appointmentController.listAppointments);
+router.post('/appointments', appointmentController.createAppointment);
+router.delete('/appointments/:id', appointmentController.hideAppointment);
+router.post('/appointments/:id/proposal', appointmentController.respondToProposal);
+
+// CORREGIR.xlsx CLIENTE 07 — "Tu proceso paso a paso" (solo lectura, CMS editable desde ADMIN)
+router.get('/process-steps', processStepController.listStepsPublic);
+
+// Notificaciones
+router.get('/notifications', notificationController.listNotifications);
+router.patch('/notifications/:id/read', notificationController.markAsRead);
+router.post('/notifications/read-all', notificationController.markAllAsRead);
+router.post('/notifications/delete', notificationController.deleteNotifications);
+
+// Mensajería interna (buzón admin↔cliente) — distinta del chat de citas y
+// de los casos de soporte.
+router.get('/messages', messageController.listMyMessages);
+router.post('/messages', messageController.sendMessage);
+router.post('/messages/read-all', messageController.markAllRead);
+router.get('/messages/:id/files/:fileId', messageController.downloadAttachment);
+
+module.exports = router;

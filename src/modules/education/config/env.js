@@ -1,0 +1,48 @@
+const isProd = process.env.NODE_ENV === 'production';
+const trimUrl = (u) => (u || '').trim().replace(/\/$/, '');
+
+function required(name) {
+  const value = process.env[name];
+  if (!value) throw new Error(`Falta la variable de entorno ${name}`);
+  return value;
+}
+
+const jwtSecret = process.env.EDU_JWT_SECRET || (isProd ? required('EDU_JWT_SECRET') : 'dev-only-secret-change-me-0123456789');
+const frontendUrls = (process.env.EDU_FRONTEND_URL || 'http://localhost:5173').split(',').map(trimUrl).filter(Boolean);
+const backendUrl = trimUrl(process.env.EDU_BACKEND_URL || 'http://localhost:4000');
+
+export const env = {
+  isProd,
+  isTest: process.env.NODE_ENV === 'test',
+  allowPastPeriods: process.env.EDU_ALLOW_PAST_PERIODS !== 'false',
+  allowProfileReset: process.env.EDU_ALLOW_PROFILE_RESET !== 'false',
+  jwtSecret,
+  jwtExpiresIn: process.env.EDU_JWT_EXPIRES_IN || '7d',
+  frontendUrls,
+  frontendUrl: frontendUrls[0],
+  backendUrl,
+  generalAdminEmail: (process.env.EDU_GENERAL_ADMIN_EMAIL || '').trim().toLowerCase(),
+  cloudinary: {
+    cloudName: process.env.EDU_CLOUDINARY_CLOUD_NAME || '',
+    apiKey: process.env.EDU_CLOUDINARY_API_KEY || '',
+    apiSecret: process.env.EDU_CLOUDINARY_API_SECRET || '',
+    folder: process.env.EDU_CLOUDINARY_FOLDER || 'qlc-financial-education',
+  },
+  google: {
+    clientId: process.env.EDU_GOOGLE_CLIENT_ID || '',
+    clientSecret: process.env.EDU_GOOGLE_CLIENT_SECRET || '',
+    redirectUri: trimUrl(process.env.EDU_GOOGLE_REDIRECT_URI) || `${backendUrl}/api/google/callback`,
+  },
+  tokenEncryptionKey: process.env.EDU_TOKEN_ENCRYPTION_KEY || '',
+  secondaryPlatformUrl: (process.env.EDU_SECONDARY_PLATFORM_URL || '').trim() || 'https://www.qlctrade.net/trad/',
+  keepAlive: {
+    enabled: process.env.EDU_KEEP_ALIVE || process.env.TRAD_KEEP_ALIVE
+      ? process.env.EDU_KEEP_ALIVE === 'true' || process.env.TRAD_KEEP_ALIVE === 'true'
+      : isProd,
+    url: trimUrl(process.env.EDU_KEEP_ALIVE_URL || process.env.TRAD_KEEP_ALIVE_URL || process.env.RENDER_EXTERNAL_URL || process.env.EDU_BACKEND_URL),
+    intervalMinutes: Math.min(14, Math.max(1, Number(process.env.EDU_KEEP_ALIVE_INTERVAL_MINUTES) || 5)),
+  },
+};
+
+export const googleConfigured = () => !!(env.google.clientId && env.google.clientSecret && env.tokenEncryptionKey);
+export const cloudinaryConfigured = () => !!(env.cloudinary.cloudName && env.cloudinary.apiKey && env.cloudinary.apiSecret);

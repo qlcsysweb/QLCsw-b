@@ -1,0 +1,1294 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../../node_modules/@qlc/prisma-education"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("EDU_DATABASE_URL")
+  directUrl = env("EDU_DIRECT_URL")
+}
+
+enum Role {
+  CLIENT
+  ADMIN
+}
+
+enum AdminLevel {
+  VIEW
+  EDIT
+  FULL
+}
+
+enum PeriodStatus {
+  OPEN
+  CLOSED
+}
+
+enum IncomeCategory {
+  SALARIO
+  NEGOCIO
+  RENTAS
+  DIVIDENDOS
+  INTERESES
+  OTROS
+}
+
+enum ExpenseCategory {
+  VIVIENDA
+  ALIMENTACION
+  SERVICIOS
+  TRANSPORTE
+  SEGUROS
+  EDUCACION
+  ENTRETENIMIENTO
+  VIAJES
+  DEUDAS
+  OTROS
+}
+
+enum ProtectionType {
+  LIQUIDEZ
+  FONDO_EMERGENCIA
+  RESERVA
+  SEGURO_GASTOS_MEDICOS
+  SEGURO_VIDA
+  SEGURO_AUTO
+  SEGURO_DESEMPLEO
+  SEGURO_EDUCACION
+  SEGURO_RETIRO
+  META_PATRIMONIAL
+  OTRO_SEGURO
+}
+
+enum DebtStatus {
+  ACTIVE
+  PAID
+}
+
+enum MovementType {
+  APORTACION
+  DEDUCCION
+}
+
+enum AppointmentStatus {
+  PENDING
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+}
+
+enum AppointmentChannel {
+  CHAT_INTERNO
+  VIDEOLLAMADA
+  LLAMADA
+  WHATSAPP
+  PRESENCIAL
+}
+
+enum ModuleStatus {
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum ProductType {
+  RENTA_FIJA
+  RENTA_VARIABLE
+  FONDOS
+  ACCIONES
+  BIENES_RAICES
+  NEGOCIO
+  ACTIVO_DIGITAL
+  ALTO_RIESGO
+  LIQUIDEZ
+}
+
+enum Horizon {
+  CORTO
+  MEDIANO
+  LARGO
+}
+
+enum LiquidityLevel {
+  ALTA
+  MEDIA
+  BAJA
+}
+
+enum PerceivedRisk {
+  BAJO
+  MEDIO
+  ALTO
+  MUY_ALTO
+}
+
+enum RiskTolerance {
+  CONSERVADOR
+  MODERADO
+  ALTO
+}
+
+enum FinancialGoal {
+  CONSTRUIR_PATRIMONIO
+  FONDO_EMERGENCIA
+  INVERTIR_MEJOR
+  REDUCIR_DEUDAS
+  OTRO
+}
+
+enum LearningRoute {
+  MARKETS
+  PATRIMONIAL
+}
+
+enum SimulationKind {
+  PORTFOLIO_SIMULATION
+  RISK_EXPOSURE
+  TRADE
+  PROFESSIONAL_OPERATION
+}
+
+enum OfferType {
+  FULL_ANNUAL
+  TOOL_ONLY
+  MASTERCLASS
+  CONSULTA
+  ORIENTACION
+}
+
+enum PaymentAttemptStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum MediaFileType {
+  IMAGE
+  VIDEO
+  DOCUMENT
+}
+
+enum MediaProvider {
+  CLOUDINARY
+  GOOGLE_DRIVE
+}
+
+enum GoogleService {
+  DRIVE
+  GMAIL
+}
+
+enum IntegrationStatus {
+  CONNECTED
+  ERROR
+  DISCONNECTED
+}
+
+enum EmailStatus {
+  SENT
+  FAILED
+}
+
+enum DebtType {
+  TARJETA_CREDITO
+  PRESTAMO_PERSONAL
+  CREDITO_AUTOMOTRIZ
+  HIPOTECA
+  CREDITO_NOMINA
+  PRESTAMO_FAMILIAR
+  BNPL
+  DEUDA_NEGOCIO
+  IMPUESTOS
+  OTRA
+}
+
+enum SavingDestination {
+  FONDO_EMERGENCIA
+  AHORRO
+  META_PATRIMONIAL
+}
+
+enum TaxItemType {
+  NEGOCIO
+  INVERSION_FINANCIERA
+  BIEN_INMUEBLE
+  RENTA_ACTIVOS
+  PARTICIPACION_EMPRESA
+  CRIPTOACTIVOS
+  OTRA
+}
+
+enum ResultPeriod {
+  MENSUAL
+  TRIMESTRAL
+  SEMESTRAL
+  ANUAL
+  PERSONALIZADO
+}
+
+enum ScenarioType {
+  AHORRO
+  INVERSION
+  META
+  EFECTIVO
+  OTRO
+}
+
+enum LeadInterest {
+  EDUCACION_FINANCIERA
+  TRADING_ACADEMY
+  COPYTRADING
+  GENERAL
+}
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  CLOSED
+}
+
+enum GoalKind {
+  PATRIMONIO
+  AHORRO
+  OTRA
+}
+
+model User {
+  id                 String      @id @default(cuid())
+  email              String      @unique
+  passwordHash       String
+  name               String
+  phone              String?
+  residenceCountry        String?
+  role               Role        @default(CLIENT)
+  adminLevel         AdminLevel?
+  isActive           Boolean     @default(true)
+  lastLoginAt        DateTime?
+  totpSecret         String?
+  totpPendingSecret  String?
+  totpEnabledAt      DateTime?
+  totpLastStep       Int?
+  totpFailedAttempts Int         @default(0)
+  totpLockedUntil    DateTime?
+  legalAcceptedAt    DateTime?
+  legalVersion       String?
+  marketingOptOut    Boolean     @default(false)
+  subscriptionCancelledAt DateTime?
+  subscriptions      Subscription[]
+  retentionStage     Int         @default(0)
+  resetCodeHash      String?
+  resetCodeExpiresAt DateTime?
+  resetCodeAttempts  Int         @default(0)
+  sessionsValidFrom  DateTime?
+  language           String      @default("es")
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+
+  resetTokens      PasswordResetToken[]
+  periods          FinancialPeriod[]
+  incomes          Income[]
+  expenses         Expense[]
+  protection       ProtectionRecord[]
+  debts            Debt[]
+  assets           Asset[]
+  businessFlows    BusinessFlow[]
+  movements        PatrimonialMovement[]
+  monthlyCloses    MonthlyClose[]          @relation("CloseOwner")
+  annualReports    AnnualReport[]
+  progress         ModuleProgress[]
+  appointments     Appointment[]
+  financialProfile FinancialProfile?
+  learningState    LearningState?
+  routeAssessments MarketRouteAssessment[]
+  submissions      ModuleSubmission[]
+  simulations      EducationalSimulation[]
+  paymentAttempts  PaymentAttempt[]
+  accessGrants     AccessGrant[]
+  analyticsEvents  AnalyticsEvent[]
+  budgets          Budget[]
+  emergencyPlan    EmergencyFundPlan?
+  contributions    SavingContribution[]
+  taxItems         TaxAnalysisItem[]
+  scenarios        InflationScenario[]
+  goals            Goal[]
+  annualReviews    AnnualReview[]
+  reviewNotes      AnnualReviewNote[]
+  incomeUses       IncomeUse[]
+  dataShares       DataShare[]
+  promotions       Promotion[]
+  giftsPurchased   GiftCode[]  @relation("GiftPurchaser")
+  giftsReceived    GiftCode[]  @relation("GiftRecipient")
+  serviceCredits   ServiceCredit[]
+  moduleQuestions  ModuleQuestion[]
+  masterclassDone  MasterclassProgress[]
+  bitgetReports    BitgetReport[]
+}
+
+model ServiceCredit {
+  id               String    @id @default(cuid())
+  userId           String
+  kind             String
+  source           String
+  paymentAttemptId String?
+  grantId          String?
+  expiresAt        DateTime?
+  usedAt           DateTime?
+  usedRef          String?
+  createdAt        DateTime  @default(now())
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, kind, usedAt])
+  @@index([usedRef])
+}
+
+model ModuleQuestion {
+  id           String    @id @default(cuid())
+  userId       String
+  moduleNumber Int
+  question     String
+  answer       String?
+  answeredAt   DateTime?
+  answeredById String?
+  creditId     String?
+  createdAt    DateTime  @default(now())
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, moduleNumber])
+  @@index([answeredAt])
+}
+
+model MasterclassProgress {
+  id           String   @id @default(cuid())
+  userId       String
+  moduleNumber Int
+  completedAt  DateTime @default(now())
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, moduleNumber])
+}
+
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model WebhookEvent {
+  id          String   @id @default(cuid())
+  provider    String
+  eventKey    String   @unique
+  topic       String
+  resourceId  String
+  processedAt DateTime @default(now())
+}
+
+model FinancialPeriod {
+  id              String                @id @default(cuid())
+  userId          String
+  year            Int
+  month           Int
+  status          PeriodStatus          @default(OPEN)
+  openingNetWorth Decimal?              @db.Decimal(14, 2)
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+  user            User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  incomes         Income[]
+  expenses        Expense[]
+  protection      ProtectionRecord[]
+  debtBalances    DebtBalance[]
+  positions       AssetPosition[]
+  movements       PatrimonialMovement[]
+  businessFlows   BusinessFlow[]
+  closes          MonthlyClose[]
+  contributions   SavingContribution[]
+  incomeUses      IncomeUse[]
+
+  @@unique([userId, year, month])
+}
+
+model DataShare {
+  id          String    @id @default(cuid())
+  clientId    String
+  grantedAt   DateTime  @default(now())
+  endedAt     DateTime?
+  endedById   String?
+  endedByRole String?
+  allowEdit     Boolean   @default(false)
+  editGrantedAt DateTime?
+  client      User           @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  messages    ShareMessage[]
+
+  @@index([clientId, endedAt])
+}
+
+model ShareMessage {
+  id         String    @id @default(cuid())
+  shareId    String
+  senderId   String
+  senderRole String
+  senderName String
+  body       String
+  createdAt  DateTime  @default(now())
+  share      DataShare @relation(fields: [shareId], references: [id], onDelete: Cascade)
+
+  @@index([shareId, createdAt])
+}
+
+model IncomeUse {
+  id               String          @id @default(cuid())
+  userId           String
+  periodId         String
+  positionId       String
+  origin           String
+  kind             String
+  amount           Decimal         @db.Decimal(14, 2)
+  category         String?
+  expenseId        String?
+  incomeId         String?
+  outMovementId    String?
+  inMovementId     String?
+  targetPositionId String?
+  contributionId   String?
+  createdTarget    Boolean         @default(false)
+  createdAt        DateTime        @default(now())
+  user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  period           FinancialPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
+
+  @@index([userId, periodId])
+  @@index([expenseId])
+  @@index([incomeId])
+  @@index([outMovementId])
+  @@index([inMovementId])
+}
+
+model FinancialProfile {
+  id                  String        @id @default(cuid())
+  userId              String        @unique
+  monthlyInvestment   Decimal       @db.Decimal(14, 2)
+  emergencyFund       Decimal       @db.Decimal(14, 2)
+  declaredCash        Decimal       @db.Decimal(14, 2)
+  declaredInvestments Decimal       @db.Decimal(14, 2)
+  declaredOtherAssets Decimal       @db.Decimal(14, 2)
+  riskTolerance       RiskTolerance
+  mainGoal            FinancialGoal
+  mainGoalCustom      String?
+  diagnosedAt         DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+  user                User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Income {
+  id          String          @id @default(cuid())
+  userId      String
+  periodId    String
+  category    IncomeCategory
+  description String
+  amount      Decimal         @db.Decimal(14, 2)
+  source      String?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  period      FinancialPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
+
+  @@index([userId, periodId])
+  @@index([periodId, source])
+}
+
+model Expense {
+  id          String          @id @default(cuid())
+  userId      String
+  periodId    String
+  category    ExpenseCategory
+  description String
+  amount      Decimal         @db.Decimal(14, 2)
+  source      String?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  period      FinancialPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
+
+  @@index([userId, periodId])
+  @@index([periodId, source])
+}
+
+model ProtectionRecord {
+  id        String          @id @default(cuid())
+  userId    String
+  periodId  String
+  type      ProtectionType
+  name      String
+  amount    Decimal         @db.Decimal(14, 2)
+  notes     String?
+  source    String?
+  insurer          String?
+  policyNumber     String?
+  claimsNumber     String?
+  policyFileId     String?
+  policyFileName   String?
+  policyFileFormat String?
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+  user      User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  period    FinancialPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
+
+  @@index([userId, periodId])
+}
+
+model Debt {
+  id         String        @id @default(cuid())
+  userId     String
+  name       String
+  lender     String?
+  type       DebtType      @default(OTRA)
+  customType String?
+  annualRate Decimal?      @db.Decimal(7, 4)
+  status     DebtStatus    @default(ACTIVE)
+  source     String?
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+  user       User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  balances   DebtBalance[]
+
+  @@index([userId])
+}
+
+model DebtBalance {
+  id        String          @id @default(cuid())
+  debtId    String
+  periodId  String
+  balance   Decimal         @db.Decimal(14, 2)
+  payment   Decimal         @db.Decimal(14, 2)
+  fees      Decimal         @default(0) @db.Decimal(14, 2)
+  paymentExpenseId     String?
+  paidAt               DateTime?
+  balanceBeforePayment Decimal?        @db.Decimal(14, 2)
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+  debt      Debt            @relation(fields: [debtId], references: [id], onDelete: Cascade)
+  period    FinancialPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
+
+  @@unique([debtId, periodId])
+}
+
+model AssetCategory {
+  id        String  @id @default(cuid())
+  code      String  @unique
+  name      String
+  riskLevel Int
+  sortOrder Int
+  assets    Asset[]
+}
+
+model Asset {
+  id             String                @id @default(cuid())
+  userId         String
+  categoryId     String
+  name           String
+  institution    String?
+  notes          String?
+  productType    ProductType?
+  horizon        Horizon?
+  liquidityLevel LiquidityLevel?
+  perceivedRisk  PerceivedRisk?
+  breakdown      Boolean               @default(true)
+  source         String?
+  incomeType     String?
+  incomeValue    Decimal?              @db.Decimal(14, 4)
+  incomeDay      Int?
+  incomeTerm     Int?
+  incomeStart    DateTime?
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+  user           User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category       AssetCategory         @relation(fields: [categoryId], references: [id])
+  positions      AssetPosition[]
+  movements      PatrimonialMovement[]
+  flows          BusinessFlow[]
+  taxItems       TaxAnalysisItem[]
+  scenarios      InflationScenario[]
+
+  @@index([userId])
+  @@index([userId, source])
+}
+
+model AssetPosition {
+  id             String          @id @default(cuid())
+  assetId        String
+  periodId       String
+  initialCapital Decimal         @db.Decimal(14, 2)
+  finalCapital   Decimal         @db.Decimal(14, 2)
+  incomeAmount   Decimal         @default(0) @db.Decimal(14, 2)
+  incomeDate     DateTime?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  asset          Asset           @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  period         FinancialPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
+
+  @@unique([assetId, periodId])
+}
+
+model PatrimonialMovement {
+  id          String          @id @default(cuid())
+  userId      String
+  periodId    String
+  assetId     String?
+  type        MovementType
+  amount      Decimal         @db.Decimal(14, 2)
+  date        DateTime
+  description String
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  period      FinancialPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
+  asset       Asset?          @relation(fields: [assetId], references: [id], onDelete: SetNull)
+
+  @@index([userId, periodId])
+}
+
+model BusinessFlow {
+  id        String          @id @default(cuid())
+  userId    String
+  periodId  String
+  assetId   String
+  revenue   Decimal         @db.Decimal(14, 2)
+  costs     Decimal         @db.Decimal(14, 2)
+  notes     String?
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+  user      User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  period    FinancialPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
+  asset     Asset           @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@unique([assetId, periodId])
+  @@index([userId, periodId])
+}
+
+model MonthlyClose {
+  id           String          @id @default(cuid())
+  userId       String
+  periodId     String
+  revision     Int             @default(1)
+  year         Int
+  month        Int
+  snapshot     Json
+  closedById   String
+  closedAt     DateTime        @default(now())
+  supersededAt DateTime?
+  user         User            @relation("CloseOwner", fields: [userId], references: [id], onDelete: Cascade)
+  period       FinancialPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
+
+  @@unique([periodId, revision])
+  @@index([userId, year])
+}
+
+model AnnualReport {
+  id          String   @id @default(cuid())
+  userId      String
+  year        Int
+  snapshot    Json
+  generatedAt DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, year])
+}
+
+model AcademyModule {
+  id       String           @id @default(cuid())
+  month    Int              @unique
+  block    Int
+  title    String
+  summary  String
+  content  Json
+  progress ModuleProgress[]
+  media    ModuleMedia[]
+}
+
+model ModuleProgress {
+  id           String        @id @default(cuid())
+  userId       String
+  moduleId     String
+  status       ModuleStatus  @default(IN_PROGRESS)
+  exercise     String?
+  exerciseAt   DateTime?
+  adminReply   String?
+  adminReplyAt DateTime?
+  toolData     Json?
+  completedAt  DateTime?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  module       AcademyModule @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, moduleId])
+}
+
+model ModuleSubmission {
+  id           String   @id @default(cuid())
+  userId       String
+  moduleNumber Int
+  data         Json
+  result       Json
+  createdAt    DateTime @default(now())
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, moduleNumber])
+}
+
+model EducationalSimulation {
+  id           String         @id @default(cuid())
+  userId       String
+  moduleNumber Int
+  kind         SimulationKind
+  input        Json
+  result       Json
+  createdAt    DateTime       @default(now())
+  user         User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, moduleNumber])
+}
+
+model LearningState {
+  id            String         @id @default(cuid())
+  userId        String         @unique
+  route         LearningRoute?
+  routeChosenAt DateTime?
+  updatedAt     DateTime       @updatedAt
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model MarketRouteAssessment {
+  id            String   @id @default(cuid())
+  userId        String
+  answers       Json
+  tradingScore  Int
+  exchangeScore Int
+  totalScore    Int
+  passed        Boolean
+  createdAt     DateTime @default(now())
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
+model ProductOffer {
+  id           String           @id @default(cuid())
+  code         String           @unique
+  name         String
+  description  String?
+  type         OfferType
+  moduleNumber Int?
+  price        Decimal?         @db.Decimal(14, 2)
+  currency     String           @default("MXN")
+  accessDays   Int?
+  billingCycle String?
+  active       Boolean          @default(true)
+  giftable     Boolean          @default(true)
+  sessions     Int              @default(0)
+  sortOrder    Int              @default(0)
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+  attempts     PaymentAttempt[]
+  grants       AccessGrant[]
+  promotions   Promotion[]
+  gifts        GiftCode[]
+  subscriptions Subscription[]
+}
+
+model PaymentAttempt {
+  id          String               @id @default(cuid())
+  userId      String
+  offerId     String
+  amount      Decimal?             @db.Decimal(14, 2)
+  currency    String
+  provider    String
+  providerRef String?              @unique
+  providerPaymentId String?
+  chargedAmount Decimal?           @db.Decimal(14, 2)
+  chargedCurrency String?
+  status      PaymentAttemptStatus @default(PENDING)
+  resolvedAt  DateTime?
+  kind        String               @default("STANDARD")
+  quantity    Int                  @default(1)
+  promotionId String?              @unique
+  authorization String?
+  authorizedAt DateTime?
+  authorizedById String?
+  giftMessage String?
+  giftRecipientName String?
+  billingCycle String?
+  subscriptionId String?
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+  user        User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  offer       ProductOffer         @relation(fields: [offerId], references: [id])
+  grant       AccessGrant?
+  promotion   Promotion?           @relation(fields: [promotionId], references: [id])
+  subscription Subscription?       @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+  gifts       GiftCode[]
+  bitgetReport BitgetReport?
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+  @@index([subscriptionId])
+  @@index([providerPaymentId])
+}
+
+model Subscription {
+  id                     String    @id @default(cuid())
+  userId                 String
+  offerId                String
+  provider               String
+  providerSubscriptionId String?   @unique
+  cycle                  String
+  status                 String    @default("PENDING")
+  amount                 Decimal   @db.Decimal(14, 2)
+  currency               String
+  nextBillingAt          DateTime?
+  lastPaymentAt          DateTime?
+  cancelledAt            DateTime?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+  user                   User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  offer                  ProductOffer @relation(fields: [offerId], references: [id])
+  attempts               PaymentAttempt[]
+
+  @@index([userId, status])
+}
+
+model BitgetReport {
+  id               String           @id @default(cuid())
+  userId           String
+  paymentAttemptId String           @unique
+  orderNumber      String
+  transferredAt    DateTime
+  status           String           @default("PENDING")
+  rejectReason     String?
+  hiddenForClient  Boolean          @default(false)
+  hiddenForAdmin   Boolean          @default(false)
+  receivedAt       DateTime?
+  receivedById     String?
+  resolvedAt       DateTime?
+  resolvedById     String?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  user             User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  attempt          PaymentAttempt   @relation(fields: [paymentAttemptId], references: [id], onDelete: Cascade)
+  files            BitgetEvidence[]
+
+  @@index([status, createdAt])
+  @@index([userId, createdAt])
+  @@index([orderNumber])
+}
+
+model BitgetEvidence {
+  id          String       @id @default(cuid())
+  reportId    String
+  name        String
+  mimeType    String
+  size        Int
+  driveFileId String
+  createdAt   DateTime     @default(now())
+  report      BitgetReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+
+  @@index([reportId])
+}
+
+model AccessGrant {
+  id               String          @id @default(cuid())
+  userId           String
+  offerId          String
+  paymentAttemptId String?         @unique
+  accessType       OfferType
+  moduleNumber     Int?
+  startsAt         DateTime
+  expiresAt        DateTime?
+  active           Boolean         @default(true)
+  source           String          @default("PAGO")
+  reason           String?
+  grantedById      String?
+  revokedAt        DateTime?
+  revokedById      String?
+  expiryNotifiedAt DateTime?
+  renewalNoticeAt  DateTime?
+  createdAt        DateTime        @default(now())
+  user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  offer            ProductOffer    @relation(fields: [offerId], references: [id])
+  paymentAttempt   PaymentAttempt? @relation(fields: [paymentAttemptId], references: [id])
+  gift             GiftCode?
+
+  @@index([userId, active])
+}
+
+model Promotion {
+  id              String          @id @default(cuid())
+  code            String          @unique
+  userId          String
+  offerId         String
+  discountPercent Int
+  validUntil      DateTime
+  message         String?
+  status          String          @default("ACTIVA")
+  createdById     String
+  createdByName   String
+  emailedAt       DateTime?
+  usedAt          DateTime?
+  cancelledAt     DateTime?
+  createdAt       DateTime        @default(now())
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  offer           ProductOffer    @relation(fields: [offerId], references: [id])
+  attempt         PaymentAttempt?
+
+  @@index([userId, status])
+}
+
+model GiftCode {
+  id               String         @id @default(cuid())
+  code             String         @unique
+  offerId          String
+  purchaserId      String
+  paymentAttemptId String
+  recipientId      String?
+  recipientName    String?
+  message          String?
+  status           String         @default("DISPONIBLE")
+  redeemBy         DateTime
+  activatedAt      DateTime?
+  grantId          String?        @unique
+  cancelledAt      DateTime?
+  cancelledById    String?
+  createdAt        DateTime       @default(now())
+  offer            ProductOffer   @relation(fields: [offerId], references: [id])
+  purchaser        User           @relation("GiftPurchaser", fields: [purchaserId], references: [id], onDelete: Cascade)
+  recipient        User?          @relation("GiftRecipient", fields: [recipientId], references: [id], onDelete: SetNull)
+  paymentAttempt   PaymentAttempt @relation(fields: [paymentAttemptId], references: [id], onDelete: Cascade)
+  grant            AccessGrant?   @relation(fields: [grantId], references: [id], onDelete: SetNull)
+
+  @@index([purchaserId])
+  @@index([status])
+}
+
+model AdminEvent {
+  id         String   @id @default(cuid())
+  category   String
+  type       String
+  actorType  String
+  actorId    String?
+  actorName  String
+  userId     String?
+  userName   String?
+  userEmail  String?
+  product    String?
+  period     String?
+  status     String?
+  amount     Decimal? @db.Decimal(14, 2)
+  result     String?
+  details    Json?
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([userId, createdAt])
+  @@index([category, createdAt])
+}
+
+model MasterKey {
+  id             String    @id
+  hash           String
+  ownerId        String
+  failedAttempts Int       @default(0)
+  lockedUntil    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+}
+
+model AppSetting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+}
+
+model MediaAsset {
+  id           String          @id @default(cuid())
+  publicId     String          @unique
+  secureUrl    String
+  width        Int?
+  height       Int?
+  format       String?
+  resourceType String
+  bytes        Int?
+  purpose      String
+  uploadedById String?
+  createdAt    DateTime        @default(now())
+  sections     PublicSection[]
+}
+
+model PublicSection {
+  id                 String      @id @default(cuid())
+  key                String      @unique
+  navLabel           String
+  position           Int
+  active             Boolean     @default(true)
+  eyebrow            String?
+  title              String
+  highlight          String?
+  subtitle           String?
+  description        String?
+  secondaryText      String?
+  primaryCtaLabel    String?
+  primaryCtaTarget   String?
+  secondaryCtaLabel  String?
+  secondaryCtaTarget String?
+  items              Json?
+  imageId            String?
+  updatedById        String?
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+  image              MediaAsset? @relation(fields: [imageId], references: [id], onDelete: SetNull)
+}
+
+model ModuleMedia {
+  id             String        @id @default(cuid())
+  moduleId       String
+  fileType       MediaFileType
+  provider       MediaProvider
+  providerFileId String
+  url            String?
+  name           String
+  mimeType       String
+  size           Int?
+  position       Int           @default(0)
+  active         Boolean       @default(true)
+  uploadedById   String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  module         AcademyModule @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+
+  @@index([moduleId, position])
+}
+
+model GoogleIntegration {
+  id                    String            @id @default(cuid())
+  service               GoogleService     @unique
+  email                 String?
+  encryptedRefreshToken String?
+  scopes                String?
+  status                IntegrationStatus @default(DISCONNECTED)
+  connectedAt           DateTime?
+  connectedById         String?
+  lastError             String?
+  lastSyncAt            DateTime?
+  driveFolders          Json?
+  updatedAt             DateTime          @updatedAt
+}
+
+model EmailLog {
+  id        String      @id @default(cuid())
+  to        String
+  subject   String
+  template  String
+  status    EmailStatus
+  error     String?
+  createdAt DateTime    @default(now())
+
+  @@index([createdAt])
+}
+
+model AnalyticsEvent {
+  id        String   @id @default(cuid())
+  event     String
+  userId    String?
+  sessionId String?
+  path      String?
+  metadata  Json?
+  createdAt DateTime @default(now())
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([event, createdAt])
+  @@index([createdAt])
+}
+
+model Budget {
+  id        String       @id @default(cuid())
+  userId    String
+  year      Int
+  month     Int
+  netIncome Decimal      @db.Decimal(14, 2)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lines     BudgetLine[]
+
+  @@unique([userId, year, month])
+}
+
+model BudgetLine {
+  id       String  @id @default(cuid())
+  budgetId String
+  category String
+  percent  Decimal @db.Decimal(7, 4)
+  budget   Budget  @relation(fields: [budgetId], references: [id], onDelete: Cascade)
+
+  @@unique([budgetId, category])
+}
+
+model EmergencyFundPlan {
+  id                  String   @id @default(cuid())
+  userId              String   @unique
+  targetMonths        Int
+  monthlyContribution Decimal  @db.Decimal(14, 2)
+  declaredEssential   Decimal? @db.Decimal(14, 2)
+  useDeclared         Boolean  @default(false)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model SavingContribution {
+  id          String            @id @default(cuid())
+  userId      String
+  periodId    String
+  destination SavingDestination
+  amount      Decimal           @db.Decimal(14, 2)
+  date        DateTime
+  description String
+  createdAt   DateTime          @default(now())
+  user        User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  period      FinancialPeriod   @relation(fields: [periodId], references: [id], onDelete: Cascade)
+
+  @@index([userId, periodId])
+}
+
+model TaxAnalysisItem {
+  id            String       @id @default(cuid())
+  userId        String
+  name          String
+  type          TaxItemType
+  period        ResultPeriod
+  capital       Decimal      @db.Decimal(14, 2)
+  grossProfit   Decimal      @db.Decimal(14, 2)
+  commissions   Decimal      @db.Decimal(14, 2)
+  otherCosts    Decimal      @db.Decimal(14, 2)
+  taxRate       Decimal      @db.Decimal(7, 4)
+  sourceAssetId String?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  user          User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sourceAsset   Asset?       @relation(fields: [sourceAssetId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+}
+
+model InflationScenario {
+  id            String       @id @default(cuid())
+  userId        String
+  name          String
+  type          ScenarioType
+  capital       Decimal      @db.Decimal(14, 2)
+  years         Int
+  inflationRate Decimal      @db.Decimal(9, 4)
+  nominalRate   Decimal      @db.Decimal(9, 4)
+  sourceAssetId String?
+  sourceGoalId  String?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  user          User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sourceAsset   Asset?       @relation(fields: [sourceAssetId], references: [id], onDelete: SetNull)
+  sourceGoal    Goal?        @relation(fields: [sourceGoalId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+}
+
+model Goal {
+  id           String              @id @default(cuid())
+  userId       String
+  kind         GoalKind
+  name         String
+  targetAmount Decimal             @db.Decimal(14, 2)
+  monthlyContribution Decimal?    @db.Decimal(14, 2)
+  targetDate   DateTime?
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+  user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  scenarios    InflationScenario[]
+
+  @@index([userId, kind])
+}
+
+model AnnualReview {
+  id               String   @id @default(cuid())
+  userId           String
+  periodStart      DateTime @db.Date
+  periodEnd        DateTime @db.Date
+  generatedAt      DateTime @default(now())
+  complete         Boolean
+  initialAssets    Decimal? @db.Decimal(14, 2)
+  finalAssets      Decimal? @db.Decimal(14, 2)
+  initialDebts     Decimal? @db.Decimal(14, 2)
+  finalDebts       Decimal? @db.Decimal(14, 2)
+  initialNetWorth  Decimal? @db.Decimal(14, 2)
+  finalNetWorth    Decimal? @db.Decimal(14, 2)
+  variation        Decimal? @db.Decimal(14, 2)
+  variationPercent Decimal? @db.Decimal(12, 4)
+  goalAmount       Decimal? @db.Decimal(14, 2)
+  goalProgress     Decimal? @db.Decimal(12, 4)
+  snapshot         Json
+  driveFileId      String?
+  pdfName          String?
+  pdfMimeType      String?
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, periodEnd])
+}
+
+model AnnualReviewNote {
+  id          String   @id @default(cuid())
+  userId      String
+  periodStart DateTime @db.Date
+  periodEnd   DateTime @db.Date
+  note        String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, periodEnd])
+}
+
+model Lead {
+  id         String       @id @default(cuid())
+  name       String
+  email      String
+  phone      String?
+  interest   LeadInterest
+  message    String?
+  status     LeadStatus   @default(NEW)
+  sourcePath String?
+  adminNotes String?
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+
+  @@index([status, createdAt])
+  @@index([interest, createdAt])
+}
+
+model Appointment {
+  id          String             @id @default(cuid())
+  userId      String
+  reason      String
+  scheduledAt DateTime
+  durationMin Int                @default(60)
+  channel     AppointmentChannel
+  status      AppointmentStatus  @default(PENDING)
+  notes       String?
+  adminNotes  String?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  user        User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([scheduledAt])
+}
