@@ -211,7 +211,8 @@ run('API (integración)', () => {
     const m3 = await api('tools').get('/api/academy/modules/3');
     assert.equal(m3.status, 200);
     assert.equal(m3.body.mode, 'TOOL_ONLY');
-    assert.equal(m3.body.lesson, null);
+    assert.ok(Array.isArray(m3.body.lesson));
+    assert.deepEqual(m3.body.media, []);
     assert.equal((await api('tools').get('/api/academy/modules/12')).status, 200);
     assert.equal((await api('tools').get('/api/dashboard')).status, 200);
   });

@@ -173,7 +173,7 @@ run('País de residencia, Mercado Pago solo para México y transferencia interna
     await prisma.appSetting.create({ data: { key: 'mercadopago', value: { enabled: true, publicKey: 'APP_USR-public', encryptedToken: encryptSecret('APP_USR-token'), encryptedWebhookSecret: encryptSecret('s'), account: { siteId: 'MLM' }, rates: { USD: 18, USDT: 18 }, lastTest: { ok: true } } } });
     await resetCaches();
     const mx = await api('ana').get('/api/payments/access');
-    assert.deepEqual(mx.body.providers, ['MERCADOPAGO', 'BITGET']);
+    assert.deepEqual(mx.body.providers, ['MERCADOPAGO', 'OXXO', 'BITGET']);
     assert.equal(mx.body.bitget.uid, QLC_UID);
     const us = await api('bob').get('/api/payments/access');
     assert.deepEqual(us.body.providers, ['BITGET']);

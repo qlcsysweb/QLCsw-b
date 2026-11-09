@@ -3,6 +3,13 @@ import { round2, sum } from '../utils/money.js';
 const MONTHS = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
 const fmt = (n) => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(n);
 const pctChange = (from, to) => (from === 0 ? null : round2(((to - from) / Math.abs(from)) * 100));
+// Igual que en Inicio: la categoría Liquidez del portafolio más la liquidez registrada en protección.
+export function liquidityTotal(summary, { opening = false } = {}) {
+  const category = summary.portfolio.categories.find((c) => c.code === 'LIQUIDEZ');
+  return round2(Number((opening ? category?.initial : category?.final) || 0) + summary.protection.total);
+}
+
+
 
 export function buildAnnualReport(year, snapshots) {
   const months = [...snapshots].sort((a, b) => a.period.month - b.period.month);
@@ -32,7 +39,7 @@ export function buildAnnualReport(year, snapshots) {
     income: m.cashflow.income,
     expenses: m.cashflow.expenses,
     savings: m.cashflow.savings,
-    liquidity: m.protection.total,
+    liquidity: liquidityTotal(m),
     debt: m.debts.totalBalance,
     netWorth: m.balanceSheet.netWorth,
   }));
@@ -78,7 +85,11 @@ export function buildAnnualReport(year, snapshots) {
     },
     cashflow: { income, expenses, savings, savingsRate: income === 0 ? null : round2((savings / income) * 100) },
     debt: { start: first.debts.totalBalance, end: last.debts.totalBalance, change: round2(last.debts.totalBalance - first.debts.totalBalance) },
-    liquidity: { start: first.protection.total, end: last.protection.total, change: round2(last.protection.total - first.protection.total) },
+    liquidity: (() => {
+      const start = liquidityTotal(first, { opening: true });
+      const end = liquidityTotal(last);
+      return { start, end, change: round2(end - start) };
+    })(),
     categories,
     products,
     distribution: last.portfolio.categories.map((c) => ({ code: c.code, name: c.name, final: c.final, share: c.share })),

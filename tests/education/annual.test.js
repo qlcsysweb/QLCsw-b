@@ -37,6 +37,21 @@ test('Informe anual consolida meses cerrados y separa movimientos de rentabilida
   assert.equal(buildAnnualReport(2026, []), null);
 });
 
+test('La liquidez del informe anual suma la liquidez inicial del portafolio y la registrada después', () => {
+  const LQ = { code: 'LIQUIDEZ', name: 'Liquidez', sortOrder: 5 };
+  const summary = buildPeriodSummary({
+    opening: 300000,
+    positions: [{ id: 'l', assetId: 'l', name: 'Cuenta', category: LQ, initialCapital: 280000, finalCapital: 300000 }],
+    movements: [], incomes: [], expenses: [], debts: [],
+    protection: [{ type: 'LIQUIDEZ', amount: 20000 }],
+  });
+  const r = buildAnnualReport(2026, [{ period: { month: 11, label: 'Noviembre' }, ...summary }]);
+  assert.equal(r.liquidity.start, 300000);
+  assert.equal(r.liquidity.end, 320000);
+  assert.equal(r.liquidity.change, 20000);
+  assert.equal(r.monthly[0].liquidity, 320000);
+});
+
 test('Firma de webhook de Mercado Pago (x-signature)', () => {
   const secret = 'test-secret';
   const ts = '1700000000';

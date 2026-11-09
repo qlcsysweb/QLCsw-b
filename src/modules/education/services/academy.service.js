@@ -106,7 +106,8 @@ export async function getModule(req, number) {
     tool: content.tool,
     essentials: content.essentials || [],
     riskNotes: content.riskNotes || [],
-    lesson: full ? content.lesson || [] : null,
+    // Las instrucciones de uso de la herramienta se muestran con cualquier acceso, no solo con la academia completa.
+    lesson: content.lesson || [],
     masterclass: await masterclassStatus(ctx.access, req.asAdmin, number, req.subjectId),
     exerciseGuide: full ? content.exercise || null : null,
     media: full

@@ -38,6 +38,33 @@ export function summarizeAccess(grants = [], now = new Date()) {
   };
 }
 
+// Prueba gratis: herramientas de M1–M3, M7–M9 y M12 durante el primer mes tras el registro.
+export const TRIAL_TOOLS = [1, 2, 3, 7, 8, 9, 12];
+// Al completar estos módulos en la prueba se le recuerda al cliente ir a Mi acceso.
+export const TRIAL_CHECKPOINTS = [3, 9];
+
+export function trialWindow(user, days, now = new Date()) {
+  if (!user || user.role !== 'CLIENT' || !days || !user.createdAt) return null;
+  const expiresAt = new Date(new Date(user.createdAt).getTime() + days * 86400000);
+  return expiresAt > now ? { active: true, expiresAt, tools: TRIAL_TOOLS, checkpoints: TRIAL_CHECKPOINTS } : null;
+}
+
+// Suma la prueba gratis a lo que ya dan los accesos pagados; con acceso completo no cambia nada.
+export function applyTrial(access, trial) {
+  if (!trial || access.full) return { ...access, trial: null };
+  const tools = [...new Set([...access.tools, ...trial.tools])].sort((a, b) => a - b);
+  const paid = new Set(access.tools);
+  return {
+    ...access,
+    tools,
+    toolAccess: [...access.toolAccess, ...trial.tools.filter((n) => !paid.has(n)).map((n) => ({ moduleNumber: n, expiresAt: trial.expiresAt, trial: true }))]
+      .sort((a, b) => a.moduleNumber - b.moduleNumber),
+    hasAny: true,
+    mode: access.mode === 'NONE' ? 'TRIAL' : access.mode,
+    trial,
+  };
+}
+
 export const canUseTool = (access, moduleNumber) => !!access.full || access.tools.includes(moduleNumber);
 export const canReadAcademy = (access) => !!access.full;
 

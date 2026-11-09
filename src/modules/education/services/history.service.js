@@ -1,5 +1,6 @@
 import { prisma } from '../config/prisma.js';
 import { getPeriodSummary, latestClose } from './period.service.js';
+import { liquidityTotal } from '../domain/annual.js';
 
 const toRow = (period, s, source) => ({
   periodId: period.id,
@@ -16,7 +17,7 @@ const toRow = (period, s, source) => ({
   income: s.cashflow.income,
   expenses: s.cashflow.expenses,
   savings: s.cashflow.savings,
-  liquidity: s.protection.total,
+  liquidity: liquidityTotal(s),
   debt: s.debts.totalBalance,
   netWorth: s.balanceSheet.netWorth,
   reconciled: s.reconciliation.reconciled,

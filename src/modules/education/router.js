@@ -8,6 +8,7 @@ import { errorHandler, notFoundHandler } from './middlewares/error.js';
 import authRoutes from './routes/auth.routes.js';
 import paymentRoutes from './routes/payment.routes.js';
 import giftRoutes from './routes/gift.routes.js';
+import notificationRoutes from './routes/notification.routes.js';
 import webhookRoutes from './routes/webhook.routes.js';
 import adminRoutes from './routes/admin.routes.js';
 import dashboardRoutes from './routes/dashboard.routes.js';
@@ -53,6 +54,7 @@ export function createEducationRouter() {
   router.use('/public', publicRouter);
   router.use('/payments', authenticate, paymentRoutes);
   router.use('/gifts', authenticate, giftRoutes);
+  router.use('/notifications', authenticate, notificationRoutes);
   router.use('/admin', authenticate, requireRole('ADMIN'), adminRoutes);
   router.use('/academy', ...subjectAccess, academyRoutes);
   router.use('/academy', ...subjectAccess, patrimonialRoutes);

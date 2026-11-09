@@ -5,6 +5,7 @@ import { hasGrantedScopes } from './google/oauth.js';
 import nodemailer from 'nodemailer';
 import { mailTransport, notificationSettings, smtpPassword } from './mailSettings.service.js';
 import { layout, normalizeLang, renderEmail } from './emailTemplates.js';
+import { notifyByEmail } from './notification.service.js';
 
 const READY_CACHE_MS = 60 * 1000;
 let ready = null;
@@ -35,7 +36,14 @@ export async function emailReady() {
   return value;
 }
 
+// Cada aviso al cliente también queda en su bandeja de notificaciones, aunque ese correo esté desactivado.
+export async function notifyClientInApp(type, template, to, data = {}) {
+  const content = renderEmail(template, data, await recipientLanguage(to));
+  return notifyByEmail(to, { type, title: content.title, message: content.text });
+}
+
 export async function sendClientEmail(type, template, to, data = {}) {
+  await notifyClientInApp(type, template, to, data).catch(() => null);
   const settings = await notificationSettings();
   if (settings.clientDisabled?.includes(type)) return { sent: false, skipped: true };
   return sendEmail(template, to, data);

@@ -4,7 +4,7 @@ import { prisma } from '../config/prisma.js';
 import { summarizeAccess } from '../domain/access.js';
 import { badRequest, conflict, notFound } from '../utils/httpError.js';
 import { publicUser, SALT_ROUNDS } from './auth.service.js';
-import { invalidateOffersCache, publicOffer } from './access.service.js';
+import { invalidateOffersCache, publicOffer, withTrial } from './access.service.js';
 
 const clientSelect = {
   id: true, name: true, email: true, phone: true, residenceCountry: true, role: true, isActive: true, createdAt: true, lastLoginAt: true, totpEnabledAt: true,
@@ -20,7 +20,7 @@ const toClient = ({ accessGrants, progress, _count, totpEnabledAt, dataShares, .
   twoFactorEnabled: !!totpEnabledAt,
   counts: _count,
   completedModules: progress.length,
-  access: summarizeAccess(accessGrants),
+  access: withTrial(summarizeAccess(accessGrants), u),
 });
 
 export async function listClients({ q = '' } = {}) {

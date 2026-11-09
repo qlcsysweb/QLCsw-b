@@ -10,7 +10,9 @@ import { decryptSecret, encryptSecret } from '../utils/crypto.js';
 import { generateSecret, matchStep, otpauthUrl } from '../utils/totp.js';
 import { trackLogin } from './analytics.service.js';
 import { actorOf, recordEvent } from './adminEvent.service.js';
-import { emailReady, sendEmail, sendClientEmail } from './email.service.js';
+import { emailReady, notifyClientInApp, sendEmail, sendClientEmail } from './email.service.js';
+import { notifyUser } from './notification.service.js';
+import { TRIAL_TOOLS } from '../domain/access.js';
 
 export const SALT_ROUNDS = 12;
 const ISSUER = 'QLC Financial Education';
@@ -67,8 +69,16 @@ export async function register({ name, email, password, phone, residenceCountry,
     data: { name, email, phone, residenceCountry, role: 'CLIENT', language: language || 'es', legalAcceptedAt: new Date(), legalVersion, passwordHash: await bcrypt.hash(password, SALT_ROUNDS) },
   });
   sendClientEmail('BIENVENIDA', 'welcome', user.email, { name: user.name }).catch(() => null);
+  if (env.freeTrialDays) notifyUser(user.id, trialNotice(user.language, env.freeTrialDays)).catch(() => null);
   recordEvent({ category: 'PLATAFORMA', type: 'NUEVO_REGISTRO', actor: actorOf(user), user, status: 'Cuenta creada' }).catch(() => null);
   return setupChallenge(user);
+}
+
+function trialNotice(language, days) {
+  const tools = TRIAL_TOOLS.map((n) => `M${n}`).join(', ');
+  return language === 'en'
+    ? { type: 'PRUEBA_GRATIS', title: `Your ${days}-day free trial is active`, message: `You can use the ${tools} tools for free. To unlock everything else, go to My access.` }
+    : { type: 'PRUEBA_GRATIS', title: `Tu prueba gratis de ${days} días está activa`, message: `Puedes usar gratis las herramientas ${tools}. Para desbloquear todo lo demás, dirígete a Mi acceso.` };
 }
 
 export async function setResidenceCountry(userId, residenceCountry) {
@@ -197,6 +207,7 @@ export async function confirmPasswordReset({ email, code, password }) {
   });
   if (!claimed.count) throw invalid;
   sendEmail('passwordChanged', email, { name: user.name }).catch(() => null);
+  notifyClientInApp('CONTRASENA_CAMBIADA', 'passwordChanged', email, { name: user.name }).catch(() => null);
   recordEvent({ category: 'PLATAFORMA', type: 'CONTRASENA_RESTABLECIDA', actor: actorOf(user), user, status: 'Restablecida', result: 'Por código enviado al correo. Debe registrar de nuevo Google Authenticator.' }).catch(() => null);
   return { message: 'Contraseña restablecida. Al iniciar sesión deberás registrar de nuevo Google Authenticator.' };
 }

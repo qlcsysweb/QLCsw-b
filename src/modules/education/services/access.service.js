@@ -1,10 +1,17 @@
 import { prisma } from '../config/prisma.js';
-import { summarizeAccess } from '../domain/access.js';
+import { env } from '../config/env.js';
+import { applyTrial, summarizeAccess, trialWindow } from '../domain/access.js';
 
 export const loadGrants = (userId, db = prisma) => db.accessGrant.findMany({ where: { userId, active: true } });
 
+export const withTrial = (access, user) => applyTrial(access, trialWindow(user, env.freeTrialDays));
+
 export async function getAccess(userId, db = prisma) {
-  return summarizeAccess(await loadGrants(userId, db));
+  const [grants, user] = await Promise.all([
+    loadGrants(userId, db),
+    env.freeTrialDays ? db.user.findUnique({ where: { id: userId }, select: { role: true, createdAt: true } }) : null,
+  ]);
+  return withTrial(summarizeAccess(grants), user);
 }
 
 export const ADMIN_ACCESS = { full: { active: true, expiresAt: null }, tools: [1, 2, 3, 4, 5, 6], masterclass: { active: true, expiresAt: null, all: true }, masterclassModules: [], hasAny: true, mode: 'FULL' };

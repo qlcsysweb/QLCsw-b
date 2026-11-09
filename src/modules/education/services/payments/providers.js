@@ -1,7 +1,8 @@
+import QRCode from 'qrcode';
 import { env } from '../../config/env.js';
 import { HttpError } from '../../utils/httpError.js';
 import { mpRequest } from './mercadopago.client.js';
-import { convertForCharge, isTestToken, mercadoPagoToken, mpTesting, payerEmailFor, paymentSettings } from './paymentSettings.service.js';
+import { chargeCurrency, convertForCharge, isTestToken, mercadoPagoToken, mpTesting, payerEmailFor, paymentSettings } from './paymentSettings.service.js';
 import { paypalRequest } from './paypalSettings.service.js';
 import { bitgetQuote, bitgetSettings, publicWallet } from './bitgetSettings.service.js';
 
@@ -95,6 +96,51 @@ const mercadoPagoProvider = {
   },
 };
 
+// Pago en efectivo en OXXO (solo México) con la misma cuenta de Mercado Pago. Se guarda como
+// intento de MERCADOPAGO para que el webhook y la conciliación existentes activen el acceso al pagarse.
+const OXXO_CURRENCY = 'MXN';
+const oxxoProvider = {
+  code: 'OXXO',
+  storedAs: 'MERCADOPAGO',
+  oneTime: true,
+  supportsManualResolution: false,
+  async quote(amount, currency) {
+    const charge = await mercadoPagoProvider.quote(amount, currency);
+    if (charge.currency !== OXXO_CURRENCY) throw new HttpError(409, 'El pago en OXXO solo está disponible en pesos mexicanos');
+    return charge;
+  },
+  async createCheckout({ attempt, offer, user }) {
+    const webhook = isHttps(env.backendUrl) ? { notification_url: `${env.backendUrl}/api/webhooks/mercadopago` } : {};
+    const data = await mpRequest('/v1/payments', {
+      method: 'POST',
+      idempotencyKey: `oxxo-${attempt.id}`,
+      body: {
+        transaction_amount: Number(attempt.chargedAmount),
+        description: String(offer.name).slice(0, 250),
+        payment_method_id: 'oxxo',
+        payer: { email: await payerEmailFor(user) },
+        external_reference: attempt.id,
+        ...webhook,
+      },
+    });
+    const ticketUrl = data.transaction_details?.external_resource_url || null;
+    const reference = data.transaction_details?.payment_method_reference_id || data.barcode?.content || null;
+    if (!ticketUrl && !reference) throw new HttpError(502, 'Mercado Pago no entregó la ficha de pago para OXXO');
+    return {
+      mode: 'OXXO',
+      providerRef: `oxxo:${data.id}`,
+      oxxo: {
+        reference,
+        ticketUrl,
+        qr: ticketUrl ? await QRCode.toDataURL(ticketUrl, { margin: 1, width: 240 }) : null,
+        expiresAt: data.date_of_expiration || null,
+        amount: Number(attempt.chargedAmount),
+        currency: attempt.chargedCurrency,
+      },
+    };
+  },
+};
+
 const paypalProvider = {
   code: 'PAYPAL',
   supportsManualResolution: false,
@@ -129,8 +175,10 @@ export async function anyGatewayEnabled() {
 
 export async function activeProviders(user) {
   const [mp, bitget] = await Promise.all([paymentSettings(), bitgetSettings()]);
+  const mexico = mp.enabled && user?.residenceCountry === MERCADOPAGO_COUNTRY;
   return [
-    ...(mp.enabled && user?.residenceCountry === MERCADOPAGO_COUNTRY ? [mercadoPagoProvider] : []),
+    ...(mexico ? [mercadoPagoProvider] : []),
+    ...(mexico && chargeCurrency(mp) === OXXO_CURRENCY ? [oxxoProvider] : []),
     ...(bitget.enabled ? [bitgetProvider] : []),
   ];
 }
@@ -147,6 +195,6 @@ export async function activeProvider(code, user) {
   return mockProvider;
 }
 
-const ALL = [mockProvider, mercadoPagoProvider, paypalProvider, bitgetProvider];
+const ALL = [mockProvider, mercadoPagoProvider, oxxoProvider, paypalProvider, bitgetProvider];
 export const providerByCode = (code) => ALL.find((p) => p.code === code);
-export { bitgetProvider, mercadoPagoProvider, paypalProvider };
+export { bitgetProvider, mercadoPagoProvider, oxxoProvider, paypalProvider };

@@ -18,7 +18,7 @@ import { authLimiter } from '../middlewares/rateLimit.js';
 const r = Router();
 const checkoutSchema = z.object({
   offerCode: z.string().trim().min(1).max(40).optional(),
-  provider: z.enum(['MERCADOPAGO', 'BITGET']).optional(),
+  provider: z.enum(['MERCADOPAGO', 'OXXO', 'BITGET']).optional(),
   promoCode: z.string().trim().min(4).max(40).optional(),
   quantity: z.coerce.number().int().min(1).max(payments.MAX_GIFTS).optional(),
   gift: z.object({
@@ -41,7 +41,7 @@ r.get('/access', ah(async (req, res) => {
   const provider = providers[0] ? providers[0].code : await activeProvider(null, req.user).then((p) => p.code).catch(() => 'NONE');
   const subscription = req.user.role === 'CLIENT' ? await subscribers.subscriptionStatus(req.user) : null;
   const codes = providers.map((p) => p.code);
-  res.json({ access, offers, provider, providers: codes, charge: codes.includes('MERCADOPAGO') ? charge : null, bitget: codes.includes('BITGET') ? bitgetInfo : null, residenceCountry: req.user.residenceCountry || null, subscription });
+  res.json({ access, offers, provider, providers: codes, charge: codes.includes('MERCADOPAGO') || codes.includes('OXXO') ? charge : null, bitget: codes.includes('BITGET') ? bitgetInfo : null, residenceCountry: req.user.residenceCountry || null, subscription });
 }));
 
 r.get('/attempts', ah(async (req, res) => res.json(await payments.listMyAttempts(req.user.id))));

@@ -21,6 +21,7 @@ run('Mercado Pago configurado desde el panel', () => {
   const preferences = [];
   const subscriptions = new Map();
   const invoices = new Map();
+  const oxxoRequests = [];
   let refuseNext = null;
   let ratesDown = true;
   let usdMarket = 17;
@@ -63,6 +64,11 @@ run('Mercado Pago configurado desde el panel', () => {
     if (invoice) return json(invoices.get(invoice[1]));
     const found = /\/v1\/payments\/([^/?]+)$/.exec(u);
     if (found) return json(payments.get(found[1]));
+    if (u.endsWith('/v1/payments') && opt.method === 'POST') {
+      const body = JSON.parse(opt.body);
+      oxxoRequests.push({ body, headers: opt.headers });
+      return json({ id: `oxxo${uid}`, status: 'pending', date_of_expiration: '2026-11-13T23:59:59.000-06:00', transaction_details: { external_resource_url: 'https://mp.test/ficha/9001', payment_method_reference_id: '22421753490801620' } }, 201);
+    }
     if (u.includes('/v1/payments/search')) {
       const ref = new URL(u).searchParams.get('external_reference');
       return json({ results: [...payments.values()].filter((p) => p.external_reference === ref) });
@@ -108,7 +114,7 @@ run('Mercado Pago configurado desde el panel', () => {
     await prisma.user.create({ data: { email: editEmail, name: 'Admin edit', role: 'ADMIN', adminLevel: 'EDIT', passwordHash: await bcrypt.hash('AdminPass123!', 4) } });
     const editLogin = await request(app).post('/api/auth/login').send({ email: editEmail, password: 'AdminPass123!' });
     tokens.edit = (await completeTwoFactor(app, editLogin.body.challengeToken)).token;
-    for (const k of ['ana', 'luis', 'eva', 'old', 'card', 'subs']) await register(k);
+    for (const k of ['ana', 'luis', 'eva', 'old', 'card', 'subs', 'oxxo']) await register(k);
     await prisma.productOffer.update({ where: { code: 'FULL_ANNUAL' }, data: { price: 60, currency: 'USDT', active: true, billingCycle: null } });
     realFetch = global.fetch;
   });
@@ -342,6 +348,28 @@ run('Mercado Pago configurado desde el panel', () => {
     await webhook('1001', 'req-7');
     assert.ok(await prisma.adminEvent.findFirst({ where: { userId: ids.ana, type: 'PAGO_REVERTIDO' } }));
     assert.equal((await prisma.paymentAttempt.findUnique({ where: { id: ids.anaAttempt } })).status, 'APPROVED');
+  });
+
+  test('OXXO: entrega la referencia y el QR de la ficha, y el pago en tienda activa el acceso', async () => {
+    const access = await api('oxxo').get('/api/payments/access');
+    assert.ok(access.body.providers.includes('OXXO'));
+    const checkout = await api('oxxo').post('/api/payments/checkout', { offerCode: 'FULL_ANNUAL', provider: 'OXXO' });
+    assert.equal(checkout.status, 201, JSON.stringify(checkout.body));
+    assert.equal(checkout.body.checkout.mode, 'OXXO');
+    assert.equal(checkout.body.checkout.oxxo.reference, '22421753490801620');
+    assert.equal(checkout.body.checkout.oxxo.ticketUrl, 'https://mp.test/ficha/9001');
+    assert.match(checkout.body.checkout.oxxo.qr, /^data:image\/png;base64,/);
+    assert.equal(checkout.body.attempt.provider, 'MERCADOPAGO');
+    const sent = oxxoRequests.at(-1);
+    assert.equal(sent.body.payment_method_id, 'oxxo');
+    assert.equal(sent.body.transaction_amount, 1110);
+    assert.equal(sent.body.external_reference, checkout.body.attempt.id);
+    assert.equal(sent.headers['X-Idempotency-Key'], `oxxo-${checkout.body.attempt.id}`);
+    assert.equal(await prisma.accessGrant.count({ where: { userId: ids.oxxo, accessType: 'FULL_ANNUAL' } }), 0);
+    payments.set(`oxxo${uid}`, { id: `oxxo${uid}`, external_reference: checkout.body.attempt.id, status: 'approved', transaction_amount: 1110, currency_id: 'MXN' });
+    assert.equal((await webhook(`oxxo${uid}`, 'oxxo-1')).status, 200);
+    assert.equal((await prisma.paymentAttempt.findUnique({ where: { id: checkout.body.attempt.id } })).status, 'APPROVED');
+    assert.equal(await prisma.accessGrant.count({ where: { userId: ids.oxxo, accessType: 'FULL_ANNUAL' } }), 1);
   });
 
   test('Al cambiar el token se desactiva y vuelve el modo de prueba', async () => {

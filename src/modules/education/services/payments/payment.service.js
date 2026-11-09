@@ -81,7 +81,7 @@ export async function createCheckout(user, input) {
   const data = await checkoutData(user, params);
   const provider = await activeProvider(params.provider, user);
   const charge = await provider.quote(data.amount, data.offer.currency);
-  const recurringOffer = provider.code !== 'MOCK' && data.kind === 'STANDARD' && RECURRING_OFFER_TYPES.includes(data.offer.type) ? data.offer.billingCycle || null : null;
+  const recurringOffer = provider.code !== 'MOCK' && !provider.oneTime && data.kind === 'STANDARD' && RECURRING_OFFER_TYPES.includes(data.offer.type) ? data.offer.billingCycle || null : null;
   const billingCycle = provider.code === 'MERCADOPAGO' ? recurringOffer : null;
   if (recurringOffer) await clearAbandonedSubscriptions(user.id);
   if (recurringOffer && (await prisma.subscription.findFirst({ where: { userId: user.id, status: { in: ['ACTIVE', 'SUSPENDED'] } } }))) {
@@ -89,7 +89,7 @@ export async function createCheckout(user, input) {
   }
   const attempt = await prisma.paymentAttempt.create({
     data: {
-      userId: user.id, offerId: data.offer.id, amount: data.amount, currency: data.offer.currency, provider: provider.code,
+      userId: user.id, offerId: data.offer.id, amount: data.amount, currency: data.offer.currency, provider: provider.storedAs || provider.code,
       chargedAmount: charge?.amount ?? null, chargedCurrency: charge?.currency ?? null,
       kind: data.kind, quantity: data.quantity, billingCycle, promotionId: data.promotionId || null, giftMessage: data.giftMessage || null, giftRecipientName: data.giftRecipientName || null,
     },
@@ -113,7 +113,7 @@ export async function createCheckout(user, input) {
     });
     await prisma.paymentAttempt.update({ where: { id: attempt.id }, data: { subscriptionId: sub.id } });
   }
-  return { attempt: attemptView(attempt), checkout: { mode: checkout.mode, initPoint: checkout.initPoint || null, uid: checkout.uid || null, instructions: checkout.instructions || null, wallet: checkout.wallet || null } };
+  return { attempt: attemptView(attempt), checkout: { mode: checkout.mode, initPoint: checkout.initPoint || null, uid: checkout.uid || null, instructions: checkout.instructions || null, wallet: checkout.wallet || null, oxxo: checkout.oxxo || null } };
 }
 
 async function paidStatus(tx, attempt) {

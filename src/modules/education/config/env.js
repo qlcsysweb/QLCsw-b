@@ -34,6 +34,8 @@ export const env = {
     redirectUri: trimUrl(process.env.EDU_GOOGLE_REDIRECT_URI) || `${backendUrl}/api/google/callback`,
   },
   tokenEncryptionKey: process.env.EDU_TOKEN_ENCRYPTION_KEY || '',
+  // Días de prueba gratis de las herramientas tras el registro (0 la desactiva).
+  freeTrialDays: Math.max(0, Number(process.env.EDU_FREE_TRIAL_DAYS ?? (process.env.NODE_ENV === 'test' ? 0 : 30)) || 0),
   secondaryPlatformUrl: (process.env.EDU_SECONDARY_PLATFORM_URL || '').trim() || 'https://www.qlctrade.net/trad/',
   keepAlive: {
     enabled: process.env.EDU_KEEP_ALIVE || process.env.TRAD_KEEP_ALIVE

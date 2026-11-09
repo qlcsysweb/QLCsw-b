@@ -104,7 +104,7 @@ run('Bloque 2 · M7–M12 (integración)', () => {
     const toolOnly = await api('tool7').get('/api/academy/modules/7');
     assert.equal(toolOnly.status, 200);
     assert.equal(toolOnly.body.mode, 'TOOL_ONLY');
-    assert.equal(toolOnly.body.lesson, null);
+    assert.ok(Array.isArray(toolOnly.body.lesson));
     assert.equal((await api('tool7').get('/api/academy/emergency')).status, 200);
   });
 

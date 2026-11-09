@@ -3,7 +3,7 @@ import { isGrantActive } from '../domain/access.js';
 import { conflict, forbidden } from '../utils/httpError.js';
 import { num } from '../utils/money.js';
 import { actorOf, recordEvent, SYSTEM } from './adminEvent.service.js';
-import { emailReady, sendClientEmail, sendEmail } from './email.service.js';
+import { emailReady, notifyClientInApp, sendClientEmail, sendEmail } from './email.service.js';
 import { cancelUserSubscriptions, hasCancelledSubscription, liveSubscription, subscriptionView } from './subscription.service.js';
 
 export const SUBSCRIBER_STATES = {
@@ -204,6 +204,7 @@ export async function runRetention(now = new Date(), { only } = {}) {
     const deleteOn = new Date(base.getTime() + RETENTION_DAYS * DAY);
     const mail = await sendEmail('retention', user.email, { name: user.name, left, deleteOn, product: offer?.name }).catch(() => null);
     if (!mail?.sent) continue;
+    notifyClientInApp('RETENCION', 'retention', user.email, { name: user.name, left, deleteOn, product: offer?.name }).catch(() => null);
     await prisma.user.update({ where: { id: user.id }, data: { retentionStage: target } });
     await recordEvent({ category: 'SUSCRIPCION', type: 'AVISO_RENOVACION', actor: SYSTEM, user, offer, status: 'Vencido', result: `Aviso enviado: quedan ${left} día(s) antes de eliminar la cuenta` }).catch(() => null);
     notified += 1;
