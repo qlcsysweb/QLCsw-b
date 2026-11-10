@@ -6,12 +6,17 @@ import { actorOf, recordEvent } from '../adminEvent.service.js';
 import { sendClientEmail } from '../email.service.js';
 import * as drive from '../google/drive.js';
 import { bitgetSettings, publicBitgetInfo } from './bitgetSettings.service.js';
+import { publicStpInfo, STP_REVIEW_HOURS } from './stpSettings.service.js';
 import { resolveAttempt } from './payment.service.js';
 
 export const REPORT_STATUS = { PENDING: 'Pendiente', REVIEW: 'En revisión', CONFIRMED: 'Confirmado', REJECTED: 'Rechazado' };
 const FUTURE_TOLERANCE_MS = 10 * 60000;
 const ORDER_PATTERN = /^[A-Za-z0-9-]{4,128}$/;
 const DRIVE_SECTION = 'Pagos';
+// Proveedores que se pagan por transferencia y se confirman con comprobante (revisión manual).
+export const MANUAL_PROVIDERS = ['BITGET', 'STP'];
+const METHOD_LABEL = { BITGET: 'Bitget', STP: 'STP' };
+const STP_REFERENCE = /^[A-Za-z0-9-]{0,40}$/;
 
 export const storage = {
   connected: () => drive.driveConnected(),
@@ -27,6 +32,7 @@ const fileView = (f) => ({ id: f.id, name: f.name, mimeType: f.mimeType, size: f
 
 const reportView = (r) => ({
   id: r.id,
+  provider: r.attempt?.provider || 'BITGET',
   status: r.status,
   statusLabel: REPORT_STATUS[r.status] || r.status,
   orderNumber: r.orderNumber,
@@ -50,6 +56,21 @@ const reportView = (r) => ({
 });
 
 const INCLUDE = { files: { orderBy: { createdAt: 'asc' } }, attempt: { include: { offer: true } } };
+
+// En STP la clave de rastreo es opcional: si no la escribe, se usa una referencia interna del pago.
+function parseStpFields({ orderNumber, transferredAt }, attempt, now = new Date()) {
+  const typed = String(orderNumber || '').trim();
+  if (!STP_REFERENCE.test(typed)) throw badRequest('La clave de rastreo solo lleva letras, números o guiones.');
+  const when = new Date(transferredAt);
+  if (!transferredAt || Number.isNaN(when.getTime())) throw badRequest('Indica la fecha y hora de la transferencia.');
+  if (when.getTime() > now.getTime() + FUTURE_TOLERANCE_MS) throw badRequest('La fecha y hora de la transferencia no puede estar en el futuro.');
+  return { orderNumber: typed || `STP-${attempt.id.slice(-10).toUpperCase()}`, transferredAt: when };
+}
+
+async function fieldsFor(attempt, body) {
+  if (attempt.provider === 'STP') return parseStpFields(body, attempt);
+  return parseFields(body, await bitgetSettings());
+}
 
 function parseFields({ orderNumber, transferredAt }, settings, now = new Date()) {
   const order = String(orderNumber || '').trim();
@@ -105,7 +126,7 @@ async function assertStorage() {
 async function ownedBitgetAttempt(user, attemptId) {
   const attempt = await prisma.paymentAttempt.findUnique({ where: { id: attemptId }, include: { offer: true, bitgetReport: true } });
   if (!attempt || attempt.userId !== user.id) throw notFound('Intento de pago no encontrado');
-  if (attempt.provider !== 'BITGET') throw forbidden('Este pago no se hace por transferencia Bitget');
+  if (!MANUAL_PROVIDERS.includes(attempt.provider)) throw forbidden('Este pago no se hace por transferencia');
   if (attempt.status !== 'PENDING') throw conflict('Este pago ya fue resuelto. Revisa tu historial en Mi acceso.');
   if (attempt.bitgetReport) throw conflict('Ya reportaste esta transferencia. Si necesitas cambiar algo, usa Corregir reporte en Mi acceso.');
   return attempt;
@@ -113,8 +134,7 @@ async function ownedBitgetAttempt(user, attemptId) {
 
 export async function submitReport(user, attemptId, body, files) {
   const attempt = await ownedBitgetAttempt(user, attemptId);
-  const settings = await bitgetSettings();
-  const fields = parseFields(body, settings);
+  const fields = await fieldsFor(attempt, body);
   const prepared = checkFiles(files);
   await assertStorage();
   let report;
@@ -134,10 +154,12 @@ export async function submitReport(user, attemptId, body, files) {
     throw new HttpError(502, 'No pudimos guardar tus archivos. No se registró el reporte; intenta de nuevo.');
   }
   await prisma.bitgetEvidence.createMany({ data: uploaded.map((u) => ({ ...u, reportId: report.id })) });
+  const method = METHOD_LABEL[attempt.provider];
   await recordEvent({
-    category: 'SUSCRIPCION', type: 'BITGET_REPORTADA', actor: actorOf(user), user, offer: attempt.offer, status: 'Pendiente de revisión',
-    amount: attempt.amount, result: `N.º de orden ${fields.orderNumber} · ${num(attempt.chargedAmount)} ${attempt.chargedCurrency}`,
+    category: 'SUSCRIPCION', type: 'BITGET_REPORTADA', actor: actorOf(user), user, offer: attempt.offer, status: `Transferencia ${method} · pendiente de revisión`,
+    amount: attempt.amount, result: `${attempt.provider === 'STP' ? 'Referencia' : 'N.º de orden'} ${fields.orderNumber} · ${num(attempt.chargedAmount)} ${attempt.chargedCurrency}`,
   });
+  sendClientEmail('COMPROBANTE_RECIBIDO', 'transferReported', user.email, { name: user.name, product: attempt.offer.name, method, hours: STP_REVIEW_HOURS }).catch(() => null);
   return reportView(await prisma.bitgetReport.findUnique({ where: { id: report.id }, include: INCLUDE }));
 }
 
@@ -150,8 +172,7 @@ async function ownedReport(user, reportId) {
 export async function correctReport(user, reportId, body, files) {
   const report = await ownedReport(user, reportId);
   if (!['PENDING', 'REJECTED'].includes(report.status)) throw conflict('Este reporte ya está en revisión o confirmado; no se puede corregir.');
-  const settings = await bitgetSettings();
-  const fields = parseFields(body, settings);
+  const fields = await fieldsFor(report.attempt, body);
   const removeIds = new Set([].concat(body.removeFileIds || []).map(String));
   const kept = report.files.filter((f) => !removeIds.has(f.id));
   const prepared = checkFiles(files, { existing: kept.length });
@@ -189,13 +210,14 @@ export async function correctReport(user, reportId, body, files) {
 export async function clientOverview(user) {
   const [reports, pending, info] = await Promise.all([
     prisma.bitgetReport.findMany({ where: { userId: user.id, hiddenForClient: false }, include: INCLUDE, orderBy: { createdAt: 'desc' }, take: 50 }),
-    prisma.paymentAttempt.findMany({ where: { userId: user.id, provider: 'BITGET', status: 'PENDING', bitgetReport: null }, include: { offer: true }, orderBy: { createdAt: 'desc' }, take: 20 }),
+    prisma.paymentAttempt.findMany({ where: { userId: user.id, provider: { in: MANUAL_PROVIDERS }, status: 'PENDING', bitgetReport: null }, include: { offer: true }, orderBy: { createdAt: 'desc' }, take: 20 }),
     publicBitgetInfo(),
   ]);
   return {
     info,
+    stp: await publicStpInfo(),
     reports: reports.map(reportView),
-    pending: pending.map((a) => ({ id: a.id, product: a.offer.name, amount: a.chargedAmount === null ? null : num(a.chargedAmount), currency: a.chargedCurrency, createdAt: a.createdAt })),
+    pending: pending.map((a) => ({ id: a.id, provider: a.provider, product: a.offer.name, amount: a.chargedAmount === null ? null : num(a.chargedAmount), currency: a.chargedCurrency, createdAt: a.createdAt })),
   };
 }
 
@@ -244,7 +266,7 @@ export async function confirmReport(admin, id) {
   if (report.attempt.status !== 'PENDING') throw conflict('Este pago ya fue resuelto.');
   await move(admin, report, 'REVIEW', { status: 'CONFIRMED', resolvedAt: new Date(), resolvedById: admin.id });
   try {
-    await resolveAttempt(report.paymentAttemptId, 'APPROVED', prisma, { paymentId: `bitget:${report.orderNumber}` });
+    await resolveAttempt(report.paymentAttemptId, 'APPROVED', prisma, { paymentId: `${String(report.attempt.provider || 'BITGET').toLowerCase()}:${report.orderNumber}` });
   } catch (err) {
     await prisma.bitgetReport.update({ where: { id: report.id }, data: { status: 'REVIEW', resolvedAt: null, resolvedById: null } });
     throw err;
@@ -259,7 +281,7 @@ export async function rejectReport(admin, id, reason) {
   const rejectReason = String(reason || '').trim().slice(0, 500) || null;
   await move(admin, report, report.status, { status: 'REJECTED', rejectReason, resolvedAt: new Date(), resolvedById: admin.id });
   await recordEvent({ category: 'SUSCRIPCION', type: 'BITGET_RECHAZADA', actor: actorOf(admin), user: report.user, offer: report.attempt.offer, status: 'Rechazado', amount: report.attempt.amount, result: rejectReason, silent: true });
-  sendClientEmail('PAGO_BITGET_RECHAZADO', 'bitgetRejected', report.user.email, { name: report.user.name, product: report.attempt.offer.name, orderNumber: report.orderNumber, reason: rejectReason }).catch(() => null);
+  sendClientEmail('PAGO_BITGET_RECHAZADO', 'bitgetRejected', report.user.email, { name: report.user.name, product: report.attempt.offer.name, orderNumber: report.orderNumber, reason: rejectReason, method: METHOD_LABEL[report.attempt.provider] || 'Bitget' }).catch(() => null);
   return reportView(await adminReport(id));
 }
 

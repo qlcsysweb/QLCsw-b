@@ -17,10 +17,13 @@ export async function generateAnnualReport(userId, year) {
 export const listAnnualReports = (userId) =>
   prisma.annualReport.findMany({ where: { userId }, orderBy: { year: 'desc' } });
 
+// El informe se recalcula con los cortes vigentes al abrirlo: así un informe generado antes de
+// una corrección del cálculo (p. ej. la liquidez) o de un nuevo corte nunca muestra cifras viejas.
 export async function getAnnualReport(userId, year) {
   const report = await prisma.annualReport.findUnique({ where: { userId_year: { userId, year } } });
   if (!report) throw notFound('Informe no generado');
-  return report;
+  const hasCloses = await prisma.monthlyClose.count({ where: { userId, year, supersededAt: null } });
+  return hasCloses ? generateAnnualReport(userId, year) : report;
 }
 
 export async function closedYears(userId) {

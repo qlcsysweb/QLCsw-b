@@ -1,5 +1,6 @@
 import { publicChargeInfo } from '../services/payments/paymentSettings.service.js';
 import { publicBitgetInfo } from '../services/payments/bitgetSettings.service.js';
+import { publicStpInfo } from '../services/payments/stpSettings.service.js';
 import * as bitget from '../services/payments/bitgetReport.service.js';
 import { evidenceUpload } from '../middlewares/upload.js';
 import { Router } from 'express';
@@ -18,7 +19,7 @@ import { authLimiter } from '../middlewares/rateLimit.js';
 const r = Router();
 const checkoutSchema = z.object({
   offerCode: z.string().trim().min(1).max(40).optional(),
-  provider: z.enum(['MERCADOPAGO', 'OXXO', 'BITGET']).optional(),
+  provider: z.enum(['MERCADOPAGO', 'OXXO', 'STP', 'BITGET']).optional(),
   promoCode: z.string().trim().min(4).max(40).optional(),
   quantity: z.coerce.number().int().min(1).max(payments.MAX_GIFTS).optional(),
   gift: z.object({
@@ -28,7 +29,7 @@ const checkoutSchema = z.object({
   }).optional().nullable(),
 }).refine((v) => v.offerCode || v.promoCode, { message: 'Selecciona un producto', path: ['offerCode'] });
 const reportSchema = z.object({
-  orderNumber: z.string().trim().min(1, 'Requerido').max(128),
+  orderNumber: z.string().trim().max(128).optional().default(''),
   transferredAt: z.string().trim().min(1, 'Requerido').max(40),
   removeFileIds: z.union([z.string().max(40), z.array(z.string().max(40)).max(5)]).optional(),
 });
@@ -37,11 +38,11 @@ const codeSchema = z.object({ code: z.string().trim().min(4).max(40) });
 const preferencesSchema = z.object({ marketingOptOut: z.boolean() });
 
 r.get('/access', ah(async (req, res) => {
-  const [access, offers, providers, charge, bitgetInfo] = await Promise.all([getAccess(req.user.id), cachedActiveOffers(), activeProviders(req.user), publicChargeInfo(), publicBitgetInfo()]);
+  const [access, offers, providers, charge, bitgetInfo, stpInfo] = await Promise.all([getAccess(req.user.id), cachedActiveOffers(), activeProviders(req.user), publicChargeInfo(), publicBitgetInfo(), publicStpInfo()]);
   const provider = providers[0] ? providers[0].code : await activeProvider(null, req.user).then((p) => p.code).catch(() => 'NONE');
   const subscription = req.user.role === 'CLIENT' ? await subscribers.subscriptionStatus(req.user) : null;
   const codes = providers.map((p) => p.code);
-  res.json({ access, offers, provider, providers: codes, charge: codes.includes('MERCADOPAGO') || codes.includes('OXXO') ? charge : null, bitget: codes.includes('BITGET') ? bitgetInfo : null, residenceCountry: req.user.residenceCountry || null, subscription });
+  res.json({ access, offers, provider, providers: codes, charge: codes.includes('MERCADOPAGO') || codes.includes('OXXO') ? charge : null, bitget: codes.includes('BITGET') ? bitgetInfo : null, stp: codes.includes('STP') ? stpInfo : null, residenceCountry: req.user.residenceCountry || null, subscription });
 }));
 
 r.get('/attempts', ah(async (req, res) => res.json(await payments.listMyAttempts(req.user.id))));

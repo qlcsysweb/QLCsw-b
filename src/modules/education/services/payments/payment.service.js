@@ -113,7 +113,7 @@ export async function createCheckout(user, input) {
     });
     await prisma.paymentAttempt.update({ where: { id: attempt.id }, data: { subscriptionId: sub.id } });
   }
-  return { attempt: attemptView(attempt), checkout: { mode: checkout.mode, initPoint: checkout.initPoint || null, uid: checkout.uid || null, instructions: checkout.instructions || null, wallet: checkout.wallet || null, oxxo: checkout.oxxo || null } };
+  return { attempt: attemptView(attempt), checkout: { mode: checkout.mode, initPoint: checkout.initPoint || null, uid: checkout.uid || null, instructions: checkout.instructions || null, wallet: checkout.wallet || null, oxxo: checkout.oxxo || null, stp: checkout.stp || null } };
 }
 
 async function paidStatus(tx, attempt) {

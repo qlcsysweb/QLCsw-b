@@ -14,7 +14,8 @@ const FOOTER = {
 export const layout = (title, body, lang = 'es') => `<!doctype html><html lang="${normalizeLang(lang)}"><body style="margin:0;background:#05070a;font-family:Segoe UI,Arial,sans-serif;color:#f4f7fb">
 <table width="100%" cellpadding="0" cellspacing="0" style="padding:32px 12px"><tr><td align="center">
 <table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;background:#0d131a;border:1px solid #1f2a36;border-radius:16px">
-<tr><td style="padding:28px 32px 8px;color:#5bd4ff;font-size:11px;letter-spacing:3px;font-weight:700">QLC FINANCIAL EDUCATION</td></tr>
+<tr><td style="padding:28px 32px 4px"><img src="${env.frontendUrl}/brand/qlc-logo.png" width="72" height="63" alt="QLC" style="display:block;border:0;border-radius:10px"></td></tr>
+<tr><td style="padding:10px 32px 8px;color:#5bd4ff;font-size:11px;letter-spacing:3px;font-weight:700">QLC FINANCIAL EDUCATION</td></tr>
 <tr><td style="padding:0 32px;font-size:22px;font-weight:700">${escapeHtml(title)}</td></tr>
 <tr><td style="padding:16px 32px 28px;color:#c7ccd2;font-size:14px;line-height:1.6">${body}</td></tr>
 <tr><td style="padding:16px 32px;border-top:1px solid #1f2a36;color:#6f7c89;font-size:11px">${FOOTER[normalizeLang(lang)]}</td></tr>
@@ -263,11 +264,17 @@ ${codes.map((c) => codeBlock(c, 3, 22)).join('')}
     body: `<p>Hola ${escapeHtml(name)},</p><p>Ya tienes disponible: <b>${escapeHtml(String(quantity))} × ${escapeHtml(product)}</b>.</p>${button(url('/app'), 'Entrar a mi plataforma')}`,
     text: `Hola ${name}, ya tienes disponible ${quantity} x ${product}.`,
   }),
-  bitgetRejected: ({ name, product, orderNumber, reason }) => ({
-    subject: 'Revisa tu reporte de transferencia Bitget',
+  bitgetRejected: ({ name, product, orderNumber, reason, method = 'Bitget' }) => ({
+    subject: `Revisa tu reporte de transferencia ${method}`,
     title: 'Tu reporte necesita una corrección',
     body: `<p>Hola ${escapeHtml(name)},</p><p>No pudimos confirmar tu transferencia con N.º de orden <b>${escapeHtml(orderNumber)}</b> para <b>${escapeHtml(product)}</b>.</p>${reason ? `<p>Motivo: ${escapeHtml(reason)}</p>` : ''}<p>Entra a Mi acceso y pulsa Corregir reporte para enviar los datos correctos.</p>${button(url('/app/acceso'), 'Corregir mi reporte')}`,
     text: `Hola ${name}, no pudimos confirmar tu transferencia ${orderNumber}.${reason ? ` Motivo: ${reason}.` : ''} Corrige tu reporte en ${url('/app/acceso')}`,
+  }),
+  transferReported: ({ name, product, method, hours }) => ({
+    subject: `Recibimos tu comprobante de pago ${method}`,
+    title: 'Comprobante recibido',
+    body: `<p>Hola ${escapeHtml(name)},</p><p>Recibimos tu comprobante de transferencia ${escapeHtml(method)} para <b>${escapeHtml(product)}</b>.</p><p>El equipo de QLC lo revisará y aprobará tu pago en un plazo máximo de <b>${hours} horas</b> (puede ser antes). Te enviaremos un correo en cuanto quede aprobado.</p>${button(url('/app/acceso'), 'Ver el estado en Mi acceso')}`,
+    text: `Hola ${name}, recibimos tu comprobante de transferencia ${method} para ${product}. Lo aprobaremos en un plazo máximo de ${hours} horas y te avisaremos por correo.`,
   }),
   renewalDue: ({ name, product, offerCode, expiresAt }) => ({
     subject: 'Tu acceso a QLC está por vencer: renueva tu pago',
@@ -400,11 +407,17 @@ ${codes.map((c) => codeBlock(c, 3, 22)).join('')}
     body: `<p>Hi ${escapeHtml(name)},</p><p>You now have available: <b>${escapeHtml(String(quantity))} × ${escapeHtml(productName(product, 'en'))}</b>.</p>${button(url('/app'), 'Go to my platform')}`,
     text: `Hi ${name}, you now have available ${quantity} x ${productName(product, 'en')}.`,
   }),
-  bitgetRejected: ({ name, product, orderNumber, reason }) => ({
-    subject: 'Please review your Bitget transfer report',
+  bitgetRejected: ({ name, product, orderNumber, reason, method = 'Bitget' }) => ({
+    subject: `Please review your ${method} transfer report`,
     title: 'Your report needs a correction',
     body: `<p>Hi ${escapeHtml(name)},</p><p>We could not confirm your transfer with order number <b>${escapeHtml(orderNumber)}</b> for <b>${escapeHtml(productName(product, 'en'))}</b>.</p>${reason ? `<p>Reason: ${escapeHtml(reason)}</p>` : ''}<p>Go to My access and press Correct report to send the right details.</p>${button(url('/app/acceso'), 'Correct my report')}`,
     text: `Hi ${name}, we could not confirm your transfer ${orderNumber}.${reason ? ` Reason: ${reason}.` : ''} Correct your report at ${url('/app/acceso')}`,
+  }),
+  transferReported: ({ name, product, method, hours }) => ({
+    subject: `We received your ${method} payment receipt`,
+    title: 'Receipt received',
+    body: `<p>Hi ${escapeHtml(name)},</p><p>We received your ${escapeHtml(method)} transfer receipt for <b>${escapeHtml(productName(product, 'en'))}</b>.</p><p>The QLC team will review it and approve your payment within <b>${hours} hours</b> at most (it may be sooner). We will email you as soon as it is approved.</p>${button(url('/app/acceso'), 'See the status in My access')}`,
+    text: `Hi ${name}, we received your ${method} transfer receipt for ${productName(product, 'en')}. We will approve it within ${hours} hours at most and let you know by email.`,
   }),
   renewalDue: ({ name, product, offerCode, expiresAt }) => ({
     subject: 'Your QLC access is about to expire: renew your payment',
@@ -536,11 +549,17 @@ ${codes.map((c) => codeBlock(c, 3, 22)).join('')}
     body: `<p>Olá, ${escapeHtml(name)},</p><p>Você já tem disponível: <b>${escapeHtml(String(quantity))} × ${escapeHtml(product)}</b>.</p>${button(url('/app'), 'Entrar na minha plataforma')}`,
     text: `Olá, ${name}, você já tem disponível ${quantity} x ${product}.`,
   }),
-  bitgetRejected: ({ name, product, orderNumber, reason }) => ({
-    subject: 'Revise seu relatório de transferência Bitget',
+  bitgetRejected: ({ name, product, orderNumber, reason, method = 'Bitget' }) => ({
+    subject: `Revise seu relatório de transferência ${method}`,
     title: 'Seu relatório precisa de uma correção',
     body: `<p>Olá, ${escapeHtml(name)},</p><p>Não conseguimos confirmar sua transferência com N.º de ordem <b>${escapeHtml(orderNumber)}</b> para <b>${escapeHtml(product)}</b>.</p>${reason ? `<p>Motivo: ${escapeHtml(reason)}</p>` : ''}<p>Entre em Meu acesso e clique em Corrigir relatório para enviar os dados corretos.</p>${button(url('/app/acceso'), 'Corrigir meu relatório')}`,
     text: `Olá, ${name}, não conseguimos confirmar sua transferência ${orderNumber}.${reason ? ` Motivo: ${reason}.` : ''} Corrija seu relatório em ${url('/app/acceso')}`,
+  }),
+  transferReported: ({ name, product, method, hours }) => ({
+    subject: `Recebemos seu comprovante de pagamento ${method}`,
+    title: 'Comprovante recebido',
+    body: `<p>Olá, ${escapeHtml(name)},</p><p>Recebemos seu comprovante de transferência ${escapeHtml(method)} para <b>${escapeHtml(product)}</b>.</p><p>A equipe QLC vai revisá-lo e aprovar seu pagamento em no máximo <b>${hours} horas</b> (pode ser antes). Enviaremos um e-mail assim que for aprovado.</p>${button(url('/app/acceso'), 'Ver o status em Meu acesso')}`,
+    text: `Olá, ${name}, recebemos seu comprovante de transferência ${method} para ${product}. Vamos aprová-lo em no máximo ${hours} horas e avisaremos por e-mail.`,
   }),
   renewalDue: ({ name, product, offerCode, expiresAt }) => ({
     subject: 'Seu acesso à QLC está prestes a vencer: renove seu pagamento',

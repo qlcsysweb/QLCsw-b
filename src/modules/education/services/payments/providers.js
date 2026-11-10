@@ -4,6 +4,7 @@ import { HttpError } from '../../utils/httpError.js';
 import { mpRequest } from './mercadopago.client.js';
 import { chargeCurrency, convertForCharge, isTestToken, mercadoPagoToken, mpTesting, payerEmailFor, paymentSettings } from './paymentSettings.service.js';
 import { paypalRequest } from './paypalSettings.service.js';
+import { publicStpInfo, stpQuote, stpSettings } from './stpSettings.service.js';
 import { bitgetQuote, bitgetSettings, publicWallet } from './bitgetSettings.service.js';
 
 const mockProvider = {
@@ -166,19 +167,33 @@ const bitgetProvider = {
   },
 };
 
+// Transferencia interbancaria a la CLABE de STP (solo México). Manual: se reporta con comprobante
+// y el equipo de QLC la aprueba en máximo 24 horas (mismo flujo de revisión que Bitget).
+const stpProvider = {
+  code: 'STP',
+  oneTime: true,
+  supportsManualResolution: false,
+  quote: (amount, currency) => stpQuote(amount, currency),
+  async createCheckout({ user }) {
+    return { mode: 'STP', stp: { ...(await publicStpInfo()), reference: user?.name || null } };
+  },
+};
+
 export const MERCADOPAGO_COUNTRY = 'MX';
 
 export async function anyGatewayEnabled() {
-  const [mp, bitget] = await Promise.all([paymentSettings(), bitgetSettings()]);
-  return !!(mp.enabled || bitget.enabled);
+  const [mp, bitget, stp] = await Promise.all([paymentSettings(), bitgetSettings(), stpSettings()]);
+  return !!(mp.enabled || bitget.enabled || stp.enabled);
 }
 
 export async function activeProviders(user) {
-  const [mp, bitget] = await Promise.all([paymentSettings(), bitgetSettings()]);
-  const mexico = mp.enabled && user?.residenceCountry === MERCADOPAGO_COUNTRY;
+  const [mp, bitget, stp] = await Promise.all([paymentSettings(), bitgetSettings(), stpSettings()]);
+  const inMexico = user?.residenceCountry === MERCADOPAGO_COUNTRY;
+  const mexico = mp.enabled && inMexico;
   return [
     ...(mexico ? [mercadoPagoProvider] : []),
     ...(mexico && chargeCurrency(mp) === OXXO_CURRENCY ? [oxxoProvider] : []),
+    ...(stp.enabled && inMexico ? [stpProvider] : []),
     ...(bitget.enabled ? [bitgetProvider] : []),
   ];
 }
@@ -195,6 +210,6 @@ export async function activeProvider(code, user) {
   return mockProvider;
 }
 
-const ALL = [mockProvider, mercadoPagoProvider, oxxoProvider, paypalProvider, bitgetProvider];
+const ALL = [mockProvider, mercadoPagoProvider, oxxoProvider, paypalProvider, bitgetProvider, stpProvider];
 export const providerByCode = (code) => ALL.find((p) => p.code === code);
-export { bitgetProvider, mercadoPagoProvider, oxxoProvider, paypalProvider };
+export { bitgetProvider, mercadoPagoProvider, oxxoProvider, paypalProvider, stpProvider };

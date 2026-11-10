@@ -12,6 +12,7 @@ const LINKS = {
   ACCESO_VENCIDO: '/app/acceso',
   RETENCION: '/app/acceso',
   PAGO_BITGET_RECHAZADO: '/app/acceso',
+  COMPROBANTE_RECIBIDO: '/app/acceso',
   PROMOCION: '/app/acceso#promocion',
   CODIGOS_REGALO: '/app/acceso',
   REGALO_ACTIVADO: '/app/acceso',

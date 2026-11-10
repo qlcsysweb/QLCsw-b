@@ -1,4 +1,5 @@
 import { bitgetSettingsView, saveBitgetSettings, WALLET_NETWORKS } from '../services/payments/bitgetSettings.service.js';
+import { saveStpSettings, stpSettingsView } from '../services/payments/stpSettings.service.js';
 import * as bitget from '../services/payments/bitgetReport.service.js';
 import { paymentSettingsView, savePaymentSettings, testMercadoPagoConnection } from '../services/payments/paymentSettings.service.js';
 import { COUNTRY_CODES } from '../shared/countries.js';
@@ -179,6 +180,19 @@ r.put('/bitget-settings', FULL, validate(bitgetSettingsSchema), ah(async (req, r
   if (req.body.uid !== undefined || req.body.walletAddress !== undefined || req.body.walletNetwork !== undefined || req.body.enabled !== undefined) {
     await recordEvent({ category: 'PLATAFORMA', type: 'PASARELA_CONFIGURADA', actor: actorOf(req.user), status: view.enabled ? 'Bitget activo' : 'Bitget desactivado', result: 'Configuración de transferencia Bitget modificada' });
   }
+  res.json(view);
+}));
+const stpSettingsSchema = z.object({
+  clabe: z.union([z.literal(''), z.string().trim().regex(/^\d{18}$/, 'La CLABE debe tener exactamente 18 dígitos')]).optional(),
+  bank: z.string().trim().max(80).optional(),
+  beneficiary: z.string().trim().max(120).optional(),
+  instructions: z.string().trim().max(1000).optional(),
+  enabled: z.boolean().optional(),
+});
+r.get('/stp-settings', FULL, ah(async (_req, res) => res.json(await stpSettingsView())));
+r.put('/stp-settings', FULL, validate(stpSettingsSchema), ah(async (req, res) => {
+  const view = await saveStpSettings(req.body);
+  await recordEvent({ category: 'PLATAFORMA', type: 'PASARELA_CONFIGURADA', actor: actorOf(req.user), status: view.enabled ? 'Transferencia STP activa' : 'Transferencia STP desactivada', result: 'Configuración de transferencia STP modificada' });
   res.json(view);
 }));
 const reportStatus = z.enum(['PENDING', 'REVIEW', 'CONFIRMED', 'REJECTED']).optional();
