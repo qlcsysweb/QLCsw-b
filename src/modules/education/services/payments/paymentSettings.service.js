@@ -215,7 +215,14 @@ export async function testMercadoPagoConnection(fetcher = fetch) {
     });
     await refreshExchangeRates(fetcher);
   } catch (err) {
+    const wasEnabled = !!(await paymentSettings()).enabled;
     await write({ lastTest: { at, ok: false, error: err.message.slice(0, 200) }, enabled: false });
+    // Si la prueba falla con Mercado Pago activo se desactiva (la tarjeta deja de mostrarse al cliente):
+    // queda registrado y se avisa al administrador para que sepa por qué y lo vuelva a activar.
+    if (wasEnabled) {
+      const { GATEWAY, recordEvent } = await import('../adminEvent.service.js');
+      await recordEvent({ category: 'PLATAFORMA', type: 'PASARELA_CONFIGURADA', actor: GATEWAY, status: 'Mercado Pago desactivado', result: `La prueba de conexión falló: ${err.message.slice(0, 200)}` }).catch(() => null);
+    }
   }
   return paymentSettingsView();
 }

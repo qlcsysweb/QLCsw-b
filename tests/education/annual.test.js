@@ -50,6 +50,9 @@ test('La liquidez del informe anual suma la liquidez inicial del portafolio y la
   assert.equal(r.liquidity.end, 320000);
   assert.equal(r.liquidity.change, 20000);
   assert.equal(r.monthly[0].liquidity, 320000);
+  const liquidityRow = r.categories.find((c) => c.code === 'LIQUIDEZ');
+  assert.equal(liquidityRow.result, 300000);
+  assert.equal(liquidityRow.finalCapital, 300000);
 });
 
 test('Firma de webhook de Mercado Pago (x-signature)', () => {

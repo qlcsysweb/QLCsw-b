@@ -74,7 +74,11 @@ export function moduleState(moduleNumber, { access, completed = [], route = null
   if (!canUseTool(access, moduleNumber)) return 'LOCKED_ACCESS';
   const isMarket = MARKET_MODULES.includes(moduleNumber);
   if (isMarket && !filterPassed) return 'LOCKED_FILTER';
-  const previous = prerequisiteOf(moduleNumber);
+  // En la prueba gratis los módulos incluidos van en orden entre sí (M1 → M2 → M7 → M8 → M9 → M12):
+  // cada uno pide el anterior de la prueba aunque su prerrequisito normal no esté incluido.
+  const trialIndex = access?.trial?.active ? TRIAL_TOOLS.indexOf(moduleNumber) : -1;
+  const trialPrevious = trialIndex > 0 && !canUseTool(access, prerequisiteOf(moduleNumber)) ? TRIAL_TOOLS[trialIndex - 1] : null;
+  const previous = trialPrevious ?? prerequisiteOf(moduleNumber);
   const followsOrder = moduleNumber > 1 && canUseTool(access, previous);
   if (moduleNumber === 4 && followsOrder && route !== 'MARKETS') return 'LOCKED_ROUTE';
   if (followsOrder && !done.has(previous)) return 'LOCKED_ORDER';

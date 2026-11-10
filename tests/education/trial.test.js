@@ -17,7 +17,16 @@ test('un cliente nuevo usa gratis las herramientas M1, M2, M7–M9 y M12 durante
     assert.equal(canUseTool(access, n), false);
     assert.equal(moduleState(n, { access, completed: [1, 2, 7, 8, 9] }), 'LOCKED_ACCESS');
   }
-  assert.equal(moduleState(12, { access, completed: [] }), 'AVAILABLE');
+  assert.equal(moduleState(1, { access, completed: [] }), 'AVAILABLE');
+});
+
+test('en la prueba los módulos incluidos se abren en orden: M1, M2, M7, M8, M9, M12', () => {
+  const access = trialAccess(client(3));
+  assert.equal(moduleState(12, { access, completed: [] }), 'LOCKED_ORDER');
+  assert.equal(moduleState(7, { access, completed: [1] }), 'LOCKED_ORDER');
+  assert.equal(moduleState(7, { access, completed: [1, 2] }), 'AVAILABLE');
+  assert.equal(moduleState(12, { access, completed: [1, 2, 7, 8] }), 'LOCKED_ORDER');
+  assert.equal(moduleState(12, { access, completed: [1, 2, 7, 8, 9] }), 'AVAILABLE');
 });
 
 test('pasado el mes la prueba termina y el cliente queda sin acceso', () => {

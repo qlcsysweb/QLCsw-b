@@ -54,7 +54,11 @@ export function buildAnnualReport(year, snapshots) {
   }
   const categories = [...catMap.values()].map((c) => {
     const lastCat = last.portfolio.categories.find((x) => x.code === c.code);
-    return { ...c, finalCapital: lastCat?.final ?? 0, share: lastCat?.share ?? 0 };
+    const finalCapital = lastCat?.final ?? 0;
+    // La liquidez no genera rendimiento: su resultado acumulado es la liquidez que se fue agregando
+    // (el capital de liquidez al cierre), para que la fila no quede en $0.00.
+    const result = c.code === 'LIQUIDEZ' ? round2(finalCapital) : c.result;
+    return { ...c, result, finalCapital, share: lastCat?.share ?? 0 };
   });
 
   const prodMap = new Map();
