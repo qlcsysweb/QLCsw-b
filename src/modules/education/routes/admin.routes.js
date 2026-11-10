@@ -188,11 +188,14 @@ const stpSettingsSchema = z.object({
   beneficiary: z.string().trim().max(120).optional(),
   instructions: z.string().trim().max(1000).optional(),
   enabled: z.boolean().optional(),
+  oxxoNumber: z.union([z.literal(''), z.string().trim().regex(/^[\d\s]{12,24}$/, 'El número de OXXO lleva solo dígitos')]).optional(),
+  oxxoInstructions: z.string().trim().max(1000).optional(),
+  oxxoEnabled: z.boolean().optional(),
 });
 r.get('/stp-settings', FULL, ah(async (_req, res) => res.json(await stpSettingsView())));
 r.put('/stp-settings', FULL, validate(stpSettingsSchema), ah(async (req, res) => {
   const view = await saveStpSettings(req.body);
-  await recordEvent({ category: 'PLATAFORMA', type: 'PASARELA_CONFIGURADA', actor: actorOf(req.user), status: view.enabled ? 'Transferencia STP activa' : 'Transferencia STP desactivada', result: 'Configuración de transferencia STP modificada' });
+  await recordEvent({ category: 'PLATAFORMA', type: 'PASARELA_CONFIGURADA', actor: actorOf(req.user), status: `STP ${view.enabled ? 'activa' : 'desactivada'} · OXXO ${view.oxxoEnabled ? 'activo' : 'desactivado'}`, result: 'Configuración de pagos manuales (STP y OXXO) modificada' });
   res.json(view);
 }));
 const reportStatus = z.enum(['PENDING', 'REVIEW', 'CONFIRMED', 'REJECTED']).optional();

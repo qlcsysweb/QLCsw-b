@@ -60,6 +60,7 @@ run('País de residencia, Mercado Pago solo para México y transferencia interna
   const resetCaches = async () => {
     (await import('../../src/modules/education/services/payments/paymentSettings.service.js')).resetPaymentSettingsCache();
     (await import('../../src/modules/education/services/payments/bitgetSettings.service.js')).resetBitgetCache();
+    (await import('../../src/modules/education/services/payments/stpSettings.service.js')).resetStpCache();
   };
 
   before(async () => {
@@ -89,7 +90,7 @@ run('País de residencia, Mercado Pago solo para México y transferencia interna
         res.end(f.buffer);
       },
     });
-    await prisma.appSetting.deleteMany({ where: { key: { in: ['mercadopago', 'bitget'] } } });
+    await prisma.appSetting.deleteMany({ where: { key: { in: ['mercadopago', 'bitget', 'stp'] } } });
     await resetCaches();
     await prisma.googleIntegration.upsert({ where: { service: 'DRIVE' }, create: { service: 'DRIVE', status: 'CONNECTED', scopes: 'https://www.googleapis.com/auth/drive.file', encryptedRefreshToken: encryptSecret('r') }, update: { status: 'CONNECTED', scopes: 'https://www.googleapis.com/auth/drive.file', encryptedRefreshToken: encryptSecret('r') } });
     for (const [key, level] of [['admin', 'FULL'], ['edit', 'EDIT']]) {
@@ -173,7 +174,7 @@ run('País de residencia, Mercado Pago solo para México y transferencia interna
     await prisma.appSetting.create({ data: { key: 'mercadopago', value: { enabled: true, publicKey: 'APP_USR-public', encryptedToken: encryptSecret('APP_USR-token'), encryptedWebhookSecret: encryptSecret('s'), account: { siteId: 'MLM' }, rates: { USD: 18, USDT: 18 }, lastTest: { ok: true } } } });
     await resetCaches();
     const mx = await api('ana').get('/api/payments/access');
-    assert.deepEqual(mx.body.providers, ['MERCADOPAGO', 'OXXO', 'BITGET']);
+    assert.deepEqual(mx.body.providers, ['BITGET', 'OXXO_DEPOSITO', 'STP', 'MERCADOPAGO']);
     assert.equal(mx.body.bitget.uid, QLC_UID);
     const us = await api('bob').get('/api/payments/access');
     assert.deepEqual(us.body.providers, ['BITGET']);

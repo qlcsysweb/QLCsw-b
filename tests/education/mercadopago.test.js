@@ -103,7 +103,10 @@ run('Mercado Pago configurado desde el panel', () => {
     const { createApp } = await import('../../src/app.js');
     app = createApp();
     ({ prisma } = await import('../../src/modules/education/config/prisma.js'));
-    await prisma.appSetting.deleteMany({ where: { key: 'mercadopago' } });
+    await prisma.appSetting.deleteMany({ where: { key: { in: ['mercadopago', 'stp'] } } });
+    // Estas pruebas cubren solo Mercado Pago: los pagos manuales (STP y depósito en OXXO) quedan apagados.
+    await prisma.appSetting.create({ data: { key: 'stp', value: { enabled: false, oxxoEnabled: false } } });
+    (await import('../../src/modules/education/services/payments/stpSettings.service.js')).resetStpCache();
     const { resetPaymentSettingsCache } = await import('../../src/modules/education/services/payments/paymentSettings.service.js');
     resetPaymentSettingsCache();
     const email = `admin-${uid}@admin.qlc`;
@@ -122,7 +125,8 @@ run('Mercado Pago configurado desde el panel', () => {
   after(async () => {
     global.fetch = realFetch;
     await prisma.productOffer.update({ where: { code: 'FULL_ANNUAL' }, data: { billingCycle: 'YEARLY' } });
-    await prisma.appSetting.deleteMany({ where: { key: 'mercadopago' } });
+    await prisma.appSetting.deleteMany({ where: { key: { in: ['mercadopago', 'stp'] } } });
+    (await import('../../src/modules/education/services/payments/stpSettings.service.js')).resetStpCache();
     const { resetPaymentSettingsCache } = await import('../../src/modules/education/services/payments/paymentSettings.service.js');
     resetPaymentSettingsCache();
   });

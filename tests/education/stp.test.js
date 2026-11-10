@@ -89,18 +89,37 @@ run('Transferencia interbancaria STP: datos, comprobante y aprobación manual', 
     await resetCaches();
   });
 
-  test('Solo el administrador general la configura y no se activa sin beneficiario ni CLABE válida', async () => {
+  test('Viene lista con la CLABE y el número de OXXO; solo el administrador general la cambia', async () => {
     assert.equal((await api('edit').get('/api/admin/stp-settings')).status, 403);
     const start = await api('admin').get('/api/admin/stp-settings');
     assert.equal(start.body.clabe, CLABE);
+    assert.equal(start.body.oxxoNumber, '2242175349081620');
+    assert.equal(start.body.enabled, true);
+    assert.equal(start.body.oxxoEnabled, true);
+    assert.deepEqual(start.body.missing, []);
     assert.equal(start.body.reviewHours, 24);
     assert.equal((await api('admin').put('/api/admin/stp-settings', { clabe: '123' })).status, 400);
-    const missing = await api('admin').put('/api/admin/stp-settings', { enabled: true });
-    assert.equal(missing.status, 400);
-    assert.match(missing.body.error, /beneficiario/);
-    const ok = await api('admin').put('/api/admin/stp-settings', { beneficiary: 'QLC Beneficiario', enabled: true });
-    assert.equal(ok.status, 200);
-    assert.equal(ok.body.enabled, true);
+    assert.equal((await api('admin').put('/api/admin/stp-settings', { oxxoNumber: 'abc' })).status, 400);
+  });
+
+  test('El beneficiario es el nombre del cliente si el panel no define otro', async () => {
+    const res = await api('mx').post('/api/payments/checkout', { offerCode: 'FULL_ANNUAL', provider: 'STP' });
+    assert.equal(res.body.checkout.stp.beneficiary, 'Cliente mx');
+    assert.equal((await api('admin').put('/api/admin/stp-settings', { beneficiary: 'QLC Beneficiario' })).status, 200);
+  });
+
+  test('México ve Cripto, OXXO, STP y tarjeta en ese orden; OXXO es depósito manual al número de QLC', async () => {
+    const access = await api('mx').get('/api/payments/access');
+    assert.deepEqual(access.body.providers.filter((p) => p !== 'BITGET'), ['OXXO_DEPOSITO', 'STP']);
+    const res = await api('mx').post('/api/payments/checkout', { offerCode: 'FULL_ANNUAL', provider: 'OXXO_DEPOSITO' });
+    assert.equal(res.status, 201);
+    assert.equal(res.body.checkout.mode, 'OXXO_DEPOSITO');
+    assert.equal(res.body.checkout.stp.oxxoNumber, '2242175349081620');
+    assert.equal(res.body.attempt.chargedCurrency, 'MXN');
+    const created = await report('mx', `/api/payments/attempts/${res.body.attempt.id}/bitget-report`, { orderNumber: '' });
+    assert.equal(created.status, 201);
+    assert.equal(created.body.provider, 'OXXO_DEPOSITO');
+    assert.match(created.body.orderNumber, /^OXXO-/);
   });
 
   test('Se ofrece solo a quien reside en México y cobra en pesos con los datos de la CLABE', async () => {
@@ -128,7 +147,7 @@ run('Transferencia interbancaria STP: datos, comprobante y aprobación manual', 
     assert.equal(created.body.provider, 'STP');
     assert.match(created.body.orderNumber, /^STP-/);
     await new Promise((r) => setTimeout(r, 50));
-    assert.ok(testEmail.outbox.some((m) => m.template === 'transferReported' && m.data.hours === 24 && m.data.method === 'STP'));
+    assert.ok(testEmail.outbox.some((m) => m.template === 'transferReported' && m.data.hours === 24 && m.data.method === undefined));
     const overview = await api('mx').get('/api/payments/bitget');
     assert.equal(overview.body.stp.clabe, CLABE);
     assert.equal((await api('edit').post(`/api/admin/bitget-reports/${created.body.id}/received`)).body.status, 'REVIEW');

@@ -4,7 +4,7 @@ import { HttpError } from '../../utils/httpError.js';
 import { mpRequest } from './mercadopago.client.js';
 import { chargeCurrency, convertForCharge, isTestToken, mercadoPagoToken, mpTesting, payerEmailFor, paymentSettings } from './paymentSettings.service.js';
 import { paypalRequest } from './paypalSettings.service.js';
-import { publicStpInfo, stpQuote, stpSettings } from './stpSettings.service.js';
+import { manualReady, publicStpInfo, stpQuote } from './stpSettings.service.js';
 import { bitgetQuote, bitgetSettings, publicWallet } from './bitgetSettings.service.js';
 
 const mockProvider = {
@@ -175,26 +175,40 @@ const stpProvider = {
   supportsManualResolution: false,
   quote: (amount, currency) => stpQuote(amount, currency),
   async createCheckout({ user }) {
-    return { mode: 'STP', stp: { ...(await publicStpInfo()), reference: user?.name || null } };
+    return { mode: 'STP', stp: await publicStpInfo(user) };
+  },
+};
+
+// Depósito en efectivo en OXXO a un número fijo (solo México). Igual que STP: comprobante y aprobación manual.
+const oxxoDepositProvider = {
+  code: 'OXXO_DEPOSITO',
+  oneTime: true,
+  supportsManualResolution: false,
+  quote: (amount, currency) => stpQuote(amount, currency),
+  async createCheckout({ user }) {
+    return { mode: 'OXXO_DEPOSITO', stp: await publicStpInfo(user) };
   },
 };
 
 export const MERCADOPAGO_COUNTRY = 'MX';
 
 export async function anyGatewayEnabled() {
-  const [mp, bitget, stp] = await Promise.all([paymentSettings(), bitgetSettings(), stpSettings()]);
-  return !!(mp.enabled || bitget.enabled || stp.enabled);
+  const [mp, bitget, manual] = await Promise.all([paymentSettings(), bitgetSettings(), manualReady()]);
+  return !!(mp.enabled || bitget.enabled || manual.stp || manual.oxxo);
 }
 
 export async function activeProviders(user) {
-  const [mp, bitget, stp] = await Promise.all([paymentSettings(), bitgetSettings(), stpSettings()]);
+  const [mp, bitget, manual] = await Promise.all([paymentSettings(), bitgetSettings(), manualReady()]);
   const inMexico = user?.residenceCountry === MERCADOPAGO_COUNTRY;
   const mexico = mp.enabled && inMexico;
+  // Orden en que el cliente ve las opciones: Cripto, OXXO, transferencia STP y tarjeta.
+  // OXXO es el depósito manual al número de QLC; si no está listo, se usa la ficha de Mercado Pago.
+  const oxxo = inMexico && manual.oxxo ? oxxoDepositProvider : mexico && chargeCurrency(mp) === OXXO_CURRENCY ? oxxoProvider : null;
   return [
-    ...(mexico ? [mercadoPagoProvider] : []),
-    ...(mexico && chargeCurrency(mp) === OXXO_CURRENCY ? [oxxoProvider] : []),
-    ...(stp.enabled && inMexico ? [stpProvider] : []),
     ...(bitget.enabled ? [bitgetProvider] : []),
+    ...(oxxo ? [oxxo] : []),
+    ...(inMexico && manual.stp ? [stpProvider] : []),
+    ...(mexico ? [mercadoPagoProvider] : []),
   ];
 }
 
@@ -205,11 +219,11 @@ export async function activeProvider(code, user) {
     if (!found) throw new HttpError(409, 'Esta forma de pago no está disponible');
     return found;
   }
-  if (list.length) return list[0];
+  if (list.length) return list.find((p) => p.code === 'MERCADOPAGO') || list[0];
   if (await anyGatewayEnabled()) throw new HttpError(409, 'Por ahora no hay una forma de pago disponible para tu país. Escríbenos para ayudarte.');
   return mockProvider;
 }
 
-const ALL = [mockProvider, mercadoPagoProvider, oxxoProvider, paypalProvider, bitgetProvider, stpProvider];
+const ALL = [mockProvider, mercadoPagoProvider, oxxoProvider, paypalProvider, bitgetProvider, stpProvider, oxxoDepositProvider];
 export const providerByCode = (code) => ALL.find((p) => p.code === code);
-export { bitgetProvider, mercadoPagoProvider, oxxoProvider, paypalProvider, stpProvider };
+export { bitgetProvider, mercadoPagoProvider, oxxoDepositProvider, oxxoProvider, paypalProvider, stpProvider };

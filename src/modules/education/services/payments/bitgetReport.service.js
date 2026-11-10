@@ -14,8 +14,9 @@ const FUTURE_TOLERANCE_MS = 10 * 60000;
 const ORDER_PATTERN = /^[A-Za-z0-9-]{4,128}$/;
 const DRIVE_SECTION = 'Pagos';
 // Proveedores que se pagan por transferencia y se confirman con comprobante (revisión manual).
-export const MANUAL_PROVIDERS = ['BITGET', 'STP'];
-const METHOD_LABEL = { BITGET: 'Bitget', STP: 'STP' };
+export const MANUAL_PROVIDERS = ['BITGET', 'STP', 'OXXO_DEPOSITO'];
+const METHOD_LABEL = { BITGET: 'Bitget', STP: 'STP', OXXO_DEPOSITO: 'OXXO' };
+const MXN_MANUAL = ['STP', 'OXXO_DEPOSITO'];
 const STP_REFERENCE = /^[A-Za-z0-9-]{0,40}$/;
 
 export const storage = {
@@ -60,15 +61,16 @@ const INCLUDE = { files: { orderBy: { createdAt: 'asc' } }, attempt: { include: 
 // En STP la clave de rastreo es opcional: si no la escribe, se usa una referencia interna del pago.
 function parseStpFields({ orderNumber, transferredAt }, attempt, now = new Date()) {
   const typed = String(orderNumber || '').trim();
-  if (!STP_REFERENCE.test(typed)) throw badRequest('La clave de rastreo solo lleva letras, números o guiones.');
+  if (!STP_REFERENCE.test(typed)) throw badRequest('La referencia solo lleva letras, números o guiones.');
   const when = new Date(transferredAt);
   if (!transferredAt || Number.isNaN(when.getTime())) throw badRequest('Indica la fecha y hora de la transferencia.');
   if (when.getTime() > now.getTime() + FUTURE_TOLERANCE_MS) throw badRequest('La fecha y hora de la transferencia no puede estar en el futuro.');
-  return { orderNumber: typed || `STP-${attempt.id.slice(-10).toUpperCase()}`, transferredAt: when };
+  const prefix = attempt.provider === 'OXXO_DEPOSITO' ? 'OXXO' : 'STP';
+  return { orderNumber: typed || `${prefix}-${attempt.id.slice(-10).toUpperCase()}`, transferredAt: when };
 }
 
 async function fieldsFor(attempt, body) {
-  if (attempt.provider === 'STP') return parseStpFields(body, attempt);
+  if (MXN_MANUAL.includes(attempt.provider)) return parseStpFields(body, attempt);
   return parseFields(body, await bitgetSettings());
 }
 
@@ -157,9 +159,9 @@ export async function submitReport(user, attemptId, body, files) {
   const method = METHOD_LABEL[attempt.provider];
   await recordEvent({
     category: 'SUSCRIPCION', type: 'BITGET_REPORTADA', actor: actorOf(user), user, offer: attempt.offer, status: `Transferencia ${method} · pendiente de revisión`,
-    amount: attempt.amount, result: `${attempt.provider === 'STP' ? 'Referencia' : 'N.º de orden'} ${fields.orderNumber} · ${num(attempt.chargedAmount)} ${attempt.chargedCurrency}`,
+    amount: attempt.amount, result: `${MXN_MANUAL.includes(attempt.provider) ? 'Referencia' : 'N.º de orden'} ${fields.orderNumber} · ${num(attempt.chargedAmount)} ${attempt.chargedCurrency}`,
   });
-  sendClientEmail('COMPROBANTE_RECIBIDO', 'transferReported', user.email, { name: user.name, product: attempt.offer.name, method, hours: STP_REVIEW_HOURS }).catch(() => null);
+  sendClientEmail('COMPROBANTE_RECIBIDO', 'transferReported', user.email, { name: user.name, product: attempt.offer.name, hours: STP_REVIEW_HOURS }).catch(() => null);
   return reportView(await prisma.bitgetReport.findUnique({ where: { id: report.id }, include: INCLUDE }));
 }
 
@@ -215,7 +217,7 @@ export async function clientOverview(user) {
   ]);
   return {
     info,
-    stp: await publicStpInfo(),
+    stp: await publicStpInfo(user),
     reports: reports.map(reportView),
     pending: pending.map((a) => ({ id: a.id, provider: a.provider, product: a.offer.name, amount: a.chargedAmount === null ? null : num(a.chargedAmount), currency: a.chargedCurrency, createdAt: a.createdAt })),
   };

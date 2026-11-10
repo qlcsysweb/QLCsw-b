@@ -38,10 +38,10 @@ export function summarizeAccess(grants = [], now = new Date()) {
   };
 }
 
-// Prueba gratis: herramientas de M1–M3, M7–M9 y M12 durante el primer mes tras el registro.
-export const TRIAL_TOOLS = [1, 2, 3, 7, 8, 9, 12];
+// Prueba gratis: herramientas de M1, M2, M7–M9 y M12 durante el primer mes tras el registro (M3 no entra).
+export const TRIAL_TOOLS = [1, 2, 7, 8, 9, 12];
 // Al completar estos módulos en la prueba se le recuerda al cliente ir a Mi acceso.
-export const TRIAL_CHECKPOINTS = [3, 9];
+export const TRIAL_CHECKPOINTS = [2, 9];
 
 export function trialWindow(user, days, now = new Date()) {
   if (!user || user.role !== 'CLIENT' || !days || !user.createdAt) return null;

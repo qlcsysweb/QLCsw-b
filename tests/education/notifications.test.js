@@ -45,7 +45,7 @@ run('Notificaciones y prueba gratis (integración)', () => {
     const info = await as('a').get('/api/payments/access');
     assert.equal(info.status, 200);
     assert.equal(info.body.access.mode, 'TRIAL');
-    assert.deepEqual(info.body.access.tools, [1, 2, 3, 7, 8, 9, 12]);
+    assert.deepEqual(info.body.access.tools, [1, 2, 7, 8, 9, 12]);
     assert.equal((await as('a').get('/api/academy/modules/1')).status, 200);
     assert.equal((await as('a').get('/api/academy/modules/10')).status, 403);
     const list = await as('a').get('/api/notifications');

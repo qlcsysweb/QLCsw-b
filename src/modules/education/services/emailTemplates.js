@@ -270,11 +270,11 @@ ${codes.map((c) => codeBlock(c, 3, 22)).join('')}
     body: `<p>Hola ${escapeHtml(name)},</p><p>No pudimos confirmar tu transferencia con N.º de orden <b>${escapeHtml(orderNumber)}</b> para <b>${escapeHtml(product)}</b>.</p>${reason ? `<p>Motivo: ${escapeHtml(reason)}</p>` : ''}<p>Entra a Mi acceso y pulsa Corregir reporte para enviar los datos correctos.</p>${button(url('/app/acceso'), 'Corregir mi reporte')}`,
     text: `Hola ${name}, no pudimos confirmar tu transferencia ${orderNumber}.${reason ? ` Motivo: ${reason}.` : ''} Corrige tu reporte en ${url('/app/acceso')}`,
   }),
-  transferReported: ({ name, product, method, hours }) => ({
-    subject: `Recibimos tu comprobante de pago ${method}`,
+  transferReported: ({ name, product, hours }) => ({
+    subject: 'Recibimos tu comprobante de pago',
     title: 'Comprobante recibido',
-    body: `<p>Hola ${escapeHtml(name)},</p><p>Recibimos tu comprobante de transferencia ${escapeHtml(method)} para <b>${escapeHtml(product)}</b>.</p><p>El equipo de QLC lo revisará y aprobará tu pago en un plazo máximo de <b>${hours} horas</b> (puede ser antes). Te enviaremos un correo en cuanto quede aprobado.</p>${button(url('/app/acceso'), 'Ver el estado en Mi acceso')}`,
-    text: `Hola ${name}, recibimos tu comprobante de transferencia ${method} para ${product}. Lo aprobaremos en un plazo máximo de ${hours} horas y te avisaremos por correo.`,
+    body: `<p>Hola ${escapeHtml(name)},</p><p>Recibimos tu comprobante de pago para <b>${escapeHtml(product)}</b>.</p><p>El equipo de QLC lo revisará y aprobará tu pago en un plazo máximo de <b>${hours} horas</b> (puede ser antes). Tu acceso se activará en cuanto se confirme el pago y te enviaremos un correo.</p>${button(url('/app/acceso'), 'Ver el estado en Mi acceso')}`,
+    text: `Hola ${name}, recibimos tu comprobante de pago para ${product}. Lo aprobaremos en un plazo máximo de ${hours} horas y te avisaremos por correo.`,
   }),
   renewalDue: ({ name, product, offerCode, expiresAt }) => ({
     subject: 'Tu acceso a QLC está por vencer: renueva tu pago',
@@ -413,11 +413,11 @@ ${codes.map((c) => codeBlock(c, 3, 22)).join('')}
     body: `<p>Hi ${escapeHtml(name)},</p><p>We could not confirm your transfer with order number <b>${escapeHtml(orderNumber)}</b> for <b>${escapeHtml(productName(product, 'en'))}</b>.</p>${reason ? `<p>Reason: ${escapeHtml(reason)}</p>` : ''}<p>Go to My access and press Correct report to send the right details.</p>${button(url('/app/acceso'), 'Correct my report')}`,
     text: `Hi ${name}, we could not confirm your transfer ${orderNumber}.${reason ? ` Reason: ${reason}.` : ''} Correct your report at ${url('/app/acceso')}`,
   }),
-  transferReported: ({ name, product, method, hours }) => ({
-    subject: `We received your ${method} payment receipt`,
+  transferReported: ({ name, product, hours }) => ({
+    subject: 'We received your payment receipt',
     title: 'Receipt received',
-    body: `<p>Hi ${escapeHtml(name)},</p><p>We received your ${escapeHtml(method)} transfer receipt for <b>${escapeHtml(productName(product, 'en'))}</b>.</p><p>The QLC team will review it and approve your payment within <b>${hours} hours</b> at most (it may be sooner). We will email you as soon as it is approved.</p>${button(url('/app/acceso'), 'See the status in My access')}`,
-    text: `Hi ${name}, we received your ${method} transfer receipt for ${productName(product, 'en')}. We will approve it within ${hours} hours at most and let you know by email.`,
+    body: `<p>Hi ${escapeHtml(name)},</p><p>We received your payment receipt for <b>${escapeHtml(productName(product, 'en'))}</b>.</p><p>The QLC team will review it and approve your payment within <b>${hours} hours</b> at most (it may be sooner). We will email you as soon as it is approved.</p>${button(url('/app/acceso'), 'See the status in My access')}`,
+    text: `Hi ${name}, we received your payment receipt for ${productName(product, 'en')}. We will approve it within ${hours} hours at most and let you know by email.`,
   }),
   renewalDue: ({ name, product, offerCode, expiresAt }) => ({
     subject: 'Your QLC access is about to expire: renew your payment',
@@ -555,11 +555,11 @@ ${codes.map((c) => codeBlock(c, 3, 22)).join('')}
     body: `<p>Olá, ${escapeHtml(name)},</p><p>Não conseguimos confirmar sua transferência com N.º de ordem <b>${escapeHtml(orderNumber)}</b> para <b>${escapeHtml(product)}</b>.</p>${reason ? `<p>Motivo: ${escapeHtml(reason)}</p>` : ''}<p>Entre em Meu acesso e clique em Corrigir relatório para enviar os dados corretos.</p>${button(url('/app/acceso'), 'Corrigir meu relatório')}`,
     text: `Olá, ${name}, não conseguimos confirmar sua transferência ${orderNumber}.${reason ? ` Motivo: ${reason}.` : ''} Corrija seu relatório em ${url('/app/acceso')}`,
   }),
-  transferReported: ({ name, product, method, hours }) => ({
-    subject: `Recebemos seu comprovante de pagamento ${method}`,
+  transferReported: ({ name, product, hours }) => ({
+    subject: 'Recebemos seu comprovante de pagamento',
     title: 'Comprovante recebido',
-    body: `<p>Olá, ${escapeHtml(name)},</p><p>Recebemos seu comprovante de transferência ${escapeHtml(method)} para <b>${escapeHtml(product)}</b>.</p><p>A equipe QLC vai revisá-lo e aprovar seu pagamento em no máximo <b>${hours} horas</b> (pode ser antes). Enviaremos um e-mail assim que for aprovado.</p>${button(url('/app/acceso'), 'Ver o status em Meu acesso')}`,
-    text: `Olá, ${name}, recebemos seu comprovante de transferência ${method} para ${product}. Vamos aprová-lo em no máximo ${hours} horas e avisaremos por e-mail.`,
+    body: `<p>Olá, ${escapeHtml(name)},</p><p>Recebemos seu comprovante de pagamento para <b>${escapeHtml(product)}</b>.</p><p>A equipe QLC vai revisá-lo e aprovar seu pagamento em no máximo <b>${hours} horas</b> (pode ser antes). Enviaremos um e-mail assim que for aprovado.</p>${button(url('/app/acceso'), 'Ver o status em Meu acesso')}`,
+    text: `Olá, ${name}, recebemos seu comprovante de pagamento para ${product}. Vamos aprová-lo em no máximo ${hours} horas e avisaremos por e-mail.`,
   }),
   renewalDue: ({ name, product, offerCode, expiresAt }) => ({
     subject: 'Seu acesso à QLC está prestes a vencer: renove seu pagamento',
