@@ -2,6 +2,7 @@ import { prisma } from '../config/prisma.js';
 import { num } from '../utils/money.js';
 import { sendEmail } from './email.service.js';
 import { notificationAccount, notificationSettings } from './mailSettings.service.js';
+import { notifyUser } from './notification.service.js';
 
 export const EVENT_LABELS = {
   CONTRATADA: 'Suscripción contratada',
@@ -100,9 +101,35 @@ async function recipients() {
   return [...list.entries()];
 }
 
+// A qué sección del panel lleva cada aviso al abrirlo desde la campana del administrador.
+const CLIENT_EVENTS = ['NUEVO_REGISTRO', 'CUENTA_ELIMINADA', 'MODULO_COMPLETADO', 'MASTERCLASS_TERMINADA', 'DATOS_COMPARTIDOS', 'EDICION_AUTORIZADA', 'CONTRASENA_RESTABLECIDA'];
+const PAYMENT_EVENTS = ['PAGO_EXITOSO', 'PAGO_FALLIDO', 'IMPORTE_NO_COINCIDE', 'PAGO_REVERTIDO', 'PAGO_PROMOCIONAL'];
+export function adminLinkFor(event) {
+  const type = String(event.type || '');
+  if (type.startsWith('BITGET_') || PAYMENT_EVENTS.includes(type)) return '/admin/pagos';
+  if (type === 'PASARELA_CONFIGURADA') return '/admin/pasarela';
+  if (type.startsWith('REGALO_')) return '/admin/regalos';
+  if (type === 'NUEVA_SOLICITUD') return '/admin/solicitudes';
+  if (type === 'NUEVA_CONSULTA' || type === 'EJERCICIO_ENVIADO') return '/admin/ejercicios';
+  if (type.startsWith('CITA') || type === 'NUEVA_CITA') return '/admin/citas';
+  if (CLIENT_EVENTS.includes(type)) return event.userId && type !== 'CUENTA_ELIMINADA' ? `/admin/clientes/${event.userId}` : '/admin/clientes';
+  if (type.startsWith('PROMOCION') || type.startsWith('ACCESO_') || type === 'VENCIMIENTO_MODIFICADO' || type === 'AUTORIZACION_RECHAZADA') return '/admin/control-accesos';
+  if (event.category === 'SUSCRIPCION') return '/admin/suscriptores';
+  return '/admin';
+}
+
+// Aviso en la campana de cada administrador activo (además del correo): título del evento y su detalle.
+async function notifyAdminsInApp(event) {
+  const admins = await prisma.user.findMany({ where: { role: 'ADMIN', isActive: true }, select: { id: true } });
+  const message = [event.userName, event.product, event.status, event.result].filter(Boolean).join(' · ');
+  await Promise.all(admins.map((a) => notifyUser(a.id, { type: 'ADMIN_EVENTO', title: EVENT_LABELS[event.type] || event.type, message, link: adminLinkFor(event) })));
+}
+
 async function notify(event) {
+  if (!EVENT_LABELS[event.type]) return;
+  await notifyAdminsInApp(event).catch((err) => console.error('[qlc] aviso en panel al administrador', err.message));
   const settings = await notificationSettings();
-  if (!EVENT_LABELS[event.type] || settings.disabled?.includes(event.type)) return;
+  if (settings.disabled?.includes(event.type)) return;
   const to = await recipients();
   await Promise.all(to.map(([address, lang]) => sendEmail('adminEvent', address, eventView(event), { lang })));
 }

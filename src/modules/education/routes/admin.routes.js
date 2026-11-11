@@ -1,5 +1,6 @@
 import { bitgetSettingsView, saveBitgetSettings, WALLET_NETWORKS } from '../services/payments/bitgetSettings.service.js';
 import { saveStpSettings, stpSettingsView } from '../services/payments/stpSettings.service.js';
+import * as appointmentChat from '../services/appointmentChat.service.js';
 import * as bitget from '../services/payments/bitgetReport.service.js';
 import { paymentSettingsView, savePaymentSettings, testMercadoPagoConnection } from '../services/payments/paymentSettings.service.js';
 import { COUNTRY_CODES } from '../shared/countries.js';
@@ -11,7 +12,7 @@ import { ah } from '../utils/asyncHandler.js';
 import { notFound } from '../utils/httpError.js';
 import { validate } from '../middlewares/validate.js';
 import { requireAdminLevel } from '../middlewares/auth.js';
-import { moduleFileUpload } from '../middlewares/upload.js';
+import { evidenceUpload, moduleFileUpload } from '../middlewares/upload.js';
 import {
   adminLevelSchema, adminPasswordSchema, adminUserSchema, appointmentAdminSchema, createAdminSchema, mediaUpdateSchema,
   authorizePromoSchema, expirySchema, giftSettingsSchema, manualGrantSchema, masterChangeSchema, masterSetupSchema, promotionSchema, revokeSchema,
@@ -33,7 +34,7 @@ import { adminMessages, adminSend, stopShareByAdmin } from '../services/dataShar
 import { EVENT_GROUPS, listEvents, actorOf, recordEvent } from '../services/adminEvent.service.js';
 import { CLIENT_EMAIL_GROUPS, mailSettingsView, recordMailTest, saveMailSettings } from '../services/mailSettings.service.js';
 import { resetEmailReady, sendClientEmail } from '../services/email.service.js';
-import { adminQuestions, answerQuestion, releaseCredits } from '../services/credit.service.js';
+import { adminQuestions, answerQuestion, releaseCredits, streamQuestionFile } from '../services/credit.service.js';
 import { masterclassSettings, saveMasterclassSettings } from '../services/masterclass.service.js';
 import { listSubscribers, retentionSettings, saveRetentionSettings } from '../services/subscriber.service.js';
 import * as promotions from '../services/promotion.service.js';
@@ -69,7 +70,8 @@ r.get('/gifts', ah(async (req, res) => res.json(await gifts.listGifts({ status: 
 r.get('/retention', ah(async (_req, res) => res.json(await retentionSettings())));
 r.put('/retention', FULL, validate(z.object({ enabled: z.boolean() })), ah(async (req, res) => res.json(await saveRetentionSettings(req.body))));
 r.get('/questions', ah(async (req, res) => res.json(await adminQuestions({ status: req.query.status }))));
-r.patch('/questions/:id', EDIT, ah(async (req, res) => res.json(await answerQuestion(req.user, req.params.id, req.body?.answer))));
+r.patch('/questions/:id', EDIT, evidenceUpload, ah(async (req, res) => res.json(await answerQuestion(req.user, req.params.id, req.body?.answer, req.files))));
+r.get('/question-files/:id', ah(async (req, res) => streamQuestionFile(req.user, req.params.id, req.headers.range, res)));
 r.get('/masterclass/settings', ah(async (_req, res) => res.json(await masterclassSettings())));
 r.put('/masterclass/settings', FULL, validate(z.object({ includedWithFull: z.boolean() })), ah(async (req, res) => res.json(await saveMasterclassSettings(req.body))));
 r.get('/gifts/settings', ah(async (_req, res) => res.json(await gifts.giftSettings())));
@@ -100,6 +102,10 @@ r.post('/clients/:id/reset-2fa', FULL, ah(async (req, res) => {
   res.json({ ok: true });
 }));
 
+r.get('/appointments/upcoming', ah(async (req, res) => res.json(await appointmentChat.upcomingAppointments(req.user))));
+r.get('/appointments/:id/chat', ah(async (req, res) => res.json(await appointmentChat.adminChat(req.params.id))));
+r.post('/appointments/:id/chat', evidenceUpload, ah(async (req, res) => res.status(201).json(await appointmentChat.adminSend(req.user, req.params.id, req.body?.body, req.files))));
+r.get('/appointment-files/:id', ah(async (req, res) => appointmentChat.streamChatFile(req.user, req.params.id, req.headers.range, res)));
 r.get('/appointments', ah(async (req, res) => {
   const status = appointmentStatus.parse(req.query.status || undefined);
   res.json(await prisma.appointment.findMany({

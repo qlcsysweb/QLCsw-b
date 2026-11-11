@@ -2,6 +2,7 @@ import { prisma } from '../config/prisma.js';
 import { HttpError, badRequest, notFound } from '../utils/httpError.js';
 import { actorOf, recordEvent } from './adminEvent.service.js';
 import { sendClientEmail } from './email.service.js';
+import { prepareFiles, streamStoredFile, uploadFiles } from './appointmentChat.service.js';
 
 export const SESSION_MINUTES = 20;
 export const CREDIT_KINDS = ['CONSULTA', 'ORIENTACION'];
@@ -44,18 +45,34 @@ const questionView = (q) => ({
   answer: q.answer,
   answeredAt: q.answeredAt,
   createdAt: q.createdAt,
+  files: (q.files || []).map((f) => ({ id: f.id, name: f.name, mimeType: f.mimeType, size: f.size, by: f.uploadedByRole })),
   user: q.user ? { id: q.user.id, name: q.user.name, email: q.user.email } : undefined,
 });
 
+const QUESTION_SECTION = 'Consultas';
+const FILES = { files: { orderBy: { createdAt: 'asc' } } };
+
+async function attachFiles(question, owner, role, prepared) {
+  const uploaded = await uploadFiles(owner, QUESTION_SECTION, `Consulta_M${question.moduleNumber}`, prepared);
+  if (uploaded.length) await prisma.moduleQuestionFile.createMany({ data: uploaded.map((u) => ({ ...u, questionId: question.id, uploadedByRole: role })) });
+}
+
+export async function streamQuestionFile(user, fileId, range, res) {
+  const file = await prisma.moduleQuestionFile.findUnique({ where: { id: fileId }, include: { question: { select: { userId: true } } } });
+  if (!file || (user.role !== 'ADMIN' && file.question.userId !== user.id)) throw notFound('Archivo no encontrado');
+  await streamStoredFile(file.driveFileId, file.name, range, res);
+}
+
 export async function listQuestions(userId, moduleNumber) {
-  const rows = await prisma.moduleQuestion.findMany({ where: { userId, moduleNumber }, orderBy: { createdAt: 'desc' } });
+  const rows = await prisma.moduleQuestion.findMany({ where: { userId, moduleNumber }, include: FILES, orderBy: { createdAt: 'desc' } });
   return { items: rows.map(questionView), credits: await creditBalance(userId) };
 }
 
-export async function askQuestion(req, moduleNumber, text) {
+export async function askQuestion(req, moduleNumber, text, files = []) {
   const question = String(text || '').trim();
   if (question.length < 5) throw badRequest('Escribe tu consulta');
   if (question.length > 3000) throw badRequest('La consulta es demasiado larga');
+  const prepared = prepareFiles(files);
   const userId = req.subjectId;
   const created = await prisma.$transaction(async (tx) => {
     const row = await tx.moduleQuestion.create({ data: { userId, moduleNumber, question } });
@@ -66,14 +83,15 @@ export async function askQuestion(req, moduleNumber, text) {
     return row;
   });
   const user = await prisma.user.findUnique({ where: { id: userId } });
-  recordEvent({ category: 'PLATAFORMA', type: 'NUEVA_CONSULTA', actor: actorOf(user), user, status: `Módulo ${moduleNumber}`, result: question.slice(0, 300) }).catch(() => null);
-  return questionView(created);
+  await attachFiles(created, user, req.asAdmin ? 'ADMIN' : 'CLIENT', prepared);
+  recordEvent({ category: 'PLATAFORMA', type: 'NUEVA_CONSULTA', actor: actorOf(user), user, status: `Módulo ${moduleNumber}`, result: `${question.slice(0, 300)}${prepared.length ? ` · ${prepared.length} archivo(s)` : ''}` }).catch(() => null);
+  return questionView(await prisma.moduleQuestion.findUnique({ where: { id: created.id }, include: FILES }));
 }
 
 export async function adminQuestions({ status } = {}) {
   const rows = await prisma.moduleQuestion.findMany({
     where: status === 'PENDING' ? { answeredAt: null } : status === 'ANSWERED' ? { answeredAt: { not: null } } : {},
-    include: { user: true },
+    include: { user: true, ...FILES },
     orderBy: { createdAt: 'desc' },
     take: 300,
   });
@@ -81,12 +99,14 @@ export async function adminQuestions({ status } = {}) {
   return { items: rows.map(questionView), pending };
 }
 
-export async function answerQuestion(admin, id, text) {
+export async function answerQuestion(admin, id, text, files = []) {
   const answer = String(text || '').trim();
   if (!answer) throw badRequest('Escribe la respuesta');
-  const row = await prisma.moduleQuestion.findUnique({ where: { id } });
+  const prepared = prepareFiles(files);
+  const row = await prisma.moduleQuestion.findUnique({ where: { id }, include: { user: true } });
   if (!row) throw notFound('Consulta no encontrada');
-  const updated = await prisma.moduleQuestion.update({ where: { id }, data: { answer, answeredAt: new Date(), answeredById: admin.id }, include: { user: true } });
+  await attachFiles(row, row.user, 'ADMIN', prepared);
+  const updated = await prisma.moduleQuestion.update({ where: { id }, data: { answer, answeredAt: new Date(), answeredById: admin.id }, include: { user: true, ...FILES } });
   sendClientEmail('CONSULTA_RESPONDIDA', 'questionAnswered', updated.user.email, { name: updated.user.name, moduleNumber: updated.moduleNumber }).catch(() => null);
   return questionView(updated);
 }

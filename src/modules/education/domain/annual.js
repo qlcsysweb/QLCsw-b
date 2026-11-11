@@ -52,13 +52,14 @@ export function buildAnnualReport(year, snapshots) {
       catMap.set(c.code, prev);
     }
   }
+  // Liquidez: igual que "Evolución de liquidez" (portafolio + la registrada en protección). Su capital
+  // al cierre es la liquidez total y su resultado acumulado es lo que se agregó desde el inicio del año.
+  const liquidityEnd = liquidityTotal(last);
+  const liquidityAdded = round2(liquidityEnd - Number(first.portfolio.categories.find((x) => x.code === 'LIQUIDEZ')?.initial || 0));
   const categories = [...catMap.values()].map((c) => {
     const lastCat = last.portfolio.categories.find((x) => x.code === c.code);
-    const finalCapital = lastCat?.final ?? 0;
-    // La liquidez no genera rendimiento: su resultado acumulado es la liquidez que se fue agregando
-    // (el capital de liquidez al cierre), para que la fila no quede en $0.00.
-    const result = c.code === 'LIQUIDEZ' ? round2(finalCapital) : c.result;
-    return { ...c, result, finalCapital, share: lastCat?.share ?? 0 };
+    if (c.code === 'LIQUIDEZ') return { ...c, result: liquidityAdded, finalCapital: liquidityEnd, share: lastCat?.share ?? 0 };
+    return { ...c, finalCapital: lastCat?.final ?? 0, share: lastCat?.share ?? 0 };
   });
 
   const prodMap = new Map();
@@ -96,7 +97,7 @@ export function buildAnnualReport(year, snapshots) {
     })(),
     categories,
     products,
-    distribution: last.portfolio.categories.map((c) => ({ code: c.code, name: c.name, final: c.final, share: c.share })),
+    distribution: last.portfolio.categories.map((c) => ({ code: c.code, name: c.name, final: c.code === 'LIQUIDEZ' ? liquidityEnd : c.final, share: c.share })),
     monthly,
   };
   report.observations = buildObservations(report);
