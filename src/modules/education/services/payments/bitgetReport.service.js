@@ -15,7 +15,7 @@ const ORDER_PATTERN = /^[A-Za-z0-9-]{4,128}$/;
 const DRIVE_SECTION = 'Pagos';
 // Proveedores que se pagan por transferencia y se confirman con comprobante (revisión manual).
 export const MANUAL_PROVIDERS = ['BITGET', 'STP', 'OXXO_DEPOSITO'];
-const METHOD_LABEL = { BITGET: 'Bitget', STP: 'STP', OXXO_DEPOSITO: 'OXXO' };
+const METHOD_LABEL = { BITGET: 'cripto (USDT)', STP: 'transferencia STP', OXXO_DEPOSITO: 'depósito en OXXO' };
 const MXN_MANUAL = ['STP', 'OXXO_DEPOSITO'];
 const STP_REFERENCE = /^[A-Za-z0-9-]{0,40}$/;
 
@@ -158,7 +158,7 @@ export async function submitReport(user, attemptId, body, files) {
   await prisma.bitgetEvidence.createMany({ data: uploaded.map((u) => ({ ...u, reportId: report.id })) });
   const method = METHOD_LABEL[attempt.provider];
   await recordEvent({
-    category: 'SUSCRIPCION', type: 'BITGET_REPORTADA', actor: actorOf(user), user, offer: attempt.offer, status: `Transferencia ${method} · pendiente de revisión`,
+    category: 'SUSCRIPCION', type: 'BITGET_REPORTADA', actor: actorOf(user), user, offer: attempt.offer, status: `Pago por ${method} · pendiente de revisión`,
     amount: attempt.amount, result: `${MXN_MANUAL.includes(attempt.provider) ? 'Referencia' : 'N.º de orden'} ${fields.orderNumber} · ${num(attempt.chargedAmount)} ${attempt.chargedCurrency}`,
   });
   sendClientEmail('COMPROBANTE_RECIBIDO', 'transferReported', user.email, { name: user.name, product: attempt.offer.name, hours: STP_REVIEW_HOURS }).catch(() => null);
@@ -232,9 +232,15 @@ export async function hideReport(actor, reportId) {
   return { ok: true };
 }
 
-export async function adminReports({ status } = {}) {
+// Día en hora de Ciudad de México (UTC-6), igual que la lista de intentos de pago.
+const dayRange = (day) => {
+  const start = new Date(`${day}T06:00:00.000Z`);
+  return Number.isNaN(start.getTime()) ? null : { gte: start, lt: new Date(start.getTime() + 86400000) };
+};
+
+export async function adminReports({ status, day } = {}) {
   const rows = await prisma.bitgetReport.findMany({
-    where: { hiddenForAdmin: false, ...(status ? { status } : {}) },
+    where: { hiddenForAdmin: false, ...(status ? { status } : {}), ...(day && dayRange(day) ? { createdAt: dayRange(day) } : {}) },
     include: { ...INCLUDE, user: { select: { id: true, name: true, email: true } } },
     orderBy: { createdAt: 'desc' },
     take: 300,

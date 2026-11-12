@@ -206,7 +206,7 @@ r.put('/stp-settings', FULL, validate(stpSettingsSchema), ah(async (req, res) =>
   res.json(view);
 }));
 const reportStatus = z.enum(['PENDING', 'REVIEW', 'CONFIRMED', 'REJECTED']).optional();
-r.get('/bitget-reports', ah(async (req, res) => res.json(await bitget.adminReports({ status: reportStatus.parse(req.query.status || undefined) }))));
+r.get('/bitget-reports', ah(async (req, res) => res.json(await bitget.adminReports({ status: reportStatus.parse(req.query.status || undefined), day: /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.day || '')) ? req.query.day : undefined }))));
 r.post('/bitget-reports/:id/received', EDIT, ah(async (req, res) => res.json(await bitget.markReceived(req.user, req.params.id))));
 r.post('/bitget-reports/:id/confirm', FULL, ah(async (req, res) => res.json(await bitget.confirmReport(req.user, req.params.id))));
 r.post('/bitget-reports/:id/reject', EDIT, validate(z.object({ reason: z.string().trim().max(500).optional() })), ah(async (req, res) => res.json(await bitget.rejectReport(req.user, req.params.id, req.body.reason))));
