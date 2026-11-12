@@ -87,8 +87,15 @@ async function ownAppointment(userId, id) {
   return appt;
 }
 
+// Si la migración del chat no está aplicada en la base, se explica en vez de fallar sin mensaje.
+const missingTable = (err) => err?.code === 'P2021' || err?.code === 'P2022';
+const CHAT_PENDING = 'El chat de citas todavía no está disponible: falta aplicar la actualización de la base de datos.';
+
 async function chatPayload(appt) {
-  const messages = await prisma.appointmentMessage.findMany({ where: { appointmentId: appt.id }, orderBy: { createdAt: 'asc' }, take: 500 });
+  const messages = await prisma.appointmentMessage.findMany({ where: { appointmentId: appt.id }, orderBy: { createdAt: 'asc' }, take: 500 }).catch((err) => {
+    if (missingTable(err)) throw new HttpError(503, CHAT_PENDING);
+    throw err;
+  });
   return { appointment: apptView(appt), chat: chatWindow(appt), messages: messages.map(messageView) };
 }
 

@@ -23,7 +23,7 @@ import * as media from '../services/moduleMedia.service.js';
 import * as google from '../services/google/oauth.js';
 import { driveSettingsView, testDriveConnection } from '../services/google/driveSettings.service.js';
 import { listOffers } from '../services/access.service.js';
-import { listAllAttempts } from '../services/payments/payment.service.js';
+import { deleteAttempt, listAllAttempts } from '../services/payments/payment.service.js';
 import { platformMetrics } from '../services/analytics.service.js';
 import { sendEmail } from '../services/email.service.js';
 import { resetTwoFactor } from '../services/auth.service.js';
@@ -132,7 +132,8 @@ r.patch('/appointments/:id', EDIT, validate(appointmentAdminSchema), ah(async (r
 
 r.get('/pricing', ah(async (_req, res) => res.json(await listOffers({ includeInactive: true }))));
 r.put('/pricing/:code', FULL, validate(offerUpdateSchema), ah(async (req, res) => res.json(await admin.updateOffer(req.params.code, req.body))));
-r.get('/payments', ah(async (req, res) => res.json(await listAllAttempts({ status: attemptStatus.parse(req.query.status || undefined) }))));
+r.get('/payments', ah(async (req, res) => res.json(await listAllAttempts({ status: attemptStatus.parse(req.query.status || undefined), day: /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.day || '')) ? req.query.day : undefined }))));
+r.delete('/payments/:id', FULL, ah(async (req, res) => res.json(await deleteAttempt(req.params.id))));
 
 
 r.get('/module-media', ah(async (req, res) => res.json(await media.listModuleMedia(req.query.module ? moduleParam.parse(req.query.module) : undefined))));

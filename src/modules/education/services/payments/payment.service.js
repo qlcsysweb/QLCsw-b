@@ -273,9 +273,26 @@ export async function syncAttempt(user, attemptId, { search = (id) => mercadoPag
 export const listMyAttempts = async (userId) =>
   (await prisma.paymentAttempt.findMany({ where: { userId }, include: { offer: true }, orderBy: { createdAt: 'desc' }, take: 50 })).map(attemptView);
 
-export const listAllAttempts = async ({ status } = {}) =>
+// Día en hora de Ciudad de México (UTC-6): de las 06:00 UTC de ese día a las 06:00 UTC del siguiente.
+const CDMX_OFFSET_H = 6;
+const dayRange = (day) => {
+  const start = new Date(`${day}T${String(CDMX_OFFSET_H).padStart(2, '0')}:00:00.000Z`);
+  return Number.isNaN(start.getTime()) ? null : { gte: start, lt: new Date(start.getTime() + 86400000) };
+};
+
+// Borra a mano un intento de pago que no activó nada (pendiente o rechazado). Los aprobados se conservan.
+export async function deleteAttempt(id) {
+  const attempt = await prisma.paymentAttempt.findUnique({ where: { id }, include: { grant: true, bitgetReport: true } });
+  if (!attempt) throw notFound('Intento de pago no encontrado');
+  if (attempt.status === 'APPROVED' || attempt.grant) throw conflict('Un pago aprobado no se puede eliminar: ya activó un acceso.');
+  if (attempt.bitgetReport && ['REVIEW', 'CONFIRMED'].includes(attempt.bitgetReport.status)) throw conflict('Este pago tiene un comprobante en revisión. Resuélvelo primero en Pagos reportados.');
+  await prisma.paymentAttempt.delete({ where: { id } });
+  return { ok: true };
+}
+
+export const listAllAttempts = async ({ status, day } = {}) =>
   (await prisma.paymentAttempt.findMany({
-    where: status ? { status } : {},
+    where: { ...(status ? { status } : {}), ...(day && dayRange(day) ? { createdAt: dayRange(day) } : {}) },
     include: { offer: true, user: { select: { id: true, name: true, email: true } } },
     orderBy: { createdAt: 'desc' },
     take: 200,

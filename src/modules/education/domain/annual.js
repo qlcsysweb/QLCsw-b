@@ -71,6 +71,18 @@ export function buildAnnualReport(year, snapshots) {
       prodMap.set(p.assetId, prev);
     }
   }
+  // Liquidez: la registrada en protección no es un producto; se suma al principal producto de liquidez
+  // para que "Resultados por inversión" cuadre con la fila Liquidez (capital y resultado acumulado).
+  const liquidityProducts = [...prodMap.values()].filter((p) => last.portfolio.products.find((x) => x.assetId === p.assetId)?.categoryCode === 'LIQUIDEZ'
+    || first.portfolio.products.find((x) => x.assetId === p.assetId)?.categoryCode === 'LIQUIDEZ');
+  if (liquidityProducts.length) {
+    const initialOf = (assetId) => Number(first.portfolio.products.find((x) => x.assetId === assetId)?.initial || 0);
+    for (const p of liquidityProducts) p.result = round2((p.finalCapital || 0) - initialOf(p.assetId));
+    const main = [...liquidityProducts].sort((a, b) => (b.finalCapital || 0) - (a.finalCapital || 0))[0];
+    const assigned = liquidityProducts.reduce((acc, p) => acc + p.result, 0);
+    main.result = round2(main.result + liquidityAdded - assigned);
+    main.finalCapital = round2((main.finalCapital || 0) + Number(last.protection?.total || 0));
+  }
   const products = [...prodMap.values()].sort((a, b) => b.result - a.result);
 
   const report = {
