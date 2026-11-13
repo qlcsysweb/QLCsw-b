@@ -267,7 +267,8 @@ export const offerUpdateSchema = z.object({
   price: z.coerce.number().min(0).max(1e9).nullable(),
   currency: z.string().trim().toUpperCase().length(3),
   accessDays: z.coerce.number().int().min(1).max(3650).nullable().optional(),
-  billingCycle: z.enum(['MONTHLY', 'YEARLY']).nullable().optional(),
+  // Vacío = sin cobro recurrente (productos que no se renuevan solos).
+  billingCycle: z.preprocess((v) => (v === '' ? null : v), z.enum(['MONTHLY', 'YEARLY']).nullable().optional()),
   active: z.boolean(),
   giftable: z.boolean().optional(),
 });
