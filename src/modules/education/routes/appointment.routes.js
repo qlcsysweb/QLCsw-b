@@ -40,6 +40,15 @@ r.post('/:id/cancel', ah(async (req, res) => {
   res.json(updated);
 }));
 
+// Borra de la lista una cita ya cancelada o terminada (las pendientes o confirmadas se cancelan primero).
+r.delete('/:id', ah(async (req, res) => {
+  const appt = await prisma.appointment.findFirst({ where: { id: req.params.id, userId: req.subjectId } });
+  if (!appt) throw notFound('Cita no encontrada');
+  if (!['CANCELLED', 'COMPLETED'].includes(appt.status)) throw conflict('Primero cancela la cita para poder borrarla.');
+  await prisma.appointment.delete({ where: { id: appt.id } });
+  res.json({ ok: true });
+}));
+
 // Chat interno de la cita (se abre al confirmarse; no depende de compartir datos).
 r.get('/chat-files/:id', ah(async (req, res) => chat.streamChatFile(req.user, req.params.id, req.headers.range, res)));
 r.get('/:id/chat', ah(async (req, res) => res.json(await chat.clientChat(req.subjectId, req.params.id))));
