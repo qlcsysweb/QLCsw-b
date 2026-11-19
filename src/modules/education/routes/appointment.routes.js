@@ -5,7 +5,7 @@ import { prisma } from '../config/prisma.js';
 import { ah } from '../utils/asyncHandler.js';
 import { conflict, notFound } from '../utils/httpError.js';
 import { validate } from '../middlewares/validate.js';
-import { appointmentSchema } from '../validations/schemas.js';
+import { appointmentSchema, rescheduleSchema } from '../validations/schemas.js';
 import { evidenceUpload } from '../middlewares/upload.js';
 import * as chat from '../services/appointmentChat.service.js';
 
@@ -37,6 +37,18 @@ r.post('/:id/cancel', ah(async (req, res) => {
   });
   const client = await prisma.user.findUnique({ where: { id: req.subjectId } });
   recordEvent({ category: 'PLATAFORMA', type: 'CITA_CANCELADA', actor: actorOf(req.user), user: client, status: 'Cancelada', result: `${new Date(appt.scheduledAt).toISOString().replace('T', ' ').slice(0, 16)} UTC` }).catch(() => null);
+  res.json(updated);
+}));
+
+// Reagendar una cita que no se tomó (o que se quiere mover): nueva fecha y hora con las mismas sesiones,
+// sin gastar otra. Vuelve a quedar pendiente hasta que el equipo de QLC la confirme.
+r.post('/:id/reschedule', validate(rescheduleSchema), ah(async (req, res) => {
+  const appt = await prisma.appointment.findFirst({ where: { id: req.params.id, userId: req.subjectId } });
+  if (!appt) throw notFound('Cita no encontrada');
+  if (!['PENDING', 'CONFIRMED'].includes(appt.status)) throw conflict('Solo se reagenda una cita pendiente o confirmada.');
+  const updated = await prisma.appointment.update({ where: { id: appt.id }, data: { scheduledAt: req.body.scheduledAt, status: 'PENDING' } });
+  const client = await prisma.user.findUnique({ where: { id: req.subjectId } });
+  recordEvent({ category: 'PLATAFORMA', type: 'NUEVA_CITA', actor: actorOf(req.user), user: client, status: `Cita reagendada · ${appt.reason || ''}`, result: `${new Date(appt.scheduledAt).toISOString().replace('T', ' ').slice(0, 16)} → ${new Date(updated.scheduledAt).toISOString().replace('T', ' ').slice(0, 16)} UTC · ${updated.durationMin} min` }).catch(() => null);
   res.json(updated);
 }));
 

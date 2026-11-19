@@ -183,6 +183,10 @@ export const appointmentSchema = z.object({
   notes: optText(),
 });
 
+export const rescheduleSchema = z.object({
+  scheduledAt: z.coerce.date().refine((d) => d.getTime() > Date.now(), 'La fecha debe ser futura'),
+});
+
 export const appointmentAdminSchema = z.object({
   status: z.enum(['PENDING', 'CONFIRMED', 'COMPLETED', 'CANCELLED']).optional(),
   scheduledAt: z.coerce.date().optional(),
