@@ -62,7 +62,7 @@ async function sendProspectWelcomeEmail(prospect, language, kind = 'info') {
   const copies = kind === 'codeRequest' ? CODE_REQUEST_COPY : COPY;
   const copy = copies[language] || copies.es;
 
-  await sendMailUnified(creds, { to: prospect.email, subject: copy.subject, text: copy.body(prospect.firstName) });
+  await sendMailUnified(creds, { to: prospect.email, subject: copy.subject, text: copy.body(prospect.firstName), audience: 'CLIENT' });
   return { sent: true };
 }
 
@@ -94,7 +94,7 @@ const NOTIFICATION_COPY = {
 };
 const copyFor = (language) => NOTIFICATION_COPY[language] || NOTIFICATION_COPY.es;
 
-async function sendNotificationEmail(user, { title, message, attachments }) {
+async function sendNotificationEmail(user, { title, message, attachments, audience = 'CLIENT' }) {
   if (!user?.email) return { sent: false, reason: 'El usuario no tiene correo registrado' };
   const creds = await resolveCredentials();
   if (!creds) return { sent: false, reason: 'Credenciales de Gmail no configuradas' };
@@ -104,6 +104,7 @@ async function sendNotificationEmail(user, { title, message, attachments }) {
     subject: `QLC — ${title}`,
     text: `${message}\n\n— Quantum Liquidity Capital (QLC)\n${copyFor(user.language).footer}`,
     attachments,
+    audience,
   });
   return { sent: true };
 }
@@ -112,7 +113,7 @@ async function sendNotificationEmail(user, { title, message, attachments }) {
 // asunto ni el contenido real del mensaje (podría ser información sensible
 // redactada por la otra persona): es solo un aviso genérico que empuja al
 // destinatario a entrar a su panel de QLC para leer y responder ahí.
-async function sendManualMessageEmail(user) {
+async function sendManualMessageEmail(user, audience = 'CLIENT') {
   if (!user?.email) return { sent: false, reason: 'El usuario no tiene correo registrado' };
   const creds = await resolveCredentials();
   if (!creds) return { sent: false, reason: 'Credenciales de Gmail no configuradas' };
@@ -121,6 +122,7 @@ async function sendManualMessageEmail(user) {
     to: user.email,
     subject: copyFor(user.language).manualSubject,
     text: `${copyFor(user.language).manualBody}\n\n— Quantum Liquidity Capital (QLC)`,
+    audience,
   });
   return { sent: true };
 }

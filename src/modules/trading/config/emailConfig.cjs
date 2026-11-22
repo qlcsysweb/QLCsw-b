@@ -260,11 +260,23 @@ async function buildRawMimeWithAttachments({ from, to, subject, text, html, atta
   return message.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-async function sendViaGmailApi(creds, { to, subject, text, html, attachments }) {
+// REMITENTE PARA CLIENTES — los correos a clientes salen de investment@qlctrade.net. Esa dirección se
+// agrega en la cuenta de Gmail conectada como "Enviar como" (Gmail la entrega con el SMTP de IONOS desde
+// los servidores de Google, así que funciona aunque Render bloquee SMTP). Los avisos a administradores
+// siguen saliendo de la cuenta de Gmail conectada. Si el alias aún no está verificado, Gmail usa la cuenta.
+const CLIENT_FROM_ADDRESS = (process.env.CLIENT_MAIL_FROM || 'investment@qlctrade.net').trim();
+const CLIENT_FROM_NAME = (process.env.CLIENT_MAIL_FROM_NAME || 'QLC Investment').trim();
+
+function fromHeader(creds, audience) {
+  if (audience === 'CLIENT' && CLIENT_FROM_ADDRESS) return `"${CLIENT_FROM_NAME}" <${CLIENT_FROM_ADDRESS}>`;
+  return `"${creds.senderName}" <${creds.user}>`;
+}
+
+async function sendViaGmailApi(creds, { to, subject, text, html, attachments, audience }) {
   const client = createOAuth2Client(creds.clientId, creds.clientSecret);
   client.setCredentials({ refresh_token: creds.refreshToken });
   const gmail = google.gmail({ version: 'v1', auth: client });
-  const from = `"${creds.senderName}" <${creds.user}>`;
+  const from = fromHeader(creds, audience);
   // Con HTML (p. ej. logo incrustado) o adjuntos, el MIME lo arma MailComposer.
   const raw = attachments?.length || html
     ? await buildRawMimeWithAttachments({ from, to, subject, text, html, attachments: attachments || [] })
@@ -279,12 +291,13 @@ async function sendViaGmailApi(creds, { to, subject, text, html, attachments }) 
 // sin importar cuál de los dos métodos (SMTP u OAuth2) esté activo.
 // `attachments` (opcional): formato de nodemailer [{ filename, content, contentType, cid }].
 // `html` (opcional): versión HTML del mensaje; `text` siempre se envía como respaldo.
-async function sendMailUnified(creds, { to, subject, text, html, attachments }) {
+// `audience`: 'CLIENT' (sale de investment@qlctrade.net) o 'ADMIN' (de la cuenta conectada). Por defecto, cliente.
+async function sendMailUnified(creds, { to, subject, text, html, attachments, audience = 'CLIENT' }) {
   if (creds.method === 'oauth2') {
-    return sendViaGmailApi(creds, { to, subject, text, html, attachments });
+    return sendViaGmailApi(creds, { to, subject, text, html, attachments, audience });
   }
   const transport = createGmailTransport(creds);
-  const from = `"${creds.senderName}" <${creds.user}>`;
+  const from = fromHeader(creds, audience);
   return transport.sendMail({ from, to, subject, text, ...(html ? { html } : {}), ...(attachments?.length ? { attachments } : {}) });
 }
 
@@ -311,4 +324,5 @@ module.exports = {
   getAuthorizedEmail,
   verifyCredentials,
   sendMailUnified,
+  CLIENT_FROM_ADDRESS,
 };

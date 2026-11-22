@@ -25,7 +25,7 @@ import { driveSettingsView, testDriveConnection } from '../services/google/drive
 import { listOffers } from '../services/access.service.js';
 import { deleteAttempt, listAllAttempts } from '../services/payments/payment.service.js';
 import { platformMetrics } from '../services/analytics.service.js';
-import { sendEmail } from '../services/email.service.js';
+import { CLIENT_FROM_ADDRESS, sendEmail } from '../services/email.service.js';
 import { resetTwoFactor } from '../services/auth.service.js';
 import * as leads from '../services/lead.service.js';
 import { getLoginNotice, saveLoginNotice } from '../services/loginNotice.service.js';
@@ -238,10 +238,12 @@ r.delete('/integrations/:service', FULL, ah(async (req, res) => {
 r.post('/integrations/gmail/test', FULL, ah(async (req, res) => {
   const to = z.string().trim().toLowerCase().email('Correo no válido').optional().parse(req.body?.to || undefined) || req.user.email;
   const lang = z.enum(['es', 'en', 'pt']).optional().parse(req.body?.language || undefined);
-  const result = await sendEmail('test', to, { name: req.user.name }, { lang });
-  await recordMailTest(result);
+  // asClient: prueba el remitente de clientes (investment@qlctrade.net) en vez del de administradores.
+  const asClient = req.body?.asClient === true;
+  const result = await sendEmail('test', to, { name: req.user.name }, { lang, audience: asClient ? 'CLIENT' : 'ADMIN' });
+  if (!asClient) await recordMailTest(result);
   resetEmailReady();
-  res.json({ ...result, to, language: lang || null });
+  res.json({ ...result, to, language: lang || null, from: asClient ? CLIENT_FROM_ADDRESS : null });
 }));
 
 r.get('/admins', FULL, ah(async (_req, res) => res.json(await admin.listAdmins())));

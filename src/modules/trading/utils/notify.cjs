@@ -22,12 +22,13 @@ const { renderNotificationText } = require('./notificationI18n.cjs');
 // IDIOMA — cada destinatario recibe el correo en el idioma que eligió en QLC
 // (`language` = User.preferredLanguage; sin preferencia → español). La
 // notificación interna no cambia: el panel ya la muestra en el idioma activo.
-async function dispatchEmail(notification, email, attachments, language) {
+// `audience`: 'CLIENT' → remitente investment@qlctrade.net; 'ADMIN' → cuenta de Gmail conectada.
+async function dispatchEmail(notification, email, attachments, language, audience = 'CLIENT') {
   try {
     const result =
       notification.kind === 'MANUAL'
-        ? await sendManualMessageEmail({ email, language })
-        : await sendNotificationEmail({ email, language }, { ...renderNotificationText(notification, language), attachments });
+        ? await sendManualMessageEmail({ email, language }, audience)
+        : await sendNotificationEmail({ email, language }, { ...renderNotificationText(notification, language), attachments, audience });
     return await prisma.notification.update({
       where: { id: notification.id },
       data: result.sent
@@ -71,7 +72,7 @@ async function notifyClient(
     data: { userId: client.userId, title, message, type, templateKey, templateParams },
   });
   if (!skipEmail && client.user?.isActive && client.user.email) {
-    return dispatchEmail(notification, client.user.email, attachments, client.user.preferredLanguage);
+    return dispatchEmail(notification, client.user.email, attachments, client.user.preferredLanguage, 'CLIENT');
   }
   return notification;
 }
@@ -114,7 +115,7 @@ async function notifyAdmins({
     )
   );
   if (!skipEmail) {
-    await Promise.all(notifications.map((n, i) => dispatchEmail(n, admins[i].email, undefined, admins[i].preferredLanguage)));
+    await Promise.all(notifications.map((n, i) => dispatchEmail(n, admins[i].email, undefined, admins[i].preferredLanguage, 'ADMIN')));
   }
   return notifications;
 }
@@ -123,7 +124,7 @@ async function notifyAdmins({
 // admin→ClientProfile "genérica" (ej. mensajería manual de un caso, con
 // kind/senderUserId propios) — mismo mecanismo de correo, sin duplicar lógica.
 async function notifyUser(userId, { title, message, type = 'info', templateKey = null, templateParams = null, kind, senderUserId, skipEmail = false }) {
-  const user = await prisma.user.findUnique({ where: { id: userId }, select: { email: true, isActive: true, preferredLanguage: true } });
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { email: true, isActive: true, preferredLanguage: true, role: true } });
   const notification = await prisma.notification.create({
     data: {
       userId,
@@ -137,7 +138,7 @@ async function notifyUser(userId, { title, message, type = 'info', templateKey =
     },
   });
   if (!skipEmail && user?.isActive && user.email) {
-    return dispatchEmail(notification, user.email, undefined, user.preferredLanguage);
+    return dispatchEmail(notification, user.email, undefined, user.preferredLanguage, user.role === 'ADMIN' ? 'ADMIN' : 'CLIENT');
   }
   if (!skipEmail) {
     return prisma.notification
