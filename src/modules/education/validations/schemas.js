@@ -429,4 +429,7 @@ export const loginNoticeSchema = z.object({
   }),
   bitgetUrl: optionalUrl,
   infoUrl: optionalUrl,
+  // Enlaces de YouTube del video del Trading Bot (español e inglés); vacío = sin video en ese idioma.
+  videoEsUrl: z.string().trim().max(300).optional(),
+  videoEnUrl: z.string().trim().max(300).optional(),
 });
